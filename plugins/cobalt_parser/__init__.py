@@ -14,14 +14,14 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
 
-from .config import load_config
+from .config import get_config
 from .parser import extract_social_urls, call_cobalt_api
 from .sender import send_cobalt_result
 
 logger = logging.getLogger("HikariBot.CobaltPlugin")
 
-# 加载配置
-config = load_config()
+# 触发首次加载并输出配置摘要
+get_config()
 
 
 class AutoCobaltHandler:
@@ -30,11 +30,13 @@ class AutoCobaltHandler:
     name = "CobaltParser"
 
     async def match(self, event: MessageEvent, text: str) -> bool:
-        if not config.get("auto_parse", True):
+        cfg = get_config()
+        if not cfg.get("auto_parse", True):
             return False
         return bool(extract_social_urls(text))
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
+        cfg = get_config()
         text = str(event.get_message())
         urls = extract_social_urls(text)
         if not urls:
@@ -49,19 +51,16 @@ class AutoCobaltHandler:
             f"发现 {total_found} 个链接, 处理 {len(urls_to_process)} 个"
         )
 
-        api_endpoint = config.get("cobalt_api", "http://192.168.31.2:54257/")
-        api_key = config.get("api_key", "")
-
         for i, url in enumerate(urls_to_process):
             logger.debug(f"[Cobalt] 处理第 {i+1}/{len(urls_to_process)} 个 → {url[:60]}...")
             try:
-                result = await call_cobalt_api(url, api_endpoint, api_key, config.get("api_timeout", 90))
+                result = await call_cobalt_api(url, cfg.get("cobalt_api", "http://192.168.31.2:54257/"), cfg.get("api_key", ""), cfg.get("api_timeout", 90))
 
                 if result.status == "error":
                     await bot.send(event, f"解析失败：{result.error_code}\n链接：{url}")
                     continue
 
-                await send_cobalt_result(bot, event, result, config)
+                await send_cobalt_result(bot, event, result, cfg)
                 await asyncio.sleep(1.0)
 
             except Exception as e:

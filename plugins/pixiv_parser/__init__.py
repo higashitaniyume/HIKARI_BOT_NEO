@@ -16,14 +16,14 @@ from nonebot.params import CommandArg
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
 
-from .config import load_config
+from .config import get_config
 from .parser import extract_pixiv_ids
 from .sender import send_artwork
 
 logger = logging.getLogger("HikariBot.PixivPlugin")
 
-# 加载配置
-config = load_config()
+# 触发首次加载并输出配置摘要
+get_config()
 
 
 # =========================
@@ -36,11 +36,13 @@ class AutoPixivHandler:
     name = "PixivParser"
 
     async def match(self, event: MessageEvent, text: str) -> bool:
-        if not config.get("auto_parse", True):
+        cfg = get_config()
+        if not cfg.get("auto_parse", True):
             return False
         return bool(extract_pixiv_ids(text))
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
+        cfg = get_config()
         text = str(event.get_message())
         ids = extract_pixiv_ids(text)
         if not ids:
@@ -58,7 +60,7 @@ class AutoPixivHandler:
         for i, illust_id in enumerate(ids_to_process):
             logger.debug(f"[Pixiv] 自动解析第 {i+1}/{len(ids_to_process)} 个 → pid={illust_id}")
             try:
-                await send_artwork(bot, event, illust_id, config)
+                await send_artwork(bot, event, illust_id, cfg)
                 await asyncio.sleep(1.0)
             except Exception as e:
                 logger.exception(f"[Pixiv] 自动解析失败 → pid={illust_id}: {e}")
@@ -113,7 +115,7 @@ async def handle_pixiv_cmd(bot: Bot, event: MessageEvent, args: Message = Comman
     # 只处理第一个链接
     illust_id = ids[0]
     try:
-        await send_artwork(bot, event, illust_id, config)
+        await send_artwork(bot, event, illust_id, get_config())
     except Exception as e:
         logger.exception(f"[Pixiv] 命令解析失败 → pid={illust_id}: {e}")
         await pixiv_cmd.finish(f"Pixiv 解析失败：{e}")

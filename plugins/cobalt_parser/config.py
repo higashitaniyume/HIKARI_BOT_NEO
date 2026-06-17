@@ -2,6 +2,7 @@
 Cobalt 插件配置加载模块。
 
 从 BotData/plugin_configs/cobalt_parser.json 读取配置。
+支持热重载：每次调用 get_config() 都从磁盘重新读取。
 """
 
 import logging
@@ -11,28 +12,25 @@ from core.config_loader import load_plugin_config, DEFAULT_COBALT_CONFIG
 
 logger = logging.getLogger("HikariBot.CobaltConfig")
 
-_cobalt_config: dict[str, Any] | None = None
-
-
-def load_config() -> dict[str, Any]:
-    """加载 Cobalt 插件配置。"""
-    global _cobalt_config
-    if _cobalt_config is None:
-        _cobalt_config = load_plugin_config("cobalt_parser", DEFAULT_COBALT_CONFIG)
-        _log_config_summary()
-    return _cobalt_config
+_first_load_done = False
 
 
 def get_config() -> dict[str, Any]:
-    """获取当前配置（必须已加载）。"""
-    if _cobalt_config is None:
-        return load_config()
-    return _cobalt_config
+    """
+    获取 Cobalt 插件当前配置（每次调用都从磁盘重新读取，支持热重载）。
+
+    如果配置文件不存在，自动创建默认配置。
+    """
+    global _first_load_done
+    cfg = load_plugin_config("cobalt_parser", DEFAULT_COBALT_CONFIG)
+    if not _first_load_done:
+        _first_load_done = True
+        _log_config_summary(cfg)
+    return cfg
 
 
-def _log_config_summary() -> None:
-    """输出配置摘要到日志。"""
-    cfg = get_config()
+def _log_config_summary(cfg: dict[str, Any]) -> None:
+    """首次加载时输出配置摘要到日志。"""
     send_strategy = cfg.get("send_strategy", {})
     logger.info(
         f"Cobalt 配置加载完成 → "

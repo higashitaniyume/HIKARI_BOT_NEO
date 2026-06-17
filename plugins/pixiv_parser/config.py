@@ -2,6 +2,7 @@
 Pixiv 插件配置加载模块。
 
 从 BotData/plugin_configs/pixiv_parser.json 读取配置。
+支持热重载：每次调用 get_config() 都从磁盘重新读取。
 """
 
 import logging
@@ -11,40 +12,25 @@ from core.config_loader import load_plugin_config, DEFAULT_PIXIV_CONFIG
 
 logger = logging.getLogger("HikariBot.PixivConfig")
 
-_pixiv_config: dict[str, Any] | None = None
-
-
-def load_config() -> dict[str, Any]:
-    """
-    加载 Pixiv 插件配置。
-
-    如果配置文件不存在，自动创建默认配置。
-    配置会被缓存，多次调用返回同一个对象。
-    """
-    global _pixiv_config
-    if _pixiv_config is None:
-        _pixiv_config = load_plugin_config("pixiv_parser", DEFAULT_PIXIV_CONFIG)
-        _log_config_summary()
-    return _pixiv_config
-
-
-def reload_config() -> dict[str, Any]:
-    """强制重新加载配置。"""
-    global _pixiv_config
-    _pixiv_config = None
-    return load_config()
+_first_load_done = False
 
 
 def get_config() -> dict[str, Any]:
-    """获取当前配置（必须已加载）。"""
-    if _pixiv_config is None:
-        return load_config()
-    return _pixiv_config
+    """
+    获取 Pixiv 插件当前配置（每次调用都从磁盘重新读取，支持热重载）。
+
+    如果配置文件不存在，自动创建默认配置。
+    """
+    global _first_load_done
+    cfg = load_plugin_config("pixiv_parser", DEFAULT_PIXIV_CONFIG)
+    if not _first_load_done:
+        _first_load_done = True
+        _log_config_summary(cfg)
+    return cfg
 
 
-def _log_config_summary() -> None:
-    """输出配置摘要到日志。"""
-    cfg = get_config()
+def _log_config_summary(cfg: dict[str, Any]) -> None:
+    """首次加载时输出配置摘要到日志。"""
     send_strategy = cfg.get("send_strategy", {})
     logger.info(
         f"Pixiv 配置加载完成 → "

@@ -23,12 +23,12 @@ logger = logging.getLogger("HikariBot.ConfigLoader")
 DEFAULT_MAIN_CONFIG: dict[str, Any] = {
     "bot": {
         "name": "HikariBotNeo",
-        "superuser_id": "3433559280",
+        "superuser_id": "你的QQ号",
         "log_level": "INFO",
     },
     "napcat": {
         "ws_url": "ws://192.168.31.2:54253/",
-        "token": "MH4NBIRN7ICP46wL",
+        "token": "你的NapCat Token",
         "protocol": "websocket",
     },
     "paths": {
@@ -140,7 +140,7 @@ def load_main_config() -> dict[str, Any]:
         else:
             merged[key] = config[key]
 
-    logger.info(f"主配置加载完成: {CONFIG_FILE}")
+    logger.debug(f"主配置加载完成: {CONFIG_FILE}")
     return merged
 
 
@@ -172,7 +172,7 @@ def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, 
 
     # 深层合并用户配置到默认配置
     merged = _deep_merge(dict(defaults), user_config)
-    logger.info(f"插件配置加载完成: {config_path}")
+    logger.debug(f"插件配置加载完成: {config_path}")
     return merged
 
 
