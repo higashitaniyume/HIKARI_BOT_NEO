@@ -1,0 +1,27 @@
+{
+  "bot": {
+    "name": "HikariBotNeo",
+    "superuser_id": "你的QQ号",
+    "log_level": "INFO"
+  },
+  "napcat": {
+    "ws_url": "ws://192.168.31.2:54253/",
+    "token": "你的NapCat Token",
+    "protocol": "websocket"
+  },
+  "paths": {
+    "bot_data": "BotData",
+    "user_data": "UserData",
+    "logs": "BotData/logs",
+    "plugin_configs": "BotData/plugin_configs",
+    "temp_media": "/tmp/hikari_bot"
+  },
+  "features": {
+    "message_collector": true,
+    "pixiv_parser": true,
+    "cobalt_parser": true
+  },
+  "media": {
+    "send_path_prefix": "file://"
+  }
+}

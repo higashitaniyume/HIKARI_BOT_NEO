@@ -1,0 +1,27 @@
+[Unit]
+Description=HIKARI BOT NEO - NoneBot QQ Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/HIKARI_BOT_NEO
+ExecStart=/opt/HIKARI_BOT_NEO/.venv/bin/python /opt/HIKARI_BOT_NEO/bot.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hikari-bot-neo
+
+# 使用 uv 虚拟环境中的 Python 直接运行 bot.py
+# 环境变量仅用于系统级配置，不用于项目配置（项目配置从 JSON 读取）
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="HOME=/root"
+
+# 安全加固（可选）
+NoNewPrivileges=yes
+PrivateTmp=no
+
+[Install]
+WantedBy=multi-user.target

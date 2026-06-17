@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment files (forbidden in this project)
+.env
+.env.*
+dotenv*
+
+# Config files with secrets (templates in *.example.json)
+BotData/config.json
+BotData/plugin_configs/*.json
+!BotData/plugin_configs/*.example.json
+
+# Logs (history logs on dev machine)
+BotData/logs/*.log
+!BotData/logs/.gitkeep
+
+# User data (sensitive)
+UserData/private/*.jsonl
+UserData/group/*.jsonl
+
+# System
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+
+# MyPy / PyTest
+.mypy_cache/
+.pytest_cache/
+.python-version
+
+# Temporary media
+/tmp/hikari_bot/

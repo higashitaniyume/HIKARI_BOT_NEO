@@ -1,0 +1,14 @@
+{
+  "cookie": "你的Pixiv Cookie",
+  "auto_parse": true,
+  "max_send": 6,
+  "max_file_mb": 25,
+  "allow_r18": false,
+  "cache_dir": "/tmp/hikari_bot",
+  "cache_ttl_hours": 24,
+  "proxy": "",
+  "send_strategy": {
+    "prefer_forward_message": true,
+    "fallback_to_separate_images": true
+  }
+}
