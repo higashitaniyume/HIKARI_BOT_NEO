@@ -90,23 +90,28 @@ async def send_cobalt_result(
         await bot.send(event, Message("媒体下载失败，请稍后再试。"))
         return
 
-    # —— 发送来源信息 ——
+    # —— 构建来源信息 ——
     info_text = build_info_text(result)
-    logger.debug(f"[Cobalt] 发送来源信息\n{info_text}")
-    await bot.send(event, Message(info_text))
 
     # —— 发送媒体 ——
     prefer_forward = send_strategy.get("prefer_forward_message", True)
     fallback_separate = send_strategy.get("fallback_to_separate_media", True)
 
     if prefer_forward and len(media_paths) > 1:
+        # 多个媒体：全部放合并转发（含来源信息 + 所有媒体）
         sent_forward = await _try_send_forward(bot, event, media_paths, media_types, info_text)
         if sent_forward:
             logger.info(f"[Cobalt] 合并转发发送成功")
         elif fallback_separate:
+            # 合并转发失败，降级：先发信息，再逐条发媒体
             logger.warning(f"[Cobalt] 合并转发失败，降级为逐条发送")
+            await bot.send(event, Message(info_text))
             await _send_separate(bot, event, media_paths, media_types)
+        else:
+            logger.warning(f"[Cobalt] 合并转发失败且不降级")
     else:
+        # 单个媒体：先发信息，再发媒体
+        await bot.send(event, Message(info_text))
         await _send_separate(bot, event, media_paths, media_types)
 
     total_elapsed = time.time() - t_start

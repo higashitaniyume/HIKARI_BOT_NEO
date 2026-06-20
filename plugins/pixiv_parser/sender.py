@@ -144,25 +144,28 @@ async def send_artwork(
         await bot.send(event, Message(f"Pixiv 作品 {illust_id} 下载失败，没有可发送图片。"))
         return
 
-    # —— 发送作品信息 ——
+    # —— 构建作品信息 ——
     info_text = build_info_text(artwork, len(image_paths), original_count)
-    logger.debug(f"[Pixiv] 发送作品信息 → pid={illust_id}\n{info_text}")
-    await bot.send(event, Message(info_text))
 
     # —— 发送图片 ——
     prefer_forward = send_strategy.get("prefer_forward_message", True)
     fallback_separate = send_strategy.get("fallback_to_separate_images", True)
 
     if prefer_forward and len(image_paths) > 1:
-        # 多图作品：尝试合并转发
+        # 多图作品：全部放合并转发（含作品信息 + 所有图片）
         sent_forward = await _try_send_forward(bot, event, artwork, image_paths, info_text)
         if sent_forward:
             logger.info(f"[Pixiv] 合并转发发送成功 → pid={illust_id}")
         elif fallback_separate:
+            # 合并转发失败，降级：先发信息，再逐张发图片
             logger.warning(f"[Pixiv] 合并转发失败，降级为逐张发送 → pid={illust_id}")
+            await bot.send(event, Message(info_text))
             await _send_separate_images(bot, event, image_paths, illust_id)
+        else:
+            logger.warning(f"[Pixiv] 合并转发失败且不降级 → pid={illust_id}")
     else:
-        # 单图 或 不优先合并转发
+        # 单图：先发信息，再发图片
+        await bot.send(event, Message(info_text))
         await _send_separate_images(bot, event, image_paths, illust_id)
 
     total_elapsed = time.time() - t_start
