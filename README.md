@@ -2,75 +2,53 @@
 
 QQ 媒体解析机器人，基于 [NoneBot](https://nonebot.dev/)，通过 NapCat WebSocket 接入 QQ。
 
-收到消息中的媒体链接时自动解析下载，发送到当前会话。
-
-**支持平台：** Pixiv、X/Twitter（本仓库） + 抖音、Bilibili、Instagram、Facebook、TikTok、小黑盒（AstrBot 插件）
+**原理：** 在 QQ 里发送一条媒体链接，机器人收到后自动解析、下载媒体内容，发回当前会话。
 
 ---
 
-## 功能
-
-### Pixiv 作品解析
-
-**支持：** `artworks` 和 `i` 两种链接格式。
-
-```
-https://www.pixiv.net/artworks/123456789
-https://pixiv.net/i/123456789
-```
-
-**效果：** 自动回复作品信息（标题、作者、PID、图片数量），然后发送图片。
-- 单图 → 直接发图
-- 多图 → 合并转发，所有图片包在一条消息里
-- 转发失败 → 自动降级为逐张发送
-
-**不支持：** 纯数字 PID、`pid:123456789`、用户主页/tag/novel 等链接。
-
-**命令：** `/pixiv <URL>` 手动触发。
-
-### Instagram / Facebook 解析
-
-通过 [cobalt](https://github.com/imputnet/cobalt) 实例解析。部署在 `192.168.31.2:54257`。
-
-**支持：** `instagram.com/p/xxx` `instagram.com/reel/xxx` `facebook.com/xxx` `fb.watch/xxx` 等。
-
-**效果：** 自动下载图片/视频，多图/视频合并转发。
-
-### X / Twitter 链接解析
-
-> 待实现
-
----
-
-## 架构
-
-本仓库是 HIKARI BOT NEO 的**部分解析源码**，实现了四个平台的链接解析：
-
-| 平台 | 模块 |
-|------|------|
-| Pixiv | `plugins/pixiv_parser/` |
-| X / Twitter | 待实现 |
-| Instagram | `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
-| Facebook | `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
-
-其余平台通过 AstrBot 生态完成：
+## 支持平台
 
 | 平台 | 解析方案 |
 |------|---------|
+| Pixiv | 本仓库 `plugins/pixiv_parser/` |
+| Instagram | 本仓库 `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
+| Facebook | 本仓库 `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
+| X / Twitter | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | 抖音 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | Bilibili | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | TikTok | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | 小黑盒 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 
-两部分并行部署，共同构成完整的媒体解析能力。
+本仓库包含 Pixiv、Instagram、Facebook 三个平台的解析实现，其余由 AstrBot 插件完成。两部分并行部署。
+
+---
+
+## 功能详情
+
+### Pixiv
+
+检测到 `pixiv.net/artworks/` 或 `pixiv.net/i/` 链接时自动解析。
+
+发送链接后，机器人回复作品信息（标题、作者、PID、图片数量），然后发送图片：
+- 单图 → 直接发图
+- 多图 → 合并转发
+- 转发失败 → 降级逐张发送
+
+不支持纯数字 PID、`pid:` 格式、用户主页/tag/novel 等链接。可用 `/pixiv <URL>` 手动触发。
+
+### Instagram / Facebook
+
+通过 cobalt 实例（`192.168.31.2:54257`）解析。支持 `instagram.com/p/`、`reel`、`stories` 及 `facebook.com`、`fb.watch` 等。
+
+发送链接后自动下载图片/视频，多图/视频合并转发。
 
 ---
 
 ## 基础能力
 
-- **消息记录** — 所有消息写入 JSONL（私聊 `UserData/private/<QQ>.jsonl`，群聊 `UserData/group/<群号>.jsonl`），含完整原始事件
-- **错误通知** — 解析失败时给用户简短提示，同时私发管理员详细错误（含堆栈）
-- **配置热重载** — 修改插件配置无需重启，下一条消息自动生效
+- **消息记录** — 所有消息写入 JSONL（私聊 `UserData/private/<QQ>.jsonl`，群聊 `UserData/group/<群号>.jsonl`）
+- **错误通知** — 解析失败时回复「解析失败，请稍后再试」，同时私发管理员详细堆栈
+- **配置热重载** — 修改插件 JSON 配置无需重启，下条消息生效
 
 ---
 
@@ -84,7 +62,7 @@ uv sync
 
 ### 2. 配置
 
-首次运行自动创建默认配置，修改即可：
+首次运行自动创建默认配置：
 
 | 文件 | 内容 |
 |------|------|
@@ -102,7 +80,7 @@ python bot.py
 
 ### 4. 测试
 
-在 QQ 里发一条 Pixiv 链接，机器人回复作品信息即成功。
+发一条 Pixiv 链接到 QQ，机器人回复即成功。
 
 ---
 
@@ -119,15 +97,11 @@ journalctl -u hikari-bot-neo -f
 
 ### 一键部署（deploy.ps1）
 
-Windows PowerShell，需先配 SSH Key：
-
 ```powershell
 .\deploy.ps1
 ```
 
-脚本流程：打包 → scp 上传 → `uv sync` → 安装 systemd 服务 → 启动。
-
-### SSH Key
+需先配 SSH Key：
 
 ```powershell
 ssh-keygen -t ed25519
@@ -136,7 +110,7 @@ type $env:USERPROFILE\.ssh\id_ed25519.pub   # 复制到服务器 /root/.ssh/auth
 
 ### NapCat 媒体目录映射
 
-Bot 下载的图片存在宿主机 `/tmp/hikari_bot/`，NapCat 容器必须能读取：
+Bot 下载的媒体存在宿主机 `/tmp/hikari_bot/`，NapCat 容器必须能读取：
 
 ```yaml
 services:
@@ -155,11 +129,11 @@ HIKARI_BOT_NEO/
   core/                   # 配置加载、日志、消息管道、错误通知
   plugins/
     pixiv_parser/         # Pixiv 解析
-    cobalt_parser/        # Instagram/Facebook 解析
+    cobalt_parser/        # Instagram/Facebook 解析（cobalt）
   BotData/
     config.json           # 主配置
     plugin_configs/       # 插件独立配置
-    logs/                 # 日志（每次启动新建）
+    logs/                 # 日志
   UserData/
     private/              # 私聊消息 JSONL
     group/                # 群聊消息 JSONL
@@ -173,9 +147,9 @@ HIKARI_BOT_NEO/
 
 | 症状 | 原因 | 解决 |
 |------|------|------|
-| 启动后没反应 | NapCat 未连接 | 检查 `ws_url`、`token`、NapCat 是否启动 |
-| 图片发不出去 | NapCat 容器读不到文件 | Docker Compose 挂载 `/tmp/hikari_bot:/tmp/hikari_bot` |
-| Pixiv 403 / ConnectError | Cookie 失效或直连被墙 | 更新 Cookie，**配置代理** |
-| Cloudflare 拦截 | Cookie 不够完整 | 补全 `cf_clearance` 等字段 |
+| 发链接没反应 | NapCat 未连接 | 检查 `ws_url`、`token` |
+| 图片发不出去 | NapCat 容器读不到文件 | 挂载 `/tmp/hikari_bot:/tmp/hikari_bot` |
+| Pixiv 403/ConnectError | Cookie 失效或直连被墙 | 更新 Cookie，**配置代理** |
+| Cloudflare 拦截 | Cookie 不够完整 | 补全 `cf_clearance` |
 | 合并转发失效 | 私聊可能不支持 | 自动降级逐张发送 |
-| JSON 配置报错 | 格式错误 | `python -m json.tool BotData/config.json` 检查 |
+| JSON 配置报错 | 格式错误 | `python -m json.tool BotData/config.json` |
