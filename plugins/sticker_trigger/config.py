@@ -22,5 +22,6 @@ def get_config() -> dict[str, Any]:
     if not _first_load_done:
         _first_load_done = True
         triggers = cfg.get("triggers", {})
-        logger.info(f"表情包触发配置加载完成 → {len(triggers)} 个关键词: {list(triggers.keys())}")
+        total_keywords = sum(len(v) for v in triggers.values())
+        logger.info(f"表情包触发配置加载完成 → {len(triggers)} 个贴纸包, {total_keywords} 个关键词: {list(triggers.keys())}")
     return cfg

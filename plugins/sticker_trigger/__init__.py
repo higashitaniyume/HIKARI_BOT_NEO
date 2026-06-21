@@ -64,11 +64,24 @@ def _copy_to_shared(source: Path) -> Path:
 sticker_matcher = on_message(priority=10, block=False)
 
 
+GIFS_ROOT = Path("BotData/Gifs")
+
+
+def _build_lookup(triggers: dict) -> dict[str, str]:
+    """从 {folder: [keywords]} 构建 {keyword: folder_name} 反向查找表。"""
+    lookup: dict[str, str] = {}
+    for folder_name, keywords in triggers.items():
+        if isinstance(keywords, list):
+            for kw in keywords:
+                lookup[str(kw)] = folder_name
+    return lookup
+
+
 @sticker_matcher.handle()
 async def handle_sticker(bot: Bot, event: MessageEvent):
     """检测关键词并发送随机表情包。"""
     cfg = get_config()
-    triggers: dict[str, str] = cfg.get("triggers", {})
+    triggers: dict = cfg.get("triggers", {})
     if not triggers:
         return
 
@@ -79,12 +92,8 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     # "随机表情包" → 从所有贴纸包中随机选一张发送
     if text == "随机表情包":
         all_files: list[Path] = []
-        seen_folders = set()
-        for folder_path_str in set(triggers.values()):
-            if folder_path_str in seen_folders:
-                continue
-            seen_folders.add(folder_path_str)
-            folder_path = Path(folder_path_str)
+        for folder_name in triggers:
+            folder_path = GIFS_ROOT / folder_name
             if folder_path.is_dir():
                 all_files.extend(
                     f for f in folder_path.iterdir()
@@ -100,30 +109,25 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         await bot.send(event, Message(MessageSegment.image(uri)))
         return
 
-    # "贴纸包" → 列出所有可用贴纸包（按文件夹聚合关键词）
+    # "贴纸包" → 列出所有可用贴纸包
     if text == "贴纸包":
-        if not triggers:
-            await bot.send(event, Message("当前没有可用的贴纸包。"))
-            return
-        groups: dict[str, list[str]] = {}
-        for keyword, folder in triggers.items():
-            folder_name = Path(folder).name
-            groups.setdefault(folder_name, []).append(keyword)
         lines = ["当前贴纸包：", ""]
-        for folder_name, keywords in groups.items():
-            lines.append(f"· {folder_name}: {', '.join(keywords)}")
+        for folder_name, keywords in triggers.items():
+            kw_list = keywords if isinstance(keywords, list) else [keywords]
+            lines.append(f"· {folder_name}: {', '.join(kw_list)}")
         await bot.send(event, Message("\n".join(lines)))
         return
 
     # 精确匹配关键词
-    folder = triggers.get(text)
-    if folder is None:
+    lookup = _build_lookup(triggers)
+    folder_name = lookup.get(text)
+    if folder_name is None:
         return
 
     # 随机选取文件
-    picked = _pick_random_file(folder)
+    picked = _pick_random_file(str(GIFS_ROOT / folder_name))
     if picked is None:
-        logger.warning(f"[Sticker] 关键词 '{text}' 匹配, 但文件夹 {folder} 无可用媒体文件")
+        logger.warning(f"[Sticker] 关键词 '{text}' 匹配, 但文件夹 {folder_name} 无可用媒体文件")
         return
 
     logger.info(f"[Sticker] 关键词 '{text}' → {picked.name}")
