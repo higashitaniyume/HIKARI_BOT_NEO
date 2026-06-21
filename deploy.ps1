@@ -40,15 +40,6 @@ Write-Host "  临时目录: $TempDir"
 $SourceDir = $PSScriptRoot
 Get-ChildItem -Path $SourceDir -Exclude $ExcludeDirs | Copy-Item -Destination $TempDir -Recurse -Force
 
-# 单独复制 BotData/Gifs 表情包目录（不复制 BotData 下的配置文件/logs）
-$GifsSource = Join-Path $SourceDir "BotData\Gifs"
-if (Test-Path $GifsSource) {
-    $GifsDest = Join-Path $TempDir "BotData\Gifs"
-    New-Item -ItemType Directory -Force -Path $GifsDest | Out-Null
-    Copy-Item -Path "$GifsSource\*" -Destination $GifsDest -Recurse -Force
-    Write-Host "  表情包目录已包含: BotData/Gifs" -ForegroundColor Green
-}
-
 Write-Host "  文件复制完成" -ForegroundColor Green
 
 # ---- Step 2: 通过 scp 上传到服务器 ----
@@ -61,6 +52,15 @@ ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}"
 scp -r "${TempDir}\*" "${ServerUser}@${ServerIP}:${DeployPath}/"
 
 Write-Host "  上传完成" -ForegroundColor Green
+
+# ---- Step 2.5: rsync 表情包目录（增量，仅传新增/修改的文件）----
+Write-Host "[rsync] 增量同步表情包目录..." -ForegroundColor Yellow
+$GifsSource = Join-Path $SourceDir "BotData\Gifs"
+if (Test-Path $GifsSource) {
+    ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}/BotData/Gifs"
+    rsync -avz "$GifsSource/" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
+    Write-Host "  表情包增量同步完成" -ForegroundColor Green
+}
 
 # ---- Step 3: 清理临时目录 ----
 Write-Host "[3/8] 清理临时文件..." -ForegroundColor Yellow
