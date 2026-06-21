@@ -6,26 +6,26 @@ param(
     [string]$ServerIP = "192.168.31.2",
     [string]$ServerUser = "root",
     [string]$DeployPath = "/opt/HIKARI_BOT_NEO",
-    [string]$ServiceName = "hikari-bot-neo"
+    [string]$ServiceName = "hikari-bot-neo",
+    [switch]$u
 )
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  HIKARI BOT NEO - 一键部署" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
 $SourceDir = $PSScriptRoot
 
-# ---- Step 1: 增量上传表情包（先传，最快感知进度）----
-Write-Host "[1/8] 增量同步表情包..." -ForegroundColor Yellow
-$GifsSource = Join-Path $SourceDir "BotData\Gifs"
-if (Test-Path $GifsSource) {
+# ---- 增量上传表情包（公共函数）----
+function Sync-Gifs {
+    Write-Host "[Gifs] 增量同步表情包..." -ForegroundColor Yellow
+    $GifsSource = Join-Path $SourceDir "BotData\Gifs"
+    if (-not (Test-Path $GifsSource)) {
+        Write-Host "  表情包目录不存在，跳过" -ForegroundColor DarkGray
+        return
+    }
+
     ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}/BotData/Gifs"
 
-    # 获取远程文件列表（相对路径|字节数）
     $remoteFiles = @{}
     $remoteList = ssh "${ServerUser}@${ServerIP}" "find ${DeployPath}/BotData/Gifs -type f -exec stat -c '%n|%s' {} \; 2>/dev/null"
     if ($remoteList) {
@@ -62,9 +62,27 @@ if (Test-Path $GifsSource) {
         }
     }
     Write-Host "  表情包: 上传 $uploaded 个, 跳过 $skipped 个" -ForegroundColor Green
-} else {
-    Write-Host "  表情包目录不存在，跳过" -ForegroundColor DarkGray
 }
+
+# -u 模式：只上传表情包，其他啥都不干
+if ($u) {
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  HIKARI BOT NEO - 仅同步表情包" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Sync-Gifs
+    Write-Host ""
+    Write-Host "完成。" -ForegroundColor Green
+    exit 0
+}
+
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  HIKARI BOT NEO - 一键部署" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+# ---- Step 1: 增量上传表情包 ----
+Sync-Gifs
 
 # ---- Step 2: 创建临时打包目录 ----
 Write-Host "[2/8] 准备工程文件..." -ForegroundColor Yellow
