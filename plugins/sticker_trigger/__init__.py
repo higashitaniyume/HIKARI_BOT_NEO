@@ -29,19 +29,6 @@ MEDIA_EXTS = {".gif", ".jpg", ".jpeg", ".png", ".webp", ".mp4"}
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
 
 
-def _pick_random_file(folder: str) -> Path | None:
-    """从文件夹中随机选取一个媒体文件。"""
-    folder_path = Path(folder)
-    if not folder_path.is_dir():
-        return None
-
-    files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
-    if not files:
-        return None
-
-    return random.choice(files)
-
-
 def _copy_to_shared(source: Path) -> Path:
     """将表情包复制到 NapCat 可读的共享目录，避免重复复制。"""
     SHARED_DIR.mkdir(parents=True, exist_ok=True)
@@ -55,6 +42,26 @@ def _copy_to_shared(source: Path) -> Path:
         logger.debug(f"[Sticker] 已复制到共享目录 → {dest}")
 
     return dest
+
+
+async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
+    """合并转发多张表情包。"""
+    from nonebot.adapters.onebot.v11 import GroupMessageEvent
+
+    nodes: list[MessageSegment] = []
+    for f in files:
+        shared = _copy_to_shared(f)
+        uri = shared.resolve().as_uri()
+        nodes.append(MessageSegment.node_custom(
+            user_id=int(bot.self_id),
+            nickname="HikariBotNeo",
+            content=Message(MessageSegment.image(uri)),
+        ))
+
+    if isinstance(event, GroupMessageEvent):
+        await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+    else:
+        await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
 
 
 # =========================
@@ -122,21 +129,44 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         await bot.send(event, Message("\n".join(lines)))
         return
 
-    # 精确匹配关键词
+    # 解析关键词和可选数量："猫猫虫" 或 "猫猫虫 10"
     lookup = _build_lookup(triggers)
-    folder_name = lookup.get(text)
+    keyword = text
+    count = 1
+    if " " in text:
+        parts = text.rsplit(" ", 1)
+        if parts[1].isdigit():
+            keyword = parts[0]
+            count = min(int(parts[1]), 20)  # 上限 20 张，防止刷屏
+
+    folder_name = lookup.get(keyword)
     if folder_name is None:
         return
 
-    # 随机选取文件
-    picked = _pick_random_file(str(GIFS_ROOT / folder_name))
-    if picked is None:
-        logger.warning(f"[Sticker] 关键词 '{text}' 匹配, 但文件夹 {folder_name} 无可用媒体文件")
+    # 从文件夹随机选取 count 张不重复的表情包
+    folder_path = GIFS_ROOT / folder_name
+    if not folder_path.is_dir():
         return
 
-    logger.info(f"[Sticker] 关键词 '{text}' → {picked.name}")
+    all_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
+    if not all_in_folder:
+        logger.warning(f"[Sticker] 关键词 '{keyword}' 匹配, 但文件夹 {folder_name} 无可用媒体文件")
+        return
 
-    # 复制到 NapCat 共享目录再发送
-    shared_path = _copy_to_shared(picked)
-    uri = shared_path.resolve().as_uri()
-    await bot.send(event, Message(MessageSegment.image(uri)))
+    picked = random.sample(all_in_folder, min(count, len(all_in_folder)))
+
+    logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
+
+    if len(picked) == 1:
+        # 单张：直接发
+        shared_path = _copy_to_shared(picked[0])
+        uri = shared_path.resolve().as_uri()
+        await bot.send(event, Message(MessageSegment.image(uri)))
+    else:
+        # 多张：合并转发
+        try:
+            await _send_forward(bot, event, picked)
+        except Exception:
+            for p in picked:
+                shared_path = _copy_to_shared(p)
+                await bot.send(event, Message(MessageSegment.image(shared_path.resolve().as_uri())))
