@@ -38,7 +38,12 @@ QQ 媒体解析机器人，基于 [NoneBot](https://nonebot.dev/)，通过 NapCa
 
 ### Instagram / Facebook
 
-通过 cobalt 实例（`192.168.31.2:54257`）解析。支持 `instagram.com/p/`、`reel`、`stories` 及 `facebook.com`、`fb.watch` 等。
+通过自部署的 [cobalt](https://github.com/imputnet/cobalt) 实例解析。cobalt 提供 Docker 镜像，一键部署即可。
+
+> **需要自己部署 cobalt 实例**，不能直接使用 `api.cobalt.tools`（官方实例有 bot 保护，仅供 cobalt 前端使用）。
+> 部署后修改 `BotData/plugin_configs/cobalt_parser.json` 中的 `cobalt_api` 指向你的实例地址。
+
+支持 `instagram.com/p/`、`reel`、`stories` 及 `facebook.com`、`fb.watch` 等。
 
 发送链接后自动下载图片/视频，多图/视频合并转发。
 
