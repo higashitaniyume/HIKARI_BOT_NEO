@@ -53,13 +53,23 @@ scp -r "${TempDir}\*" "${ServerUser}@${ServerIP}:${DeployPath}/"
 
 Write-Host "  上传完成" -ForegroundColor Green
 
-# ---- Step 2.5: rsync 表情包目录（增量，仅传新增/修改的文件）----
-Write-Host "[rsync] 增量同步表情包目录..." -ForegroundColor Yellow
+# ---- Step 2.5: 同步表情包目录 ----
 $GifsSource = Join-Path $SourceDir "BotData\Gifs"
 if (Test-Path $GifsSource) {
     ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}/BotData/Gifs"
-    rsync -avz "$GifsSource/" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
-    Write-Host "  表情包增量同步完成" -ForegroundColor Green
+
+    # 优先用 rsync 增量同步（仅传新增/修改的文件），没有则退到 scp
+    if (Get-Command rsync -ErrorAction SilentlyContinue) {
+        Write-Host "[rsync] 增量同步表情包目录..." -ForegroundColor Yellow
+        rsync -avz "$GifsSource/" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
+        Write-Host "  表情包增量同步完成" -ForegroundColor Green
+    }
+    else {
+        Write-Host "[scp] rsync 不可用，全量上传表情包..." -ForegroundColor Yellow
+        Write-Host "  提示: 安装 Git for Windows 或 WSL 即可使用 rsync 增量同步" -ForegroundColor DarkGray
+        scp -r "$GifsSource\*" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
+        Write-Host "  表情包上传完成" -ForegroundColor Green
+    }
 }
 
 # ---- Step 3: 清理临时目录 ----
