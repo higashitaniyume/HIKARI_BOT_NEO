@@ -6,8 +6,10 @@
 - 配置热重载：修改 sticker_trigger.json 立即生效
 """
 
+import hashlib
 import logging
 import random
+import shutil
 from pathlib import Path
 
 from nonebot import on_message
@@ -23,6 +25,9 @@ get_config()
 # 支持的图片/动图后缀
 MEDIA_EXTS = {".gif", ".jpg", ".jpeg", ".png", ".webp", ".mp4"}
 
+# NapCat 共享目录（NapCat 容器必须挂载此目录）
+SHARED_DIR = Path("/tmp/hikari_bot/stickers")
+
 
 def _pick_random_file(folder: str) -> Path | None:
     """从文件夹中随机选取一个媒体文件。"""
@@ -35,6 +40,21 @@ def _pick_random_file(folder: str) -> Path | None:
         return None
 
     return random.choice(files)
+
+
+def _copy_to_shared(source: Path) -> Path:
+    """将表情包复制到 NapCat 可读的共享目录，避免重复复制。"""
+    SHARED_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 用文件名 + 内容哈希避免冲突和重复
+    name_hash = hashlib.sha256(source.name.encode()).hexdigest()[:12]
+    dest = SHARED_DIR / f"{name_hash}{source.suffix}"
+
+    if not dest.exists():
+        shutil.copy2(source, dest)
+        logger.debug(f"[Sticker] 已复制到共享目录 → {dest}")
+
+    return dest
 
 
 # =========================
@@ -68,5 +88,8 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         return
 
     logger.info(f"[Sticker] 关键词 '{text}' → {picked.name}")
-    uri = picked.resolve().as_uri()
+
+    # 复制到 NapCat 共享目录再发送
+    shared_path = _copy_to_shared(picked)
+    uri = shared_path.resolve().as_uri()
     await bot.send(event, Message(MessageSegment.image(uri)))
