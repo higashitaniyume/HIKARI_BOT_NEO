@@ -40,6 +40,15 @@ Write-Host "  临时目录: $TempDir"
 $SourceDir = $PSScriptRoot
 Get-ChildItem -Path $SourceDir -Exclude $ExcludeDirs | Copy-Item -Destination $TempDir -Recurse -Force
 
+# 单独复制 BotData/Gifs 表情包目录（不复制 BotData 下的配置文件/logs）
+$GifsSource = Join-Path $SourceDir "BotData\Gifs"
+if (Test-Path $GifsSource) {
+    $GifsDest = Join-Path $TempDir "BotData\Gifs"
+    New-Item -ItemType Directory -Force -Path $GifsDest | Out-Null
+    Copy-Item -Path "$GifsSource\*" -Destination $GifsDest -Recurse -Force
+    Write-Host "  表情包目录已包含: BotData/Gifs" -ForegroundColor Green
+}
+
 Write-Host "  文件复制完成" -ForegroundColor Green
 
 # ---- Step 2: 通过 scp 上传到服务器 ----
