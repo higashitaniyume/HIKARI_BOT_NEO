@@ -28,6 +28,14 @@ https://pixiv.net/i/123456789
 
 **命令：** `/pixiv <URL>` 手动触发。
 
+### Instagram / Facebook 解析
+
+通过 [cobalt](https://github.com/imputnet/cobalt) 实例解析。部署在 `192.168.31.2:54257`。
+
+**支持：** `instagram.com/p/xxx` `instagram.com/reel/xxx` `facebook.com/xxx` `fb.watch/xxx` 等。
+
+**效果：** 自动下载图片/视频，多图/视频合并转发。
+
 ### X / Twitter 链接解析
 
 > 待实现
@@ -36,18 +44,21 @@ https://pixiv.net/i/123456789
 
 ## 架构
 
-本仓库是 HIKARI BOT NEO 的**部分解析源码**，实现了 Pixiv 和 X/Twitter 两个平台的链接解析。
+本仓库是 HIKARI BOT NEO 的**部分解析源码**，实现了四个平台的链接解析：
 
-其余六个平台通过 AstrBot 生态完成：
+| 平台 | 模块 |
+|------|------|
+| Pixiv | `plugins/pixiv_parser/` |
+| X / Twitter | 待实现 |
+| Instagram | `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
+| Facebook | `plugins/cobalt_parser/`（基于 [cobalt](https://github.com/imputnet/cobalt)） |
+
+其余平台通过 AstrBot 生态完成：
 
 | 平台 | 解析方案 |
 |------|---------|
-| Pixiv | 本仓库 `plugins/pixiv_parser/` |
-| X / Twitter | 本仓库（待实现） |
 | 抖音 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | Bilibili | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
-| Instagram | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
-| Facebook | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | TikTok | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 | 小黑盒 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
 
@@ -79,6 +90,7 @@ uv sync
 |------|------|
 | `BotData/config.json` | NapCat 地址、Token、管理员 QQ |
 | `BotData/plugin_configs/pixiv_parser.json` | Pixiv Cookie、代理、发送策略 |
+| `BotData/plugin_configs/cobalt_parser.json` | cobalt API 地址、发送策略 |
 
 > 所有配置从 JSON 读取，**不使用 `.env`**。模板参见 `BotData/*.example.json`。
 
@@ -143,6 +155,7 @@ HIKARI_BOT_NEO/
   core/                   # 配置加载、日志、消息管道、错误通知
   plugins/
     pixiv_parser/         # Pixiv 解析
+    cobalt_parser/        # Instagram/Facebook 解析
   BotData/
     config.json           # 主配置
     plugin_configs/       # 插件独立配置
