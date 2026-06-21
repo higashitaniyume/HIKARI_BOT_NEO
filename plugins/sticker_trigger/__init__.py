@@ -114,7 +114,11 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         lines = ["当前贴纸包：", ""]
         for folder_name, keywords in triggers.items():
             kw_list = keywords if isinstance(keywords, list) else [keywords]
-            lines.append(f"· {folder_name}: {', '.join(kw_list)}")
+            folder_path = GIFS_ROOT / folder_name
+            count = 0
+            if folder_path.is_dir():
+                count = sum(1 for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS)
+            lines.append(f"· {folder_name} ({count}张): {', '.join(kw_list)}")
         await bot.send(event, Message("\n".join(lines)))
         return
 
