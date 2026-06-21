@@ -31,27 +31,13 @@ $ExcludeDirs = @(
     ".mypy_cache",
     ".pytest_cache",
     ".claude",
-    "BotData/logs"
+    "BotData",
+    "UserData"
 )
 
 Write-Host "  临时目录: $TempDir"
 
-# 使用 robocopy 复制（Windows 自带）
 $SourceDir = $PSScriptRoot
-foreach ($exclude in $ExcludeDirs) {
-    $robocopyArgs = @(
-        $SourceDir,
-        "$TempDir\$exclude",
-        "/MIR",
-        "/NFL", "/NDL", "/NJH", "/NJS",
-        "/R:0", "/W:0"
-    )
-    # 我们不需要预先创建排除目录，robocopy 会处理
-}
-
-# 复制所有文件（排除指定目录）
-$robocopyExclude = $ExcludeDirs -join " "
-# 使用 Copy-Item 配合排除更简单
 Get-ChildItem -Path $SourceDir -Exclude $ExcludeDirs | Copy-Item -Destination $TempDir -Recurse -Force
 
 Write-Host "  文件复制完成" -ForegroundColor Green
