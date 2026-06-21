@@ -28,6 +28,12 @@ BotData/config.json
 BotData/plugin_configs/*.json
 !BotData/plugin_configs/*.example.json
 
+# Gifs: keep directory structure, ignore actual media
+BotData/Gifs/*/**
+!BotData/Gifs/**/.gitkeep
+BotData/plugin_configs/*.json
+!BotData/plugin_configs/*.example.json
+
 # Logs (history logs on dev machine)
 BotData/logs/*.log
 !BotData/logs/.gitkeep

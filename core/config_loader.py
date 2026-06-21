@@ -76,6 +76,13 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     },
 }
 
+DEFAULT_STICKER_CONFIG: dict[str, Any] = {
+    "triggers": {
+        "capoo": "BotData/Gifs/capoo_gif",
+        "猫猫虫": "BotData/Gifs/capoo_gif",
+    },
+}
+
 # =========================
 # 路径常量（相对于项目根目录）
 # =========================
