@@ -2,7 +2,9 @@
 
 QQ 媒体解析机器人，基于 [NoneBot](https://nonebot.dev/)，通过 NapCat WebSocket 接入 QQ。
 
-收到消息中的媒体链接时，自动解析并下载，发送到当前会话。
+收到消息中的媒体链接时自动解析下载，发送到当前会话。
+
+**支持平台：** Pixiv、X/Twitter（本仓库） + 抖音、Bilibili、Instagram、Facebook、TikTok、小黑盒（AstrBot 插件）
 
 ---
 
@@ -32,20 +34,24 @@ https://pixiv.net/i/123456789
 
 ---
 
-## 其他平台
+## 架构
 
-以下平台通过 AstrBot 插件完成解析：
+本仓库是 HIKARI BOT NEO 的**部分解析源码**，实现了 Pixiv 和 X/Twitter 两个平台的链接解析。
 
-**[astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser)**
+其余六个平台通过 AstrBot 生态完成：
 
-| 平台 |
-|------|
-| 抖音 |
-| Bilibili |
-| Instagram |
-| Facebook |
-| TikTok |
-| 小黑盒 |
+| 平台 | 解析方案 |
+|------|---------|
+| Pixiv | 本仓库 `plugins/pixiv_parser/` |
+| X / Twitter | 本仓库（待实现） |
+| 抖音 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+| Bilibili | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+| Instagram | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+| Facebook | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+| TikTok | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+| 小黑盒 | [astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) |
+
+两部分并行部署，共同构成完整的媒体解析能力。
 
 ---
 
