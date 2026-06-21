@@ -137,7 +137,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         parts = text.rsplit(" ", 1)
         if parts[1].isdigit():
             keyword = parts[0]
-            count = min(int(parts[1]), 20)  # 上限 20 张，防止刷屏
+            count = int(parts[1])
 
     folder_name = lookup.get(keyword)
     if folder_name is None:
@@ -157,13 +157,14 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
 
-    if len(picked) == 1:
-        # 单张：直接发
-        shared_path = _copy_to_shared(picked[0])
-        uri = shared_path.resolve().as_uri()
-        await bot.send(event, Message(MessageSegment.image(uri)))
+    if len(picked) < 5:
+        # 少于 5 张：逐个发送
+        for p in picked:
+            shared_path = _copy_to_shared(p)
+            uri = shared_path.resolve().as_uri()
+            await bot.send(event, Message(MessageSegment.image(uri)))
     else:
-        # 多张：合并转发
+        # 5 张及以上：合并转发，失败则逐个发送
         try:
             await _send_forward(bot, event, picked)
         except Exception:
