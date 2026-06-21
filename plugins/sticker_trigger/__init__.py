@@ -76,6 +76,30 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     if not text:
         return
 
+    # "随机表情包" → 从所有贴纸包中随机选一张发送
+    if text == "随机表情包":
+        all_files: list[Path] = []
+        seen_folders = set()
+        for folder_path_str in set(triggers.values()):
+            if folder_path_str in seen_folders:
+                continue
+            seen_folders.add(folder_path_str)
+            folder_path = Path(folder_path_str)
+            if folder_path.is_dir():
+                all_files.extend(
+                    f for f in folder_path.iterdir()
+                    if f.is_file() and f.suffix.lower() in MEDIA_EXTS
+                )
+        if not all_files:
+            await bot.send(event, Message("贴纸包都是空的，请先添加一些表情包。"))
+            return
+        picked = random.choice(all_files)
+        logger.info(f"[Sticker] 随机表情包 → {picked.name}")
+        shared_path = _copy_to_shared(picked)
+        uri = shared_path.resolve().as_uri()
+        await bot.send(event, Message(MessageSegment.image(uri)))
+        return
+
     # "贴纸包" → 列出所有可用贴纸包（按文件夹聚合关键词）
     if text == "贴纸包":
         if not triggers:

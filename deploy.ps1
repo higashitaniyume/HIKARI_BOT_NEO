@@ -53,13 +53,43 @@ scp -r "${TempDir}\*" "${ServerUser}@${ServerIP}:${DeployPath}/"
 
 Write-Host "  上传完成" -ForegroundColor Green
 
-# ---- Step 2.5: 上传表情包目录 ----
+# ---- Step 2.5: 增量上传表情包目录 ----
 $GifsSource = Join-Path $SourceDir "BotData\Gifs"
 if (Test-Path $GifsSource) {
-    Write-Host "[scp] 上传表情包目录..." -ForegroundColor Yellow
+    Write-Host "[Gifs] 对比远程文件，仅上传新增/变更的..." -ForegroundColor Yellow
     ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}/BotData/Gifs"
-    scp -r "$GifsSource\*" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
-    Write-Host "  表情包上传完成" -ForegroundColor Green
+
+    # 获取远程文件路径和大小（相对路径|字节数）
+    $remoteFiles = @{}
+    $remoteList = ssh "${ServerUser}@${ServerIP}" "find ${DeployPath}/BotData/Gifs -type f -exec stat -c '%n|%s' {} \; 2>/dev/null"
+    if ($remoteList) {
+        $remoteList -split "`n" | ForEach-Object {
+            if ($_ -match '\|(\d+)$') {
+                $relPath = $_ -replace "^${DeployPath}/BotData/Gifs/", ""
+                $relPath = $relPath -replace '\|\d+$', ''
+                $size = [int64]($matches[1])
+                $remoteFiles[$relPath] = $size
+            }
+        }
+    }
+
+    $uploaded = 0
+    $skipped = 0
+    Get-ChildItem -Path $GifsSource -Recurse -File | ForEach-Object {
+        $relPath = $_.FullName.Substring($GifsSource.Length + 1) -replace '\\', '/'
+        $remoteSize = $remoteFiles[$relPath]
+        if ($remoteSize -eq $null -or $remoteSize -ne $_.Length) {
+            $remoteDir = "${DeployPath}/BotData/Gifs/" + ($relPath -replace '/[^/]+$', '')
+            if ($remoteDir -ne "${DeployPath}/BotData/Gifs/") {
+                ssh "${ServerUser}@${ServerIP}" "mkdir -p '$remoteDir'"
+            }
+            scp -q $_.FullName "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/$relPath"
+            $uploaded++
+        } else {
+            $skipped++
+        }
+    }
+    Write-Host "  完成: 上传 $uploaded 个, 跳过 $skipped 个" -ForegroundColor Green
 }
 
 # ---- Step 3: 清理临时目录 ----
