@@ -10,6 +10,7 @@ import hashlib
 import logging
 import random
 import shutil
+import time
 from pathlib import Path
 
 from nonebot import on_message
@@ -29,13 +30,27 @@ MEDIA_EXTS = {".gif", ".jpg", ".jpeg", ".png", ".webp", ".mp4"}
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
 
 
+def _cleanup_shared_dir():
+    """删除超过 2 分钟的临时贴纸文件，避免堆积。"""
+    if not SHARED_DIR.is_dir():
+        return
+    now = time.time()
+    removed = 0
+    for f in SHARED_DIR.iterdir():
+        if f.is_file() and now - f.stat().st_mtime > 120:
+            f.unlink(missing_ok=True)
+            removed += 1
+    if removed:
+        logger.debug(f"[Sticker] 清理临时文件 {removed} 个")
+
+
 def _copy_to_shared(source: Path) -> Path:
-    """将表情包复制到 NapCat 可读的共享目录，避免重复复制。"""
+    """将表情包复制到 NapCat 可读的共享目录。"""
     SHARED_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 用文件名 + 内容哈希避免冲突和重复
-    name_hash = hashlib.sha256(source.name.encode()).hexdigest()[:12]
-    dest = SHARED_DIR / f"{name_hash}{source.suffix}"
+    # 用完整路径哈希，避免不同贴纸包同名文件碰撞
+    path_hash = hashlib.sha256(str(source.resolve()).encode()).hexdigest()[:16]
+    dest = SHARED_DIR / f"{path_hash}{source.suffix}"
 
     if not dest.exists():
         shutil.copy2(source, dest)
@@ -117,7 +132,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         return
 
     # "贴纸包" → 列出所有可用贴纸包
-    if text == "贴纸包":
+    if text == "贴纸包列表":
         lines = ["当前贴纸包：", ""]
         for folder_name, keywords in triggers.items():
             kw_list = keywords if isinstance(keywords, list) else [keywords]
@@ -157,17 +172,17 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
 
-    if len(picked) < 5:
-        # 少于 5 张：逐个发送
+    if len(picked) <= 10:
         for p in picked:
             shared_path = _copy_to_shared(p)
             uri = shared_path.resolve().as_uri()
             await bot.send(event, Message(MessageSegment.image(uri)))
     else:
-        # 5 张及以上：合并转发，失败则逐个发送
         try:
             await _send_forward(bot, event, picked)
         except Exception:
             for p in picked:
                 shared_path = _copy_to_shared(p)
                 await bot.send(event, Message(MessageSegment.image(shared_path.resolve().as_uri())))
+
+    _cleanup_shared_dir()
