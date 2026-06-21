@@ -100,9 +100,12 @@ async def notify_error_to_superuser(
 
     full_message = "\n".join(lines)
 
+    # 完整错误始终写入日志文件（不被截断）
+    logger.error(f"详细错误信息:\n{full_message}")
+
     # 截断过长的消息（QQ 私聊有长度限制）
     if len(full_message) > 2000:
-        full_message = full_message[:1950] + "\n... [消息过长已截断]"
+        full_message = full_message[:1950] + "\n... [消息过长已截断，完整堆栈见日志文件]"
 
     try:
         await bot.send_private_msg(user_id=int(superuser_id), message=full_message)
