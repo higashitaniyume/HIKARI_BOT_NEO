@@ -59,6 +59,59 @@ def _copy_to_shared(source: Path) -> Path:
     return dest
 
 
+async def _make_collage(files: list[Path], folder_name: str) -> Path:
+    """将所有图片的第一帧拼成尽可能正方形的网格图。
+
+    使用线程池执行 PIL 操作，避免阻塞事件循环。
+    """
+    import asyncio
+    import math
+    from PIL import Image
+
+    THUMB_SIZE = 200  # 每格缩略图尺寸
+
+    def _do_collage() -> Path:
+        images: list[Image.Image] = []
+        for f in sorted(files):
+            try:
+                img = Image.open(f)
+                # GIF/动画取第一帧
+                if getattr(img, "is_animated", False):
+                    img.seek(0)
+                # 统一转 RGB
+                if img.mode not in ("RGB", "RGBA"):
+                    img = img.convert("RGBA")
+                # 缩放到统一尺寸（保持比例，填白）
+                img.thumbnail((THUMB_SIZE, THUMB_SIZE), Image.Resampling.LANCZOS)
+                bg = Image.new("RGBA", (THUMB_SIZE, THUMB_SIZE), (255, 255, 255, 0))
+                ox = (THUMB_SIZE - img.width) // 2
+                oy = (THUMB_SIZE - img.height) // 2
+                bg.paste(img, (ox, oy), img if img.mode == "RGBA" else None)
+                images.append(bg)
+            except Exception as e:
+                logger.warning(f"[Sticker] 拼图跳过 {f.name}: {e}")
+
+        if not images:
+            raise RuntimeError("没有可处理的图片")
+
+        # 尽可能正方形
+        n = len(images)
+        cols = math.ceil(math.sqrt(n))
+        rows = math.ceil(n / cols)
+
+        canvas = Image.new("RGB", (cols * THUMB_SIZE, rows * THUMB_SIZE), (255, 255, 255))
+        for i, img in enumerate(images):
+            row = i // cols
+            col = i % cols
+            canvas.paste(img.convert("RGB"), (col * THUMB_SIZE, row * THUMB_SIZE))
+
+        out_path = SHARED_DIR / f"collage_{folder_name}_{len(images)}.jpg"
+        canvas.save(out_path, "JPEG", quality=85)
+        return out_path
+
+    return await asyncio.to_thread(_do_collage)
+
+
 async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
     """合并转发多张表情包。"""
     from nonebot.adapters.onebot.v11 import GroupMessageEvent
@@ -129,6 +182,31 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         shared_path = _copy_to_shared(picked)
         uri = shared_path.resolve().as_uri()
         await bot.send(event, Message(MessageSegment.image(uri)))
+        return
+
+    # "拼图 capoo" → 将该贴纸包所有图片的第一帧拼成一张大图
+    if text.startswith("拼图 "):
+        keyword = text[3:].strip()
+        lookup = _build_lookup(triggers)
+        folder_name = lookup.get(keyword)
+        if folder_name is None:
+            return
+        folder_path = GIFS_ROOT / folder_name
+        if not folder_path.is_dir():
+            return
+        all_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
+        if not all_in_folder:
+            await bot.send(event, Message(f"贴纸包 {folder_name} 是空的。"))
+            return
+
+        await bot.send(event, Message(f"正在拼图 {folder_name}（{len(all_in_folder)} 张）..."))
+        try:
+            jpg_path = await _make_collage(all_in_folder, folder_name)
+            uri = jpg_path.resolve().as_uri()
+            await bot.send(event, Message(MessageSegment.image(uri)))
+        except Exception as e:
+            logger.exception(f"[Sticker] 拼图失败: {e}")
+            await bot.send(event, Message(f"拼图失败: {e}"))
         return
 
     # "贴纸包" → 列出所有可用贴纸包
