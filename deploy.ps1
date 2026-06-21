@@ -53,22 +53,47 @@ scp -r "${TempDir}\*" "${ServerUser}@${ServerIP}:${DeployPath}/"
 
 Write-Host "  上传完成" -ForegroundColor Green
 
-# ---- Step 2.5: 同步表情包目录 ----
+# ---- Step 2.5: 增量同步表情包目录 ----
 $GifsSource = Join-Path $SourceDir "BotData\Gifs"
 if (Test-Path $GifsSource) {
     ssh "${ServerUser}@${ServerIP}" "mkdir -p ${DeployPath}/BotData/Gifs"
 
-    # 优先用 rsync 增量同步（仅传新增/修改的文件），没有则退到 scp
+    # 优先用 rsync，没有则用 PowerShell 原生增量上传
     if (Get-Command rsync -ErrorAction SilentlyContinue) {
         Write-Host "[rsync] 增量同步表情包目录..." -ForegroundColor Yellow
         rsync -avz "$GifsSource/" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
         Write-Host "  表情包增量同步完成" -ForegroundColor Green
     }
     else {
-        Write-Host "[scp] rsync 不可用，全量上传表情包..." -ForegroundColor Yellow
-        Write-Host "  提示: 安装 Git for Windows 或 WSL 即可使用 rsync 增量同步" -ForegroundColor DarkGray
-        scp -r "$GifsSource\*" "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/"
-        Write-Host "  表情包上传完成" -ForegroundColor Green
+        Write-Host "[增量] 对比远程文件，仅上传新增/变更的..." -ForegroundColor Yellow
+
+        # 获取远程文件列表（路径 + 大小）
+        $remoteList = ssh "${ServerUser}@${ServerIP}" "find ${DeployPath}/BotData/Gifs -type f -printf '%P %s\n' 2>/dev/null"
+        $remoteFiles = @{}
+        if ($remoteList) {
+            $remoteList -split "`n" | ForEach-Object {
+                if ($_ -match '^(.+) (\d+)$') {
+                    $remoteFiles[$matches[1]] = [int64]$matches[2]
+                }
+            }
+        }
+
+        # 遍历本地文件，只上传新增或大小变化的
+        $uploaded = 0
+        $skipped = 0
+        Get-ChildItem -Path $GifsSource -Recurse -File | ForEach-Object {
+            $relPath = $_.FullName.Substring($GifsSource.Length + 1) -replace '\\', '/'
+            $remoteSize = $remoteFiles[$relPath]
+            if ($remoteSize -eq $null -or $remoteSize -ne $_.Length) {
+                $remoteDir = "${DeployPath}/BotData/Gifs/" + ($relPath -replace '/[^/]+$', '')
+                ssh "${ServerUser}@${ServerIP}" "mkdir -p '$remoteDir'"
+                scp -q $_.FullName "${ServerUser}@${ServerIP}:${DeployPath}/BotData/Gifs/$relPath"
+                $uploaded++
+            } else {
+                $skipped++
+            }
+        }
+        Write-Host "  表情包同步完成: 上传 $uploaded 个, 跳过 $skipped 个" -ForegroundColor Green
     }
 }
 
