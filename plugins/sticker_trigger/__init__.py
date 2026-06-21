@@ -76,15 +76,18 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     if not text:
         return
 
-    # "贴纸包" → 列出所有可用贴纸包
+    # "贴纸包" → 列出所有可用贴纸包（按文件夹聚合关键词）
     if text == "贴纸包":
         if not triggers:
             await bot.send(event, Message("当前没有可用的贴纸包。"))
             return
-        lines = ["当前贴纸包：", ""]
+        groups: dict[str, list[str]] = {}
         for keyword, folder in triggers.items():
             folder_name = Path(folder).name
-            lines.append(f"· {keyword} → {folder_name}")
+            groups.setdefault(folder_name, []).append(keyword)
+        lines = ["当前贴纸包：", ""]
+        for folder_name, keywords in groups.items():
+            lines.append(f"· {folder_name}: {', '.join(keywords)}")
         await bot.send(event, Message("\n".join(lines)))
         return
 
