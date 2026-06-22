@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 from email.parser import BytesParser
 from email.policy import default as email_policy
@@ -48,6 +49,15 @@ def _upload_root() -> Path:
     cfg = get_config()
     return Path(str(cfg.get("upload_root", "BotData/Gifs")))
 
+
+
+def _temp_root() -> Path:
+    cfg = get_config()
+    return Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_uploads")))
+
+
+def _hash_content(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 def _list_packs() -> list[str]:
     root = _upload_root()
@@ -210,21 +220,28 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             self._send_html(_html_page(f"不支持的文件格式：{suffix}"), 400)
             return
 
+        content = file_info["content"]
+        content_hash = _hash_content(content)
         dest_dir = _upload_root() / pack_name
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / f"{Path(filename).stem}.gif"
-        if dest.exists():
-            dest = dest_dir / f"{dest.stem}_{int(time.time())}.gif"
+        dest = dest_dir / f"{content_hash[:16]}.gif"
 
+        _register_trigger(pack_name, keyword)
+        if dest.exists() and dest.stat().st_size > 0:
+            self._send_html(_html_page(f"贴纸已存在，已复用：{pack_name}/{dest.name}"))
+            return
+
+        temp_dir = _temp_root()
+        temp_dir.mkdir(parents=True, exist_ok=True)
         temp_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
                 suffix=suffix,
-                prefix="upload_",
-                dir=dest_dir,
+                prefix=f"{content_hash[:16]}_",
+                dir=temp_dir,
                 delete=False,
             ) as temp_file:
-                temp_file.write(file_info["content"])
+                temp_file.write(content)
                 temp_path = Path(temp_file.name)
 
             asyncio.run(ensure_sticker_gif(temp_path, dest))
@@ -243,9 +260,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-        _register_trigger(pack_name, keyword)
         self._send_html(_html_page(f"上传成功：{pack_name}/{dest.name}"))
-
     def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type.lower():

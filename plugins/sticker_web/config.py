@@ -14,6 +14,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "host": "0.0.0.0",
     "port": 54213,
     "upload_root": "BotData/Gifs",
+    "temp_root": "/tmp/hikari_bot/sticker_uploads",
 }
 
 

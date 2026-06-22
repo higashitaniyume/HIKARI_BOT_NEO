@@ -233,7 +233,7 @@ BotData/Gifs/<贴纸包目录>/
 - 输入新贴纸包名称并上传，自动创建贴纸包。
 - 填写额外触发词，自动写入 `sticker_trigger.json`。
 
-支持上传素材后缀：`.gif`、`.jpg`、`.jpeg`、`.png`、`.webp`、`.mp4`、`.webm`、`.mov`、`.mkv`、`.tgs`。最终保存为 `.gif`。
+支持上传素材后缀：`.gif`、`.jpg`、`.jpeg`、`.png`、`.webp`、`.mp4`、`.webm`、`.mov`、`.mkv`、`.tgs`。最终保存为 `.gif`。上传内容会用 SHA256 哈希命名；同一份素材重复上传会复用已有 GIF，不会再生成副本。
 
 ### JMComic
 
