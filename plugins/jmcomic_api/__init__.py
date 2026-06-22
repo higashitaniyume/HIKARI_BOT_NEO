@@ -9,15 +9,10 @@ from typing import Optional
 
 import jmcomic
 from jmcomic import Feature
-from nonebot import on_command
-from nonebot.adapters.onebot.v11 import (
-    Bot,
-    GroupMessageEvent,
-    Message,
-    PrivateMessageEvent,
-)
-from nonebot.params import CommandArg
-from nonebot.permission import SUPERUSER
+from nonebot import on_command, on_regex
+from nonebot.adapters.onebot.v11 import Bot, Message, PrivateMessageEvent
+from nonebot.adapters.onebot.v11.permission import PRIVATE
+from nonebot.params import CommandArg, RegexGroup
 
 try:
     from jmcomic import DirRule
@@ -57,7 +52,14 @@ jm_download = on_command(
     aliases={"下载jm", "jmpdf"},
     priority=10,
     block=True,
-    permission=SUPERUSER,
+    permission=PRIVATE,
+)
+
+plain_jm_download = on_regex(
+    r"(?i)^\s*jm\s+(?:JM)?(\d{3,})\s*$",
+    priority=10,
+    block=True,
+    permission=PRIVATE,
 )
 
 
@@ -154,11 +156,8 @@ def assert_path_under_temp(path: Path) -> None:
         raise RuntimeError(f"文件不在 NapCat 可读取目录中: {abs_path}")
 
 
-async def upload_pdf_if_possible(bot: Bot, event, pdf_path: Path) -> bool:
-    """
-    尝试通过 OneBot/NapCat 上传 PDF。
-    如果你暂时不想自动上传，可以删除调用这个函数的部分。
-    """
+async def upload_pdf_if_possible(bot: Bot, event: PrivateMessageEvent, pdf_path: Path) -> bool:
+    """通过 OneBot/NapCat 上传 PDF 到当前私聊。"""
     pdf_path = pdf_path.resolve()
     assert_path_under_temp(pdf_path)
 
@@ -166,48 +165,52 @@ async def upload_pdf_if_possible(bot: Bot, event, pdf_path: Path) -> bool:
         raise FileNotFoundError(f"PDF 文件不存在: {pdf_path}")
 
     file_name = pdf_path.name
-
-    if isinstance(event, GroupMessageEvent):
-        logger.info(f"开始上传群文件: group_id={event.group_id}, file={pdf_path}")
-        await bot.call_api(
-            "upload_group_file",
-            group_id=event.group_id,
-            file=str(pdf_path),
-            name=file_name,
-        )
-        logger.info(f"群文件上传完成: {file_name}")
-        return True
-
-    if isinstance(event, PrivateMessageEvent):
-        logger.info(f"开始上传私聊文件: user_id={event.user_id}, file={pdf_path}")
-        await bot.call_api(
-            "upload_private_file",
-            user_id=event.user_id,
-            file=str(pdf_path),
-            name=file_name,
-        )
-        logger.info(f"私聊文件上传完成: {file_name}")
-        return True
-
-    logger.warning(f"当前事件类型不支持自动上传文件: {type(event).__name__}")
-    return False
+    logger.info(f"开始上传私聊文件: user_id={event.user_id}, file={pdf_path}")
+    await bot.call_api(
+        "upload_private_file",
+        user_id=event.user_id,
+        file=str(pdf_path),
+        name=file_name,
+    )
+    logger.info(f"私聊文件上传完成: {file_name}")
+    return True
 
 
 @jm_download.handle()
 async def handle_jm_download(
     bot: Bot,
-    event,
+    event: PrivateMessageEvent,
     args: Message = CommandArg(),
 ):
     raw = args.extract_plain_text().strip()
     jm_id = extract_jm_id(raw)
 
     if not jm_id:
-        await jm_download.finish("用法：/jm 123456 或 /jmpdf 123456")
+        await jm_download.finish("用法：jm 123456 或 /jm 123456")
 
-    logger.info(f"收到 JM 下载请求: raw={raw!r}, jm_id={jm_id}")
+    await _download_and_send_pdf(bot, event, jm_id, raw)
 
-    await jm_download.send(f"开始下载并转换 PDF：JM{jm_id}")
+
+@plain_jm_download.handle()
+async def handle_plain_jm_download(
+    bot: Bot,
+    event: PrivateMessageEvent,
+    matched: tuple[str, ...] = RegexGroup(),
+):
+    jm_id = matched[0]
+    raw = event.get_plaintext().strip()
+    await _download_and_send_pdf(bot, event, jm_id, raw)
+
+
+async def _download_and_send_pdf(
+    bot: Bot,
+    event: PrivateMessageEvent,
+    jm_id: str,
+    raw: str,
+) -> None:
+    logger.info(f"收到 JM 下载请求: user={event.user_id}, raw={raw!r}, jm_id={jm_id}")
+
+    await bot.send(event, f"开始下载并转换 PDF：JM{jm_id}")
 
     msg = ""
 
@@ -252,13 +255,9 @@ async def handle_jm_download(
                 logger.exception(f"PDF 上传失败: {pdf_path.resolve()}")
 
             if upload_ok:
-                msg = (
-                    f"完成：JM{album_id}\n"
-                )
+                msg = f"完成：JM{album_id}"
             else:
-                msg = (
-                    f"JM解析失败"
-                )
+                msg = "JM解析失败"
 
                 if upload_error is not None:
                     logger.error(f"上传错误：{type(upload_error).__name__}: {upload_error}")
@@ -268,5 +267,5 @@ async def handle_jm_download(
             msg = f"下载/转换 PDF 失败：{type(e).__name__}: {e}"
 
     # 不在 try 里面调用 finish，避免 NoneBot 的 FinishedException 被误判成下载失败。
-    await jm_download.send(msg)
+    await bot.send(event, msg)
     return
