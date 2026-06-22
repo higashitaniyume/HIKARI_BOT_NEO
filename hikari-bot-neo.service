@@ -16,7 +16,7 @@ SyslogIdentifier=hikari-bot-neo
 
 # 使用 uv 虚拟环境中的 Python 直接运行 bot.py
 # 环境变量仅用于系统级配置，不用于项目配置（项目配置从 JSON 读取）
-Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=/root"
 
 # 安全加固（可选）
