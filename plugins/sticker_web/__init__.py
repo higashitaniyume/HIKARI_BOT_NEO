@@ -25,6 +25,7 @@ logger = logging.getLogger("HikariBot.StickerWeb")
 ALLOWED_EXTS = STICKER_INPUT_EXTS
 OUTPUT_EXTS = {".gif"}
 TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
+_TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 _server_started = False
 _server_lock = threading.Lock()
 
@@ -50,7 +51,6 @@ def _upload_root() -> Path:
     return Path(str(cfg.get("upload_root", "BotData/Gifs")))
 
 
-
 def _temp_root() -> Path:
     cfg = get_config()
     return Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_uploads")))
@@ -58,6 +58,7 @@ def _temp_root() -> Path:
 
 def _hash_content(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
 
 def _list_packs() -> list[str]:
     root = _upload_root()
@@ -107,64 +108,12 @@ def _html_page(message: str = "") -> bytes:
     ) or '<tr><td colspan="2">暂无贴纸包</td></tr>'
     message_html = f'<div class="notice">{html.escape(message)}</div>' if message else ""
 
-    page = f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HIKARI 贴纸上传</title>
-  <style>
-    body {{ margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f7f9; color: #1f2328; }}
-    main {{ max-width: 860px; margin: 0 auto; padding: 28px 18px 48px; }}
-    h1 {{ font-size: 28px; margin: 0 0 8px; }}
-    p {{ color: #59636e; line-height: 1.6; }}
-    section {{ background: white; border: 1px solid #d8dee4; border-radius: 8px; padding: 18px; margin-top: 18px; }}
-    label {{ display: block; font-weight: 600; margin: 14px 0 6px; }}
-    input, select, button {{ width: 100%; box-sizing: border-box; font: inherit; padding: 10px 12px; border: 1px solid #c9d1d9; border-radius: 6px; background: white; }}
-    button {{ margin-top: 18px; background: #1f6feb; color: white; border-color: #1f6feb; cursor: pointer; font-weight: 700; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
-    th, td {{ text-align: left; border-bottom: 1px solid #d8dee4; padding: 10px; }}
-    .notice {{ background: #dafbe1; border: 1px solid #2da44e; border-radius: 6px; padding: 10px 12px; margin: 16px 0; }}
-    .hint {{ font-size: 14px; color: #6e7781; }}
-  </style>
-</head>
-<body>
-<main>
-  <h1>HIKARI 贴纸上传</h1>
-  <p>上传 GIF、图片、WebP、TGS 或视频素材到已有贴纸包，也可以输入新贴纸包名称自动创建。上传后会统一转换为 GIF，并自动注册贴纸包触发词。</p>
-  {message_html}
-  <section>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-      <label for="existing_pack">上传到已有贴纸包</label>
-      <select id="existing_pack" name="existing_pack">
-        <option value="">新建贴纸包</option>
-        {pack_options}
-      </select>
-
-      <label for="new_pack">新贴纸包名称</label>
-      <input id="new_pack" name="new_pack" placeholder="选择新建时填写，例如 capoo_gif">
-
-      <label for="keyword">额外触发词</label>
-      <input id="keyword" name="keyword" placeholder="可选，例如 猫猫虫">
-
-      <label for="file">选择贴纸文件</label>
-      <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" required>
-      <div class="hint">允许素材：gif / jpg / jpeg / png / webp / mp4 / webm / mov / mkv / tgs，保存时统一转为 gif</div>
-
-      <button type="submit">上传贴纸</button>
-    </form>
-  </section>
-
-  <section>
-    <h2>当前贴纸包</h2>
-    <table>
-      <thead><tr><th>贴纸包</th><th>文件数</th></tr></thead>
-      <tbody>{pack_rows}</tbody>
-    </table>
-  </section>
-</main>
-</body>
-</html>"""
+    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    page = template.format_map({
+        "pack_options": pack_options,
+        "pack_rows": pack_rows,
+        "message_html": message_html,
+    })
     return page.encode("utf-8")
 
 
@@ -261,6 +210,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 temp_path.unlink(missing_ok=True)
 
         self._send_html(_html_page(f"上传成功：{pack_name}/{dest.name}"))
+
     def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type.lower():
