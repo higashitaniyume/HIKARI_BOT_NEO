@@ -24,7 +24,7 @@ JMComic：
 - 统计：查看当前会话统计
 
 贴纸上传页面：
-- http://服务器IP:54213/
+- https://stickers-hikari.vlnc.top/
 - 可以新建贴纸包，或上传到已有贴纸包；非 GIF 会先转为 GIF
 
 群聊里查看本帮助：@机器人 帮助
