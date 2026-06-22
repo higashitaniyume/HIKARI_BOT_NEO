@@ -19,6 +19,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "gif_fps": 12,
     "gif_width": 512,
     "gif_max_colors": 128,
+    "gif_dither": "sierra2_4a",
     "ffmpeg_concurrency": 2,
     "max_send_count": 20,
     "send_delay_seconds": 0.5,

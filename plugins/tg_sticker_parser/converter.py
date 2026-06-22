@@ -40,11 +40,13 @@ class StickerConverter:
         gif_width: int,
         gif_max_colors: int,
         tgs_converter_cmd: list[str],
+        gif_dither: str = "sierra2_4a",
     ) -> None:
         self.gif_fps = int(gif_fps)
         self.gif_width = int(gif_width)
         self.gif_max_colors = int(gif_max_colors)
         self.tgs_converter_cmd = list(tgs_converter_cmd)
+        self.gif_dither = str(gif_dither)
 
     async def to_gif(self, input_path: Path, output_path: Path) -> Path:
         """根据输入格式自动转换为 GIF。"""
@@ -66,6 +68,12 @@ class StickerConverter:
         return output_path
 
     async def _webp_to_gif(self, input_path: Path, output_path: Path) -> None:
+        vf = (
+            f"scale={self.gif_width}:-1:flags=lanczos,"
+            f"split[s0][s1];"
+            f"[s0]palettegen=reserve_transparent=on:max_colors={self.gif_max_colors}[p];"
+            f"[s1][p]paletteuse=dither={self.gif_dither}:alpha_threshold=128"
+        )
         cmd = [
             "ffmpeg",
             "-y",
@@ -74,8 +82,8 @@ class StickerConverter:
             "error",
             "-i",
             str(input_path),
-            "-vf",
-            f"scale={self.gif_width}:-1:flags=lanczos",
+            "-filter_complex",
+            vf,
             "-loop",
             "0",
             str(output_path),
@@ -87,8 +95,8 @@ class StickerConverter:
             f"[0:v]fps={self.gif_fps},"
             f"scale={self.gif_width}:-1:flags=lanczos,"
             f"split[s0][s1];"
-            f"[s0]palettegen=max_colors={self.gif_max_colors}[p];"
-            f"[s1][p]paletteuse=dither=bayer"
+            f"[s0]palettegen=reserve_transparent=on:max_colors={self.gif_max_colors}[p];"
+            f"[s1][p]paletteuse=dither={self.gif_dither}:alpha_threshold=128"
         )
 
         cmd = [

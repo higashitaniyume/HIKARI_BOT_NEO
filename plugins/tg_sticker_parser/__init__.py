@@ -163,6 +163,7 @@ async def parse_sticker_set_to_gifs(
             tgs_converter_cmd=list(
                 cfg.get("tgs_converter_cmd", ["uv", "run", "lottie_convert.py"])
             ),
+            gif_dither=str(cfg.get("gif_dither", "sierra2_4a")),
         )
 
         sem = asyncio.Semaphore(max(1, int(cfg.get("ffmpeg_concurrency", 2))))
