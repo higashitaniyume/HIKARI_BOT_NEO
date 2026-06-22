@@ -8,7 +8,7 @@ HELP_TEXT = """HIKARI BOT NEO 帮助
 媒体解析：
 - 直接发送 Pixiv 作品链接：解析并发送图片
 - 直接发送 Instagram / Facebook 链接：解析并发送媒体
-- 直接发送 Telegram 贴纸包链接：转换并发送 GIF
+- 直接发送 Telegram 贴纸包链接：统一转 GIF 并发送
   可选参数：zip / refresh / nosave / name=关键词
 
 JMComic：
@@ -25,7 +25,7 @@ JMComic：
 
 贴纸上传页面：
 - http://服务器IP:54213/
-- 可以新建贴纸包，或上传到已有贴纸包
+- 可以新建贴纸包，或上传到已有贴纸包；非 GIF 会先转为 GIF
 
 群聊里查看本帮助：@机器人 帮助
 私聊里查看本帮助：帮助"""
@@ -43,4 +43,3 @@ async def handle_help(event: MessageEvent):
         return
 
     await help_matcher.finish(Message(HELP_TEXT))
-

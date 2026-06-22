@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "sticker_gif_fps": 12,
+  "sticker_gif_width": 0,
+  "sticker_gif_max_colors": 256,
+  "sticker_gif_dither": "sierra2_4a",
+  "sticker_ffmpeg_concurrency": 2,
+  "tgs_converter_cmd": ["uv", "run", "lottie_convert.py"]
+}

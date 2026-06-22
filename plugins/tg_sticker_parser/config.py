@@ -16,17 +16,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "api_base": "https://api.telegram.org",
     "proxy": "",
     "output_root": "/tmp/hikari_bot/tg_stickers",
-    "gif_fps": 12,
-    "gif_width": 512,
-    "gif_max_colors": 128,
-    "gif_dither": "sierra2_4a",
-    "ffmpeg_concurrency": 2,
     "direct_send_limit": 10,
     "merged_send_limit": 80,
     "max_send_count": 20,
     "send_delay_seconds": 0.5,
     "keep_original": True,
-    "tgs_converter_cmd": ["uv", "run", "lottie_convert.py"],
 }
 
 
@@ -66,5 +60,4 @@ def get_config() -> dict[str, Any]:
     return cfg
 
 
-# 插件加载时确保配置存在
 get_config()

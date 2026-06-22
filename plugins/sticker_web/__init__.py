@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import html
 from email.parser import BytesParser
 from email.policy import default as email_policy
 import json
 import logging
 import re
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,11 +15,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
+
 from .config import get_config
 
 logger = logging.getLogger("HikariBot.StickerWeb")
 
-ALLOWED_EXTS = {".gif", ".jpg", ".jpeg", ".png", ".webp", ".mp4"}
+ALLOWED_EXTS = STICKER_INPUT_EXTS
+OUTPUT_EXTS = {".gif"}
 TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
 _server_started = False
 _server_lock = threading.Lock()
@@ -77,7 +82,7 @@ def _count_media(pack_name: str) -> int:
     folder = _upload_root() / pack_name
     if not folder.is_dir():
         return 0
-    return sum(1 for f in folder.iterdir() if f.is_file() and f.suffix.lower() in ALLOWED_EXTS)
+    return sum(1 for f in folder.iterdir() if f.is_file() and f.suffix.lower() in OUTPUT_EXTS)
 
 
 def _html_page(message: str = "") -> bytes:
@@ -116,7 +121,7 @@ def _html_page(message: str = "") -> bytes:
 <body>
 <main>
   <h1>HIKARI 贴纸上传</h1>
-  <p>上传 GIF、图片、WebP 或 MP4 到已有贴纸包，也可以输入新贴纸包名称自动创建。上传后会自动注册贴纸包触发词。</p>
+  <p>上传 GIF、图片、WebP、TGS 或视频素材到已有贴纸包，也可以输入新贴纸包名称自动创建。上传后会统一转换为 GIF，并自动注册贴纸包触发词。</p>
   {message_html}
   <section>
     <form action="/upload" method="post" enctype="multipart/form-data">
@@ -133,8 +138,8 @@ def _html_page(message: str = "") -> bytes:
       <input id="keyword" name="keyword" placeholder="可选，例如 猫猫虫">
 
       <label for="file">选择贴纸文件</label>
-      <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4" required>
-      <div class="hint">允许格式：gif / jpg / jpeg / png / webp / mp4</div>
+      <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" required>
+      <div class="hint">允许素材：gif / jpg / jpeg / png / webp / mp4 / webm / mov / mkv / tgs，保存时统一转为 gif</div>
 
       <button type="submit">上传贴纸</button>
     </form>
@@ -207,12 +212,36 @@ class StickerWebHandler(BaseHTTPRequestHandler):
 
         dest_dir = _upload_root() / pack_name
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / filename
+        dest = dest_dir / f"{Path(filename).stem}.gif"
         if dest.exists():
-            stem = dest.stem
-            dest = dest_dir / f"{stem}_{int(time.time())}{suffix}"
+            dest = dest_dir / f"{dest.stem}_{int(time.time())}.gif"
 
-        dest.write_bytes(file_info["content"])
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                prefix="upload_",
+                dir=dest_dir,
+                delete=False,
+            ) as temp_file:
+                temp_file.write(file_info["content"])
+                temp_path = Path(temp_file.name)
+
+            asyncio.run(ensure_sticker_gif(temp_path, dest))
+        except TranscodeError as e:
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+            self._send_html(_html_page(f"贴纸转 GIF 失败：{e}"), 400)
+            return
+        except Exception as e:
+            logger.exception("贴纸上传处理失败: %s", e)
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+            self._send_html(_html_page("贴纸上传处理失败，请检查服务日志。"), 500)
+            return
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
 
         _register_trigger(pack_name, keyword)
         self._send_html(_html_page(f"上传成功：{pack_name}/{dest.name}"))

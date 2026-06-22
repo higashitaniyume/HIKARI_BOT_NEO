@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("HikariBot.MediaTranscoder.Config")
+
+CONFIG_PATH = Path("BotData/plugin_configs/media_transcoder.json")
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "sticker_gif_fps": 12,
+    "sticker_gif_width": 0,
+    "sticker_gif_max_colors": 256,
+    "sticker_gif_dither": "sierra2_4a",
+    "sticker_ffmpeg_concurrency": 2,
+    "tgs_converter_cmd": ["uv", "run", "lottie_convert.py"],
+}
+
+
+def ensure_config() -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.write_text(
+            json.dumps(DEFAULT_CONFIG, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info("已创建媒体转码配置文件: %s", CONFIG_PATH)
+
+
+def get_config() -> dict[str, Any]:
+    ensure_config()
+
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.exception("读取媒体转码配置失败: %s", e)
+        return DEFAULT_CONFIG.copy()
+
+    cfg = DEFAULT_CONFIG.copy()
+    cfg.update(data)
+    return cfg
+
+
+get_config()

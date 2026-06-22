@@ -13,9 +13,10 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from core.message_pipeline import register_handler
 from core.stats_tracker import increment as stats_increment
+from plugins.media_transcoder import StickerGifOptions, ensure_sticker_gif
+from plugins.media_transcoder.config import get_config as get_transcoder_config
 
 from .config import get_config
-from .converter import StickerConverter
 from .sender import send_sticker_outputs
 from .tg_api import TelegramBotApi, extract_sticker_set_names, guess_extension
 
@@ -277,17 +278,9 @@ async def parse_sticker_set_to_gifs(
 
         await bot.send(event, f"检测到 Telegram 贴纸包：{title}\n共 {len(stickers)} 个贴纸，开始处理……")
 
-        converter = StickerConverter(
-            gif_fps=int(cfg.get("gif_fps", 12)),
-            gif_width=int(cfg.get("gif_width", 512)),
-            gif_max_colors=int(cfg.get("gif_max_colors", 128)),
-            tgs_converter_cmd=list(
-                cfg.get("tgs_converter_cmd", ["uv", "run", "lottie_convert.py"])
-            ),
-            gif_dither=str(cfg.get("gif_dither", "sierra2_4a")),
-        )
-
-        sem = asyncio.Semaphore(max(1, int(cfg.get("ffmpeg_concurrency", 2))))
+        transcoder_cfg = get_transcoder_config()
+        transcode_options = StickerGifOptions.from_config(transcoder_cfg)
+        sem = asyncio.Semaphore(max(1, int(transcoder_cfg.get("sticker_ffmpeg_concurrency", 2))))
 
         async def process_one(index: int, sticker: dict[str, Any]) -> Path | None:
             async with sem:
@@ -310,7 +303,11 @@ async def parse_sticker_set_to_gifs(
                         await api.download_file(file_path, original_path)
 
                     if not gif_path.exists() or gif_path.stat().st_size <= 0:
-                        await converter.to_gif(original_path, gif_path)
+                        await ensure_sticker_gif(
+                            original_path,
+                            gif_path,
+                            options=transcode_options,
+                        )
 
                     if gif_path.exists() and gif_path.stat().st_size > 0:
                         return gif_path

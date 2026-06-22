@@ -24,8 +24,8 @@ logger = logging.getLogger("HikariBot.StickerPlugin")
 # 触发首次加载
 get_config()
 
-# 支持的图片/动图后缀
-MEDIA_EXTS = {".gif", ".jpg", ".jpeg", ".png", ".webp", ".mp4"}
+# 贴纸包最终只发送 GIF；其他素材应先经过 media_transcoder 转换
+MEDIA_EXTS = {".gif"}
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
