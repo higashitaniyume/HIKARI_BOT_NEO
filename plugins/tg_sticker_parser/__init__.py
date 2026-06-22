@@ -73,16 +73,18 @@ class AutoTgStickerHandler:
         cached_gifs = find_saved_gifs(set_name)
         if cached_gifs and not options.refresh:
             logger.info("[TgSticker] 使用已保存贴纸包缓存 → %s (%d 个)", set_name, len(cached_gifs))
+            cached_output_root = Path(str(cfg.get("output_root", "/tmp/hikari_bot/tg_stickers"))) / set_name / "cached_send"
+            sendable_gifs = prepare_cached_gifs_for_send(cached_gifs, cached_output_root)
             if options.save_pack:
                 await register_sticker_trigger(set_name, trigger_keyword)
             await send_sticker_outputs(
                 bot=bot,
                 event=event,
-                gif_paths=cached_gifs,
-                output_root=GIFS_ROOT / set_name,
+                gif_paths=sendable_gifs,
+                output_root=cached_output_root,
                 set_name=set_name,
                 title=set_name,
-                total_count=len(cached_gifs),
+                total_count=len(sendable_gifs),
                 failed_count=0,
                 direct_send_limit=get_direct_send_limit(cfg),
                 merged_send_limit=int(cfg.get("merged_send_limit", 80)),
@@ -182,6 +184,22 @@ def find_saved_gifs(set_name: str) -> list[Path]:
         p for p in folder.iterdir()
         if p.is_file() and p.suffix.lower() in MEDIA_EXTS and p.stat().st_size > 0
     )
+
+
+def prepare_cached_gifs_for_send(gif_paths: list[Path], output_root: Path) -> list[Path]:
+    """复制本地贴纸包缓存到 NapCat 可读的共享目录后再发送。"""
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    sendable_paths: list[Path] = []
+    for gif_path in gif_paths:
+        if not gif_path.exists() or gif_path.stat().st_size <= 0:
+            continue
+        dest = output_root / gif_path.name
+        if not dest.exists() or dest.stat().st_size != gif_path.stat().st_size:
+            shutil.copy2(gif_path, dest)
+        sendable_paths.append(dest)
+
+    return sendable_paths
 
 
 def save_gifs_to_pack(set_name: str, gif_paths: list[Path]) -> list[Path]:
