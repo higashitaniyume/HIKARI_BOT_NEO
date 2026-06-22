@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -43,6 +44,9 @@ class AutoTgStickerHandler:
         if not set_names:
             return
 
+        # 判断用户是否指定以 ZIP 压缩包发送（链接后以空格跟上 zip）
+        use_zip = "zip" in text.lower().split()
+
         # 防刷屏：一条消息最多处理 1 个 Telegram 贴纸包
         set_name = set_names[0]
 
@@ -64,6 +68,42 @@ class AutoTgStickerHandler:
             await bot.send(event, "没有成功转换出可发送的 GIF。")
             return
 
+        # 保存解析成功的 GIF 到 BotData/Gifs/<set_name> 并更新触发器配置
+        try:
+            gifs_dest = Path("BotData/Gifs") / set_name
+            gifs_dest.mkdir(parents=True, exist_ok=True)
+            for gif_path in gif_paths:
+                shutil.copy2(gif_path, gifs_dest / gif_path.name)
+            logger.info("[TgSticker] 已成功保存 %d 个 GIF 到 %s", len(gif_paths), gifs_dest)
+
+            # 更新 sticker_trigger 配置文件
+            trigger_config_path = Path("BotData/plugin_configs/sticker_trigger.json")
+            trigger_config = {}
+            if trigger_config_path.exists():
+                try:
+                    with open(trigger_config_path, "r", encoding="utf-8") as f:
+                        trigger_config = json.load(f)
+                except Exception as e:
+                    logger.warning("[TgSticker] 读取 sticker_trigger.json 失败: %s", e)
+            
+            if "triggers" not in trigger_config:
+                trigger_config["triggers"] = {}
+            
+            keywords = trigger_config["triggers"].get(set_name, [])
+            if not isinstance(keywords, list):
+                keywords = [keywords] if keywords else []
+            if set_name not in keywords:
+                keywords.append(set_name)
+            trigger_config["triggers"][set_name] = keywords
+            
+            trigger_config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(trigger_config_path, "w", encoding="utf-8") as f:
+                json.dump(trigger_config, f, ensure_ascii=False, indent=2)
+            
+            logger.info("[TgSticker] 已自动注册表情包触发词，文件夹: %s, 关键词: %s", set_name, set_name)
+        except Exception as e:
+            logger.exception("[TgSticker] 自动保存表情包或更新配置失败: %s", e)
+
         await send_sticker_outputs(
             bot=bot,
             event=event,
@@ -76,6 +116,7 @@ class AutoTgStickerHandler:
             direct_send_limit=int(cfg.get("direct_send_limit", 10)),
             merged_send_limit=int(cfg.get("merged_send_limit", 80)),
             send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
+            use_zip=use_zip,
         )
 
         stats_increment(event, "tg_sticker_parsed", 1)

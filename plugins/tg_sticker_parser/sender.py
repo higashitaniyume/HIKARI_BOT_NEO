@@ -155,14 +155,14 @@ async def send_sticker_outputs(
     direct_send_limit: int = 10,
     merged_send_limit: int = 80,
     send_delay_seconds: float = 0.5,
+    use_zip: bool = False,
 ) -> None:
     """
     根据数量选择发送方式：
 
-    1. <= direct_send_limit：逐个发 GIF
-    2. <= merged_send_limit：合并转发
-    3. > merged_send_limit：ZIP
-    4. 合并转发失败：ZIP
+    1. use_zip 为 True：打包为 ZIP 发送
+    2. <= direct_send_limit：逐个发 GIF
+    3. 超过 limit：以合并转发形式发送（如果数量太多，则划分为多组分别发送合并转发消息）
     """
     gif_paths = [p for p in gif_paths if p.exists() and p.stat().st_size > 0]
     total = len(gif_paths)
@@ -180,6 +180,28 @@ async def send_sticker_outputs(
     else:
         msg_lines.append(f"成功转换全部 {total} 个贴纸。")
 
+    # 1. 如果用户自选了 ZIP，则以 ZIP 发送
+    if use_zip:
+        zip_path = output_root / f"{set_name}_gifs.zip"
+        zip_name = f"{set_name}_gifs.zip"
+
+        make_zip_from_files(
+            files=gif_paths,
+            zip_path=zip_path,
+            root_name=f"{set_name}_gifs",
+        )
+
+        msg_lines.append("已打包为 ZIP 文件发送...")
+        await bot.send(event, "\n".join(msg_lines))
+        await upload_zip_file(
+            bot=bot,
+            event=event,
+            zip_path=zip_path,
+            display_name=zip_name,
+        )
+        return
+
+    # 2. 如果贴纸数量在直接发送限制内，逐个发送
     if total <= direct_send_limit:
         msg_lines.append("正在逐个发送...")
         await bot.send(event, "\n".join(msg_lines))
@@ -192,42 +214,22 @@ async def send_sticker_outputs(
         )
         return
 
-    if total <= merged_send_limit:
-        msg_lines.append("正在以合并转发形式发送...")
-        await bot.send(event, "\n".join(msg_lines))
+    # 3. 否则以分组合并消息形式发送，不再退回至压缩包
+    chunk_size = max(1, merged_send_limit)
+    gif_chunks = [gif_paths[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
-        try:
+    msg_lines.append(f"正在以合并转发形式发送（分 {len(gif_chunks)} 组）...")
+    await bot.send(event, "\n".join(msg_lines))
+
+    try:
+        for idx, chunk in enumerate(gif_chunks, start=1):
+            chunk_title = f"{title} (第 {idx}/{len(gif_chunks)} 组)" if len(gif_chunks) > 1 else title
             await send_merged_forward_gifs(
                 bot=bot,
                 event=event,
-                gif_paths=gif_paths,
-                title=title,
+                gif_paths=chunk,
+                title=chunk_title,
             )
-            return
-        except Exception as e:
-            logger.exception("合并转发失败，准备降级为 ZIP: %s", e)
-            #await bot.send(event, "合并转发失败，正在改为 ZIP 文件发送。")
-
-    zip_path = output_root / f"{set_name}_gifs.zip"
-    zip_name = f"{set_name}_gifs.zip"
-
-    make_zip_from_files(
-        files=gif_paths,
-        zip_path=zip_path,
-        root_name=f"{set_name}_gifs",
-    )
-
-    msg_lines.append(f"数量较多，已打包为 ZIP 文件发送。")
-    if total > merged_send_limit:
-        # We didn't send the msg_lines yet if it skipped merged_send_limit
-        await bot.send(event, "\n".join(msg_lines))
-    else:
-        # We already sent the msg_lines when trying merged forward, but it failed.
-        # Just notify about the ZIP.
-        await bot.send(event, "合并转发失败，正在改为 ZIP 文件发送。")
-    await upload_zip_file(
-        bot=bot,
-        event=event,
-        zip_path=zip_path,
-        display_name=zip_name,
-    )
+    except Exception as e:
+        logger.exception("发送合并转发消息失败: %s", e)
+        await bot.send(event, f"发送合并转发消息失败: {e}")
