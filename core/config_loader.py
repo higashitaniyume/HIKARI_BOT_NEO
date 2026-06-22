@@ -25,6 +25,7 @@ DEFAULT_MAIN_CONFIG: dict[str, Any] = {
         "name": "HikariBotNeo",
         "superuser_id": "你的QQ号",
         "log_level": "INFO",
+        "api_timeout": 120,
     },
     "napcat": {
         "ws_url": "ws://192.168.31.2:54253/",

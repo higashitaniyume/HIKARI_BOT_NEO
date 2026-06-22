@@ -1,0 +1,27 @@
+log: true
+
+client:
+  # 建议机器人项目先用 api，兼容性通常比 html 好
+  impl: api
+  async_impl: async_api
+  retry_times: 3
+  cache: true
+
+  postman:
+    meta_data:
+      # 如果你的服务器需要走 Mihomo/Clash，就写你的代理
+      # 不需要代理就改成 null
+      proxies: null
+
+download:
+  cache: true
+  image:
+    decode: true
+    suffix: .jpg
+  threading:
+    image: 5
+    photo: 2
+
+dir_rule:
+  base_dir: BotData/jmcomic/download
+  rule: Bd / JM{Aid}-{Atitle}

@@ -2,6 +2,10 @@
 
 QQ 媒体解析机器人，基于 [NoneBot](https://nonebot.dev/)，通过 NapCat WebSocket 接入 QQ。
 
+> [!IMPORTANT]
+> **关于本仓库：**
+> 本仓库仅包含 HIKARI BOT NEO 机器人的**部分功能源代码**（即 Pixiv、Instagram、Facebook 的解析实现与基础能力）。机器人的其他功能（如 X/Twitter、抖音、Bilibili 等解析）由独立的 AstrBot 插件运行，两部分为并行部署。
+
 **原理：** 在 QQ 里发送一条媒体链接，机器人收到后自动解析、下载媒体内容，发回当前会话。
 
 ---

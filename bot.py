@@ -71,6 +71,9 @@ nonebot.init(
 
     # 机器人名称
     nickname=[bot_cfg.get("name", "HikariBotNeo")],
+
+    # API 调用超时时间 (解决大文件或合并转发超时问题)
+    api_timeout=bot_cfg.get("api_timeout", 120),
 )
 
 logger.info(f"NoneBot 初始化完成")
