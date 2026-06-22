@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import cgi
 import html
+from email.parser import BytesParser
+from email.policy import default as email_policy
 import json
 import logging
 import re
-import shutil
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -179,30 +179,27 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             self._send_html(_html_page("页面不存在。"), 404)
             return
 
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={
-                "REQUEST_METHOD": "POST",
-                "CONTENT_TYPE": self.headers.get("Content-Type", ""),
-            },
-        )
+        try:
+            fields, files = self._parse_multipart_form()
+        except ValueError as e:
+            self._send_html(_html_page(str(e)), 400)
+            return
 
-        existing_pack = _safe_pack_name(str(form.getfirst("existing_pack", "")))
-        new_pack = _safe_pack_name(str(form.getfirst("new_pack", "")))
-        keyword = str(form.getfirst("keyword", "")).strip()
+        existing_pack = _safe_pack_name(fields.get("existing_pack", ""))
+        new_pack = _safe_pack_name(fields.get("new_pack", ""))
+        keyword = fields.get("keyword", "").strip()
         pack_name = existing_pack or new_pack
 
         if not pack_name:
             self._send_html(_html_page("请先选择已有贴纸包，或输入新贴纸包名称。"), 400)
             return
 
-        file_item = form["file"] if "file" in form else None
-        if file_item is None or not getattr(file_item, "filename", ""):
+        file_info = files.get("file")
+        if file_info is None or not file_info["filename"]:
             self._send_html(_html_page("请选择要上传的文件。"), 400)
             return
 
-        filename = _safe_filename(file_item.filename)
+        filename = _safe_filename(file_info["filename"])
         suffix = Path(filename).suffix.lower()
         if suffix not in ALLOWED_EXTS:
             self._send_html(_html_page(f"不支持的文件格式：{suffix}"), 400)
@@ -215,11 +212,58 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             stem = dest.stem
             dest = dest_dir / f"{stem}_{int(time.time())}{suffix}"
 
-        with dest.open("wb") as f:
-            shutil.copyfileobj(file_item.file, f)
+        dest.write_bytes(file_info["content"])
 
         _register_trigger(pack_name, keyword)
         self._send_html(_html_page(f"上传成功：{pack_name}/{dest.name}"))
+
+    def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+        content_type = self.headers.get("Content-Type", "")
+        if "multipart/form-data" not in content_type.lower():
+            raise ValueError("请求格式错误：需要 multipart/form-data。")
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as e:
+            raise ValueError("请求格式错误：Content-Length 无效。") from e
+
+        if content_length <= 0:
+            raise ValueError("上传内容为空。")
+
+        body = self.rfile.read(content_length)
+        raw_message = (
+            f"Content-Type: {content_type}\r\n"
+            "MIME-Version: 1.0\r\n\r\n"
+        ).encode("utf-8") + body
+        message = BytesParser(policy=email_policy).parsebytes(raw_message)
+
+        if not message.is_multipart():
+            raise ValueError("请求格式错误：未找到 multipart 内容。")
+
+        fields: dict[str, str] = {}
+        files: dict[str, dict[str, Any]] = {}
+
+        for part in message.iter_parts():
+            disposition = part.get("Content-Disposition", "")
+            if "form-data" not in disposition:
+                continue
+
+            name = part.get_param("name", header="Content-Disposition")
+            if not name:
+                continue
+
+            filename = part.get_filename()
+            payload = part.get_payload(decode=True) or b""
+            if filename:
+                files[name] = {
+                    "filename": filename,
+                    "content": payload,
+                }
+            else:
+                charset = part.get_content_charset() or "utf-8"
+                fields[name] = payload.decode(charset, errors="replace")
+
+        return fields, files
 
 
 def _normalize_port(raw_port: Any) -> int:
