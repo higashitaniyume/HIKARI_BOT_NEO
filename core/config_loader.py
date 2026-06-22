@@ -40,7 +40,6 @@ DEFAULT_MAIN_CONFIG: dict[str, Any] = {
         "temp_media": "/tmp/hikari_bot",
     },
     "features": {
-        "message_collector": True,
         "pixiv_parser": True,
         "cobalt_parser": True,
     },
@@ -111,8 +110,6 @@ def init_directories(config: dict[str, Any]) -> None:
         paths.get("logs", "BotData/logs"),
         paths.get("plugin_configs", "BotData/plugin_configs"),
         paths.get("temp_media", "/tmp/hikari_bot"),
-        "UserData/private",
-        "UserData/group",
     ]
     for d in dirs_to_create:
         try:
@@ -203,3 +200,5 @@ def get_config_value(config: dict[str, Any], *keys: str, default: Any = None) ->
         else:
             return default
     return current
+
+

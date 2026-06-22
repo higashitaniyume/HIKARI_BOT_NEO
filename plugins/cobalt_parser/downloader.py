@@ -68,7 +68,7 @@ async def download_media(
         logger.debug(f"[Cobalt] 缓存命中 → {path.name} ({size_kb:.1f} KB)")
         return path
 
-    # 下载
+    # 下载：流式写入，避免大视频一次性进入内存；不限制文件大小。
     logger.info(f"[Cobalt] 下载媒体 → {url[:100]}...")
     t_start = time.time()
 
@@ -77,11 +77,19 @@ async def download_media(
         timeout=httpx.Timeout(timeout, connect=20.0),
         follow_redirects=True,
     ) as client:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
-
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(resp.content)
+        tmp_path = path.with_suffix(path.suffix + ".part")
+        try:
+            async with client.stream("GET", url, headers=headers) as resp:
+                resp.raise_for_status()
+                with tmp_path.open("wb") as f:
+                    async for chunk in resp.aiter_bytes():
+                        if chunk:
+                            f.write(chunk)
+            tmp_path.replace(path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     elapsed = time.time() - t_start
     size_kb = path.stat().st_size / 1024

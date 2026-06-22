@@ -8,8 +8,6 @@
       ↓
     进入 core/message_pipeline.py
       ↓
-    调用消息记录模块，把消息写入 JSONL
-      ↓
     调用功能分发逻辑
       ↓
     检查是否命中各 handler 的 match()
@@ -76,16 +74,8 @@ msg_pipeline = on_message(priority=1, block=False)
 async def _pipeline_handle(bot: Bot, event: MessageEvent):
     """Pipeline 主入口：所有消息都经过此函数。"""
 
-    from core.message_collector import collect_message
     from core.error_notifier import notify_error_to_superuser, send_user_error
 
-    # Step 1: 消息记录 → 写入 JSONL
-    try:
-        await collect_message(bot, event)
-    except Exception as e:
-        logger.exception(f"消息收集异常: {e}")
-
-    # Step 2: 功能分发 → 逐个检查 handler
     if not _handlers:
         return
 
@@ -112,5 +102,4 @@ async def _pipeline_handle(bot: Bot, event: MessageEvent):
             except Exception as notify_err:
                 logger.exception(f"发送错误通知失败: {notify_err}")
 
-        # 每个消息最多命中一个 handler？还是允许链式？
         # 当前设计：一个消息可命中多个 handler（不 break）

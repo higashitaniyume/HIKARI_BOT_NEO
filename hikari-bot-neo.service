@@ -18,6 +18,7 @@ SyslogIdentifier=hikari-bot-neo
 # 环境变量仅用于系统级配置，不用于项目配置（项目配置从 JSON 读取）
 Environment="PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=/root"
+Environment="PYTHONDONTWRITEBYTECODE=1"
 
 # 安全加固（可选）
 NoNewPrivileges=yes
@@ -25,3 +26,4 @@ PrivateTmp=no
 
 [Install]
 WantedBy=multi-user.target
+
