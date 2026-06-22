@@ -13,6 +13,7 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
+from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
 from .parser import extract_social_urls, call_cobalt_api
@@ -61,6 +62,7 @@ class AutoCobaltHandler:
                     continue
 
                 await send_cobalt_result(bot, event, result, cfg)
+                stats_increment(event, "cobalt_parsed", 1)
                 await asyncio.sleep(1.0)
 
             except Exception as e:

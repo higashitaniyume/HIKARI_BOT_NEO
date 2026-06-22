@@ -15,6 +15,7 @@ from nonebot.params import CommandArg
 
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
+from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
 from .parser import extract_pixiv_ids
@@ -61,6 +62,7 @@ class AutoPixivHandler:
             logger.debug(f"[Pixiv] 自动解析第 {i+1}/{len(ids_to_process)} 个 → pid={illust_id}")
             try:
                 await send_artwork(bot, event, illust_id, cfg)
+                stats_increment(event, "pixiv_parsed", 1)
                 await asyncio.sleep(1.0)
             except Exception as e:
                 logger.exception(f"[Pixiv] 自动解析失败 → pid={illust_id}: {e}")
@@ -116,6 +118,7 @@ async def handle_pixiv_cmd(bot: Bot, event: MessageEvent, args: Message = Comman
     illust_id = ids[0]
     try:
         await send_artwork(bot, event, illust_id, get_config())
+        stats_increment(event, "pixiv_parsed", 1)
     except Exception as e:
         logger.exception(f"[Pixiv] 命令解析失败 → pid={illust_id}: {e}")
         await pixiv_cmd.finish(f"Pixiv 解析失败：{e}")

@@ -41,6 +41,7 @@ BotData/logs/*.log
 # User data (sensitive)
 UserData/private/*.jsonl
 UserData/group/*.jsonl
+UserData/stats/
 
 # System
 .DS_Store

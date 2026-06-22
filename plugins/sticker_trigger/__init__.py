@@ -17,6 +17,7 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
 from .config import get_config
+from core.stats_tracker import increment as stats_increment, format_stats
 
 logger = logging.getLogger("HikariBot.StickerPlugin")
 
@@ -165,7 +166,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         return
 
     # "随机表情包" → 从所有贴纸包中随机选一张发送
-    if text == "随机表情包":
+    if text == "随机贴纸":
         all_files: list[Path] = []
         for folder_name in triggers:
             folder_path = GIFS_ROOT / folder_name
@@ -182,6 +183,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         shared_path = _copy_to_shared(picked)
         uri = shared_path.resolve().as_uri()
         await bot.send(event, Message(MessageSegment.image(uri)))
+        stats_increment(event, "stickers_sent", 1)
         return
 
     # "拼图 capoo" → 将该贴纸包所有图片的第一帧拼成一张大图
@@ -204,9 +206,15 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
             jpg_path = await _make_collage(all_in_folder, folder_name)
             uri = jpg_path.resolve().as_uri()
             await bot.send(event, Message(MessageSegment.image(uri)))
+            stats_increment(event, "collage_made", 1)
         except Exception as e:
             logger.exception(f"[Sticker] 拼图失败: {e}")
             await bot.send(event, Message(f"拼图失败: {e}"))
+        return
+
+    # "统计" → 显示当前会话的统计信息
+    if text == "统计":
+        await bot.send(event, Message(format_stats(event)))
         return
 
     # "贴纸包" → 列出所有可用贴纸包
@@ -249,6 +257,8 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     picked = random.sample(all_in_folder, min(count, len(all_in_folder)))
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
+
+    stats_increment(event, "stickers_sent", len(picked))
 
     if len(picked) <= 10:
         for p in picked:
