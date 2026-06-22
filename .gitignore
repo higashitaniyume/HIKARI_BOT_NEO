@@ -57,3 +57,7 @@ uv.lock
 
 # Temporary media
 /tmp/hikari_bot/
+
+# Deployment scripts and systemd service files
+deploy.ps1
+hikari-bot-neo.service

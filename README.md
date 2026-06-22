@@ -262,65 +262,8 @@ services:
       - /tmp/hikari_bot:/tmp/hikari_bot
 ```
 
-systemd 服务里已经设置 `PrivateTmp=no`，用于避免服务进程看到隔离后的 `/tmp`。
-
 ---
 
-## 部署
-
-### systemd
-
-服务文件默认工作目录为 `/opt/HIKARI_BOT_NEO`，启动命令为：
-
-```text
-/opt/HIKARI_BOT_NEO/.venv/bin/python /opt/HIKARI_BOT_NEO/bot.py
-```
-
-部署命令：
-
-```bash
-cp /opt/HIKARI_BOT_NEO/hikari-bot-neo.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now hikari-bot-neo
-journalctl -u hikari-bot-neo -f
-```
-
-### PowerShell 一键部署
-
-Windows 本地可运行：
-
-```powershell
-.\deploy.ps1
-```
-
-默认部署到：
-
-- 服务器：`root@192.168.31.2`
-- 路径：`/opt/HIKARI_BOT_NEO`
-- 服务名：`hikari-bot-neo`
-
-可以覆盖参数：
-
-```powershell
-.\deploy.ps1 -ServerIP "1.2.3.4" -ServerUser "root" -DeployPath "/opt/HIKARI_BOT_NEO"
-```
-
-只同步 `BotData/Gifs` 贴纸文件：
-
-```powershell
-.\deploy.ps1 -u
-```
-
-首次部署前需要配置 SSH Key：
-
-```powershell
-ssh-keygen -t ed25519
-type $env:USERPROFILE\.ssh\id_ed25519.pub
-```
-
-将公钥加入服务器 `/root/.ssh/authorized_keys`。
-
----
 
 ## 项目结构
 
@@ -349,8 +292,6 @@ HIKARI_BOT_NEO/
     jmcomic/option.yml           # JMComic 配置
   UserData/
     stats/                       # 会话统计数据
-  deploy.ps1                     # PowerShell 部署脚本
-  hikari-bot-neo.service         # systemd 服务文件
   pyproject.toml                 # Python 依赖和 NoneBot 配置
 ```
 
