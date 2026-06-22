@@ -146,11 +146,21 @@ uv run python bot.py
 
 发送 `https://t.me/addstickers/<set_name>` 后，机器人会：
 
-1. 调用 Telegram Bot API 获取贴纸包。
-2. 将贴纸转换为 GIF。
-3. 保存到 `BotData/Gifs/<set_name>`。
-4. 自动写入 `BotData/plugin_configs/sticker_trigger.json`，让贴纸包名称成为触发词。
-5. 发送转换后的 GIF。链接消息中额外带 `zip` 时，会尝试按压缩包方式发送。
+1. 优先复用 `BotData/Gifs/<set_name>` 中已保存的 GIF。
+2. 无本地缓存或带 `refresh` 参数时，调用 Telegram Bot API 获取贴纸包。
+3. 将贴纸转换为 GIF。
+4. 默认保存到 `BotData/Gifs/<set_name>`。
+5. 自动写入 `BotData/plugin_configs/sticker_trigger.json`，让贴纸包名称成为触发词。
+6. 发送转换后的 GIF。
+
+可选参数直接跟在链接后：
+
+| 参数 | 效果 |
+|------|------|
+| `zip` | 打包为 ZIP 文件发送 |
+| `refresh` | 忽略本地缓存，重新获取并转换 |
+| `nosave` | 只发送本次结果，不保存成本地贴纸包 |
+| `name=关键词` / `keyword=关键词` / `kw=关键词` | 额外注册一个触发词 |
 
 ### 本地贴纸包
 
@@ -328,6 +338,4 @@ HIKARI_BOT_NEO/
 - `core.message_pipeline` 会先注册全局消息管道，自动解析类插件通过 `register_handler()` 接入。
 - 插件配置大多支持热重载，修改 JSON 后下条消息即可生效。
 - `BotData/config.json`、`BotData/plugin_configs/*.json`、`UserData/stats`、日志和实际贴纸媒体文件默认不提交。
-
-
 

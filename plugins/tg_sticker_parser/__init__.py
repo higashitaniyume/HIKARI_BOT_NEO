@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,18 @@ logger = logging.getLogger("HikariBot.TgStickerPlugin")
 
 # 触发首次加载并确保配置存在
 get_config()
+
+MEDIA_EXTS = {".gif"}
+GIFS_ROOT = Path("BotData/Gifs")
+TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
+
+
+@dataclass(slots=True)
+class TgStickerOptions:
+    use_zip: bool = False
+    refresh: bool = False
+    save_pack: bool = True
+    trigger_keyword: str = ""
 
 
 class AutoTgStickerHandler:
@@ -44,17 +58,40 @@ class AutoTgStickerHandler:
         if not set_names:
             return
 
-        # 判断用户是否指定以 ZIP 压缩包发送（链接后以空格跟上 zip）
-        use_zip = "zip" in text.lower().split()
-
         # 防刷屏：一条消息最多处理 1 个 Telegram 贴纸包
         set_name = set_names[0]
+        options = parse_options(text)
+        trigger_keyword = options.trigger_keyword or set_name
 
         logger.info(
-            "[TgSticker] 自动解析触发 → user=%s, set_name=%s",
+            "[TgSticker] 自动解析触发 → user=%s, set_name=%s, options=%s",
             event.get_user_id(),
             set_name,
+            options,
         )
+
+        cached_gifs = find_saved_gifs(set_name)
+        if cached_gifs and not options.refresh:
+            logger.info("[TgSticker] 使用已保存贴纸包缓存 → %s (%d 个)", set_name, len(cached_gifs))
+            if options.save_pack:
+                await register_sticker_trigger(set_name, trigger_keyword)
+            await send_sticker_outputs(
+                bot=bot,
+                event=event,
+                gif_paths=cached_gifs,
+                output_root=GIFS_ROOT / set_name,
+                set_name=set_name,
+                title=set_name,
+                total_count=len(cached_gifs),
+                failed_count=0,
+                direct_send_limit=get_direct_send_limit(cfg),
+                merged_send_limit=int(cfg.get("merged_send_limit", 80)),
+                send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
+                use_zip=options.use_zip,
+                from_cache=True,
+            )
+            stats_increment(event, "tg_sticker_parsed", 1)
+            return
 
         result = await parse_sticker_set_to_gifs(bot, event, set_name, cfg)
 
@@ -68,41 +105,15 @@ class AutoTgStickerHandler:
             await bot.send(event, "没有成功转换出可发送的 GIF。")
             return
 
-        # 保存解析成功的 GIF 到 BotData/Gifs/<set_name> 并更新触发器配置
-        try:
-            gifs_dest = Path("BotData/Gifs") / set_name
-            gifs_dest.mkdir(parents=True, exist_ok=True)
-            for gif_path in gif_paths:
-                shutil.copy2(gif_path, gifs_dest / gif_path.name)
-            logger.info("[TgSticker] 已成功保存 %d 个 GIF 到 %s", len(gif_paths), gifs_dest)
-
-            # 更新 sticker_trigger 配置文件
-            trigger_config_path = Path("BotData/plugin_configs/sticker_trigger.json")
-            trigger_config = {}
-            if trigger_config_path.exists():
-                try:
-                    with open(trigger_config_path, "r", encoding="utf-8") as f:
-                        trigger_config = json.load(f)
-                except Exception as e:
-                    logger.warning("[TgSticker] 读取 sticker_trigger.json 失败: %s", e)
-            
-            if "triggers" not in trigger_config:
-                trigger_config["triggers"] = {}
-            
-            keywords = trigger_config["triggers"].get(set_name, [])
-            if not isinstance(keywords, list):
-                keywords = [keywords] if keywords else []
-            if set_name not in keywords:
-                keywords.append(set_name)
-            trigger_config["triggers"][set_name] = keywords
-            
-            trigger_config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(trigger_config_path, "w", encoding="utf-8") as f:
-                json.dump(trigger_config, f, ensure_ascii=False, indent=2)
-            
-            logger.info("[TgSticker] 已自动注册表情包触发词，文件夹: %s, 关键词: %s", set_name, set_name)
-        except Exception as e:
-            logger.exception("[TgSticker] 自动保存表情包或更新配置失败: %s", e)
+        if options.save_pack:
+            try:
+                saved_paths = save_gifs_to_pack(set_name, gif_paths)
+                await register_sticker_trigger(set_name, trigger_keyword)
+                logger.info("[TgSticker] 已保存 %d 个 GIF 并注册触发词 %s", len(saved_paths), trigger_keyword)
+            except Exception as e:
+                logger.exception("[TgSticker] 自动保存表情包或更新配置失败: %s", e)
+        else:
+            logger.info("[TgSticker] nosave 已启用，不保存贴纸包 → %s", set_name)
 
         await send_sticker_outputs(
             bot=bot,
@@ -113,13 +124,105 @@ class AutoTgStickerHandler:
             title=title,
             total_count=total_count,
             failed_count=failed_count,
-            direct_send_limit=int(cfg.get("direct_send_limit", 10)),
+            direct_send_limit=get_direct_send_limit(cfg),
             merged_send_limit=int(cfg.get("merged_send_limit", 80)),
             send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
-            use_zip=use_zip,
+            use_zip=options.use_zip,
+            from_cache=False,
         )
 
         stats_increment(event, "tg_sticker_parsed", 1)
+
+
+def parse_options(text: str) -> TgStickerOptions:
+    """解析链接后的简单参数：zip / refresh / nosave / name=xxx / keyword=xxx。"""
+    tokens = [token.strip() for token in re.split(r"\s+", text.strip()) if token.strip()]
+    options = TgStickerOptions()
+
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        lower = token.lower()
+
+        if lower == "zip":
+            options.use_zip = True
+        elif lower in {"refresh", "reload", "force"}:
+            options.refresh = True
+        elif lower in {"nosave", "no-save"}:
+            options.save_pack = False
+        elif lower.startswith(("name=", "keyword=", "kw=")):
+            _, value = token.split("=", 1)
+            value = value.strip()
+            if value:
+                options.trigger_keyword = value
+        elif token.startswith("关键词"):
+            value = token.removeprefix("关键词").strip("=:： ")
+            if not value and i + 1 < len(tokens):
+                i += 1
+                value = tokens[i].strip()
+            if value:
+                options.trigger_keyword = value
+
+        i += 1
+
+    return options
+
+
+def get_direct_send_limit(cfg: dict[str, Any]) -> int:
+    """兼容旧配置 max_send_count 和新配置 direct_send_limit。"""
+    return int(cfg.get("direct_send_limit", cfg.get("max_send_count", 10)))
+
+
+def find_saved_gifs(set_name: str) -> list[Path]:
+    """读取已保存到 BotData/Gifs 的 GIF。"""
+    folder = GIFS_ROOT / set_name
+    if not folder.is_dir():
+        return []
+    return sorted(
+        p for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in MEDIA_EXTS and p.stat().st_size > 0
+    )
+
+
+def save_gifs_to_pack(set_name: str, gif_paths: list[Path]) -> list[Path]:
+    """保存转换结果到 BotData/Gifs/<set_name>。"""
+    gifs_dest = GIFS_ROOT / set_name
+    gifs_dest.mkdir(parents=True, exist_ok=True)
+
+    saved_paths: list[Path] = []
+    for gif_path in gif_paths:
+        if not gif_path.exists() or gif_path.stat().st_size <= 0:
+            continue
+        dest = gifs_dest / gif_path.name
+        shutil.copy2(gif_path, dest)
+        saved_paths.append(dest)
+
+    return saved_paths
+
+
+async def register_sticker_trigger(set_name: str, keyword: str) -> None:
+    """把贴纸包注册到 sticker_trigger.json。"""
+    trigger_config: dict[str, Any] = {}
+    if TRIGGER_CONFIG_PATH.exists():
+        try:
+            with TRIGGER_CONFIG_PATH.open("r", encoding="utf-8") as f:
+                trigger_config = json.load(f)
+        except Exception as e:
+            logger.warning("[TgSticker] 读取 sticker_trigger.json 失败，将重建配置: %s", e)
+
+    triggers = trigger_config.setdefault("triggers", {})
+    keywords = triggers.get(set_name, [])
+    if not isinstance(keywords, list):
+        keywords = [keywords] if keywords else []
+
+    for candidate in (set_name, keyword):
+        if candidate and candidate not in keywords:
+            keywords.append(candidate)
+
+    triggers[set_name] = keywords
+    TRIGGER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TRIGGER_CONFIG_PATH.open("w", encoding="utf-8") as f:
+        json.dump(trigger_config, f, ensure_ascii=False, indent=2)
 
 
 async def parse_sticker_set_to_gifs(
@@ -140,8 +243,6 @@ async def parse_sticker_set_to_gifs(
     )
 
     try:
-        # await bot.send(event, f"检测到 Telegram 贴纸包：{set_name}\n开始获取贴纸列表……")
-
         sticker_set = await api.get_sticker_set(set_name)
         title = sticker_set.get("title") or set_name
         stickers = sticker_set.get("stickers") or []
@@ -152,9 +253,11 @@ async def parse_sticker_set_to_gifs(
                 "gif_paths": [],
                 "output_root": output_root,
                 "title": title,
+                "total_count": 0,
+                "failed_count": 0,
             }
 
-        # Removed intermediate starting message to reduce spam
+        await bot.send(event, f"检测到 Telegram 贴纸包：{title}\n共 {len(stickers)} 个贴纸，开始处理……")
 
         converter = StickerConverter(
             gif_fps=int(cfg.get("gif_fps", 12)),
@@ -185,10 +288,10 @@ async def parse_sticker_set_to_gifs(
                     original_path = originals_dir / f"{index:03d}_{file_unique_id}{ext}"
                     gif_path = gifs_dir / f"{index:03d}_{file_unique_id}.gif"
 
-                    if not original_path.exists():
+                    if not original_path.exists() or original_path.stat().st_size <= 0:
                         await api.download_file(file_path, original_path)
 
-                    if not gif_path.exists():
+                    if not gif_path.exists() or gif_path.stat().st_size <= 0:
                         await converter.to_gif(original_path, gif_path)
 
                     if gif_path.exists() and gif_path.stat().st_size > 0:
@@ -214,8 +317,6 @@ async def parse_sticker_set_to_gifs(
         gif_paths = [p for p in results if isinstance(p, Path) and p.exists() and p.stat().st_size > 0]
 
         failed_count = len(stickers) - len(gif_paths)
-
-        # Moved completion message to sender.py for consolidation
 
         if not bool(cfg.get("keep_original", True)):
             shutil.rmtree(originals_dir, ignore_errors=True)

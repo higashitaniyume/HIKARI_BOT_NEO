@@ -4,22 +4,38 @@ import asyncio
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 
 TG_STICKER_RE = re.compile(
-    r"https?://(?:t\.me|telegram\.me)/addstickers/([A-Za-z][A-Za-z0-9_]{0,63})",
+    r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me|telegram\.dog)/addstickers/([A-Za-z][A-Za-z0-9_]{0,63})(?=[/?#\s\])）】》>.,，。!！?？:：;；]|$)",
     re.IGNORECASE,
 )
 
+_TRAILING_PUNCTUATION = "./,，。!！?？:：;；)]）】》>\"'"
+
+
+def normalize_sticker_set_name(name: str) -> str:
+    """清理 Telegram 贴纸包名称，只保留 Bot API 接受的格式。"""
+    name = name.strip().strip(_TRAILING_PUNCTUATION)
+    match = re.match(r"^[A-Za-z][A-Za-z0-9_]{0,63}", name)
+    return match.group(0) if match else ""
+
 
 def extract_sticker_set_names(text: str) -> list[str]:
+    """从文本中提取 Telegram 贴纸包名称，去重并保持顺序。"""
     names: list[str] = []
+    seen: set[str] = set()
+
     for match in TG_STICKER_RE.finditer(text):
-        name = match.group(1)
-        if name not in names:
+        name = normalize_sticker_set_name(match.group(1))
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
             names.append(name)
+
     return names
 
 
@@ -95,32 +111,40 @@ class TelegramBotApi:
     async def download_file(self, file_path: str, save_path: Path) -> Path:
         url = f"{self.api_base}/file/bot{self.token}/{file_path}"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = save_path.with_suffix(save_path.suffix + ".part")
 
         try:
             async with self.client.stream("GET", url) as resp:
                 resp.raise_for_status()
-                with save_path.open("wb") as f:
+                with tmp_path.open("wb") as f:
                     async for chunk in resp.aiter_bytes():
                         if chunk:
                             f.write(chunk)
+            tmp_path.replace(save_path)
         except httpx.ConnectError as e:
+            tmp_path.unlink(missing_ok=True)
             raise TelegramApiError(
                 f"下载 Telegram 文件失败: {type(e).__name__}: {repr(e)}"
             ) from e
         except httpx.TimeoutException as e:
+            tmp_path.unlink(missing_ok=True)
             raise TelegramApiError(
                 f"下载 Telegram 文件超时: {type(e).__name__}: {repr(e)}"
             ) from e
         except httpx.HTTPError as e:
+            tmp_path.unlink(missing_ok=True)
             raise TelegramApiError(
                 f"下载 Telegram 文件请求失败: {type(e).__name__}: {repr(e)}"
             ) from e
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
         return save_path
 
 
 def guess_extension(sticker: dict[str, Any], file_path: str) -> str:
-    suffix = Path(file_path).suffix.lower()
+    suffix = Path(urlparse(file_path).path).suffix.lower()
     if suffix in {".webp", ".webm", ".tgs"}:
         return suffix
 

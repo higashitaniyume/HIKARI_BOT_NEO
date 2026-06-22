@@ -156,6 +156,7 @@ async def send_sticker_outputs(
     merged_send_limit: int = 80,
     send_delay_seconds: float = 0.5,
     use_zip: bool = False,
+    from_cache: bool = False,
 ) -> None:
     """
     根据数量选择发送方式：
@@ -175,7 +176,9 @@ async def send_sticker_outputs(
     merged_send_limit = int(merged_send_limit)
 
     msg_lines = [f"贴纸包：{title}"]
-    if failed_count > 0:
+    if from_cache:
+        msg_lines.append(f"使用本地已保存的贴纸包缓存，共 {total} 个贴纸。")
+    elif failed_count > 0:
         msg_lines.append(f"成功转换：{total} 个，失败：{failed_count} 个。")
     else:
         msg_lines.append(f"成功转换全部 {total} 个贴纸。")
