@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "host": "0.0.0.0",
+  "port": 54213,
+  "upload_root": "BotData/Gifs"
+}

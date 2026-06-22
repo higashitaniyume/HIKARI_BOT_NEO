@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("HikariBot.StickerWeb.Config")
+
+CONFIG_PATH = Path("BotData/plugin_configs/sticker_web.json")
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "host": "0.0.0.0",
+    "port": 54213,
+    "upload_root": "BotData/Gifs",
+}
+
+
+def ensure_config() -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.write_text(json.dumps(DEFAULT_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info("已创建贴纸上传页面配置文件: %s", CONFIG_PATH)
+
+
+def get_config() -> dict[str, Any]:
+    ensure_config()
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.exception("读取贴纸上传页面配置失败: %s", e)
+        return DEFAULT_CONFIG.copy()
+
+    cfg = DEFAULT_CONFIG.copy()
+    cfg.update(data)
+    return cfg

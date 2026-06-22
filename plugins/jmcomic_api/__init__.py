@@ -9,10 +9,10 @@ from typing import Optional
 
 import jmcomic
 from jmcomic import Feature
-from nonebot import on_command, on_regex
-from nonebot.adapters.onebot.v11 import Bot, Message, PrivateMessageEvent
+from nonebot import on_regex
+from nonebot.adapters.onebot.v11 import Bot, PrivateMessageEvent
 from nonebot.adapters.onebot.v11.permission import PRIVATE
-from nonebot.params import CommandArg, RegexGroup
+from nonebot.params import RegexGroup
 
 try:
     from jmcomic import DirRule
@@ -47,13 +47,6 @@ _download_sem = asyncio.Semaphore(1)
 DELETE_ORIGINAL_IMAGES_AFTER_PDF = True
 
 
-jm_download = on_command(
-    "jm",
-    aliases={"下载jm", "jmpdf"},
-    priority=10,
-    block=True,
-    permission=PRIVATE,
-)
 
 plain_jm_download = on_regex(
     r"(?i)^\s*jm\s+(?:JM)?(\d{3,})\s*$",
@@ -176,19 +169,6 @@ async def upload_pdf_if_possible(bot: Bot, event: PrivateMessageEvent, pdf_path:
     return True
 
 
-@jm_download.handle()
-async def handle_jm_download(
-    bot: Bot,
-    event: PrivateMessageEvent,
-    args: Message = CommandArg(),
-):
-    raw = args.extract_plain_text().strip()
-    jm_id = extract_jm_id(raw)
-
-    if not jm_id:
-        await jm_download.finish("用法：jm 123456 或 /jm 123456")
-
-    await _download_and_send_pdf(bot, event, jm_id, raw)
 
 
 @plain_jm_download.handle()
