@@ -245,10 +245,11 @@ async def register_sticker_trigger(set_name: str, keyword: str) -> None:
 
 
 async def parse_sticker_set_to_gifs(
-    bot: Bot,
-    event: MessageEvent,
+    bot: Bot | None,
+    event: MessageEvent | None,
     set_name: str,
     cfg: dict[str, Any],
+    progress_callback: Any = None,
 ) -> dict[str, Any]:
     output_root = Path(str(cfg.get("output_root", "/tmp/hikari_bot/tg_stickers"))) / set_name
     originals_dir = output_root / "originals"
@@ -267,7 +268,8 @@ async def parse_sticker_set_to_gifs(
         stickers = sticker_set.get("stickers") or []
 
         if not stickers:
-            await bot.send(event, "这个贴纸包里没有可处理的贴纸。")
+            if bot is not None and event is not None:
+                await bot.send(event, "这个贴纸包里没有可处理的贴纸。")
             return {
                 "gif_paths": [],
                 "output_root": output_root,
@@ -276,7 +278,17 @@ async def parse_sticker_set_to_gifs(
                 "failed_count": 0,
             }
 
-        await bot.send(event, f"检测到 Telegram 贴纸包：{title}\n共 {len(stickers)} 个贴纸，开始处理……")
+        if bot is not None and event is not None:
+            await bot.send(event, f"检测到 Telegram 贴纸包：{title}\n共 {len(stickers)} 个贴纸，开始处理……")
+        if progress_callback is not None:
+            maybe_awaitable = progress_callback({
+                "title": title,
+                "total": len(stickers),
+                "processed": 0,
+                "message": f"检测到 Telegram 贴纸包：{title}",
+            })
+            if asyncio.iscoroutine(maybe_awaitable):
+                await maybe_awaitable
 
         transcoder_cfg = get_transcoder_config()
         transcode_options = StickerGifOptions.from_config(transcoder_cfg)
@@ -328,7 +340,20 @@ async def parse_sticker_set_to_gifs(
             for index, sticker in enumerate(stickers, start=1)
         ]
 
-        results = await asyncio.gather(*tasks)
+        results: list[Path | None] = []
+        processed_count = 0
+        for task in asyncio.as_completed(tasks):
+            results.append(await task)
+            processed_count += 1
+            if progress_callback is not None:
+                maybe_awaitable = progress_callback({
+                    "title": title,
+                    "total": len(stickers),
+                    "processed": processed_count,
+                    "message": f"正在转换 {processed_count}/{len(stickers)}：{title}",
+                })
+                if asyncio.iscoroutine(maybe_awaitable):
+                    await maybe_awaitable
         gif_paths = [p for p in results if isinstance(p, Path) and p.exists() and p.stat().st_size > 0]
 
         failed_count = len(stickers) - len(gif_paths)

@@ -121,11 +121,16 @@ p {
 }
 
 .upload-form,
+.tg-form,
 .keyword-form {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   gap: 12px;
   align-items: end;
+}
+
+.tg-form {
+  grid-template-columns: minmax(260px, 1.3fr) minmax(180px, 0.8fr) minmax(180px, 0.8fr) auto auto;
 }
 
 .keyword-form {
@@ -151,6 +156,24 @@ label small {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+}
+
+.checkbox-field input {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+}
+
+.checkbox-field span {
+  margin: 0;
+  white-space: nowrap;
 }
 
 input,
@@ -341,9 +364,14 @@ progress {
   }
 
   .upload-form,
+  .tg-form,
   .keyword-form,
   .grid.two-col {
     grid-template-columns: 1fr;
+  }
+
+  .checkbox-field span {
+    white-space: normal;
   }
 
   .shell {

@@ -184,12 +184,12 @@ function updateFileHint() {
   hint.textContent = `已选择 ${count} 个文件。`;
 }
 
-function setUploadProgress(job) {
-  const panel = $("#uploadProgress");
-  const text = $("#uploadProgressText");
-  const count = $("#uploadProgressCount");
-  const bar = $("#uploadProgressBar");
-  const detail = $("#uploadProgressDetail");
+function setJobProgress(job, prefix = "upload") {
+  const panel = $(`#${prefix}Progress`);
+  const text = $(`#${prefix}ProgressText`);
+  const count = $(`#${prefix}ProgressCount`);
+  const bar = $(`#${prefix}ProgressBar`);
+  const detail = $(`#${prefix}ProgressDetail`);
   const total = Number(job.total || 0);
   const processed = Number(job.processed || 0);
   const failed = Array.isArray(job.failed) ? job.failed : [];
@@ -207,19 +207,66 @@ function setUploadProgress(job) {
   ].filter(Boolean).join("，");
 }
 
-async function pollUploadJob(jobId) {
+function setUploadProgress(job) {
+  setJobProgress(job, "upload");
+}
+
+async function pollUploadJob(jobId, prefix = "upload", completeMessage = "处理完成。") {
   while (true) {
     const res = await fetch(`/api/uploads/${jobId}`, { cache: "no-store" });
     const job = await readJsonResponse(res, "读取上传进度失败");
-    setUploadProgress(job);
+    setJobProgress(job, prefix);
 
     if (job.status === "done" || job.status === "failed") {
       await fetchState();
-      showToast(job.message || "上传处理完成。", job.status === "failed");
+      showToast(job.message || completeMessage, job.status === "failed");
       return;
     }
 
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+}
+
+async function importTelegramStickers(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const url = $("#tgUrl").value.trim();
+  if (!url) {
+    showToast("请输入 Telegram 贴纸包链接。", true);
+    return;
+  }
+
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  setJobProgress({
+    status: "queued",
+    total: 0,
+    processed: 0,
+    saved: 0,
+    reused: 0,
+    failed: [],
+    message: "正在创建 Telegram 导入任务...",
+  }, "tg");
+
+  try {
+    const res = await fetch("/api/tg-stickers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        pack: $("#tgPack").value.trim(),
+        keyword: $("#tgKeyword").value.trim(),
+        refresh: $("#tgRefresh").checked,
+      }),
+    });
+    const job = await readJsonResponse(res, "创建 Telegram 导入任务失败");
+    setJobProgress(job, "tg");
+    await pollUploadJob(job.id, "tg", "Telegram 贴纸包导入完成。");
+    form.reset();
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    submitButton.disabled = false;
   }
 }
 
@@ -307,6 +354,7 @@ async function deleteKeyword(pack, keyword) {
 
 $("#keywordForm").addEventListener("submit", addKeyword);
 $("#uploadForm").addEventListener("submit", uploadStickers);
+$("#tgForm").addEventListener("submit", importTelegramStickers);
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
 $("#file").addEventListener("change", updateFileHint);
 

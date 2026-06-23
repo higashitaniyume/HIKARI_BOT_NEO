@@ -21,6 +21,9 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
+from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
+from plugins.tg_sticker_parser.config import get_config as get_tg_config
+from plugins.tg_sticker_parser.tg_api import extract_sticker_set_names
 
 from .config import get_config
 
@@ -348,6 +351,115 @@ def _process_upload_files(
     }
 
 
+async def _process_tg_sticker_link_async(
+    link: str,
+    pack_name: str,
+    keyword: str,
+    refresh: bool,
+    job_id: str,
+) -> None:
+    set_names = extract_sticker_set_names(link)
+    if not set_names:
+        _update_upload_job(
+            job_id,
+            status="failed",
+            message="没有识别到 Telegram 贴纸包链接。",
+        )
+        return
+
+    set_name = set_names[0]
+    target_pack = pack_name or set_name
+    cfg = get_tg_config()
+    _update_upload_job(
+        job_id,
+        status="running",
+        pack=target_pack,
+        current=set_name,
+        message=f"准备导入 Telegram 贴纸包：{set_name}",
+    )
+
+    cached_gifs = find_saved_gifs(target_pack) or find_saved_gifs(set_name)
+    if cached_gifs and not refresh:
+        saved_paths = cached_gifs if all(path.parent.name == target_pack for path in cached_gifs) else save_gifs_to_pack(target_pack, cached_gifs)
+        _register_trigger(target_pack, keyword)
+        _update_upload_job(
+            job_id,
+            status="done",
+            total=len(cached_gifs),
+            processed=len(cached_gifs),
+            saved=len(saved_paths),
+            reused=len(cached_gifs),
+            current="",
+            message=f"已从本地缓存导入：{target_pack}，共 {len(saved_paths)} 个 GIF。",
+        )
+        return
+
+    def report_progress(progress: dict[str, Any]) -> None:
+        total = int(progress.get("total") or 0)
+        processed = int(progress.get("processed") or 0)
+        _update_upload_job(
+            job_id,
+            total=total,
+            processed=processed,
+            current=str(progress.get("title") or set_name),
+            message=str(progress.get("message") or "正在导入 Telegram 贴纸包..."),
+        )
+
+    try:
+        result = await parse_sticker_set_to_gifs(
+            bot=None,
+            event=None,
+            set_name=set_name,
+            cfg=cfg,
+            progress_callback=report_progress,
+        )
+        gif_paths = result.get("gif_paths") or []
+        total_count = int(result.get("total_count") or len(gif_paths))
+        failed_count = int(result.get("failed_count") or 0)
+
+        if not gif_paths:
+            _update_upload_job(
+                job_id,
+                status="failed",
+                total=total_count,
+                processed=total_count,
+                failed=[f"{set_name}：没有成功转换出可保存的 GIF"],
+                current="",
+                message="没有成功转换出可保存的 GIF。",
+            )
+            return
+
+        saved_paths = save_gifs_to_pack(target_pack, gif_paths)
+        _register_trigger(target_pack, keyword)
+        message = f"Telegram 贴纸包导入完成：{target_pack}，新增/覆盖 {len(saved_paths)} 个"
+        if failed_count:
+            message += f"，失败 {failed_count} 个"
+        _update_upload_job(
+            job_id,
+            status="done",
+            total=total_count,
+            processed=total_count,
+            saved=len(saved_paths),
+            reused=0,
+            failed=[] if failed_count <= 0 else [f"转换失败 {failed_count} 个"],
+            current="",
+            message=message,
+        )
+    except Exception as e:
+        logger.exception("Telegram 贴纸包导入失败: %s", e)
+        _update_upload_job(
+            job_id,
+            status="failed",
+            current="",
+            failed=[str(e)],
+            message=f"Telegram 贴纸包导入失败：{e}",
+        )
+
+
+def _process_tg_sticker_link(link: str, pack_name: str, keyword: str, refresh: bool, job_id: str) -> None:
+    asyncio.run(_process_tg_sticker_link_async(link, pack_name, keyword, refresh, job_id))
+
+
 def _auth_password() -> str:
     return str(get_config().get("password", "")).strip()
 
@@ -589,6 +701,40 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("新增贴纸关键词失败: %s", e)
                 self._send_json({"error": "新增贴纸关键词失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/tg-stickers":
+            try:
+                data = self._read_json_body()
+                link = str(data.get("url", "")).strip()
+                set_names = extract_sticker_set_names(link)
+                if not set_names:
+                    raise ValueError("请输入有效的 Telegram 贴纸包链接。")
+
+                pack_name = _safe_pack_name(str(data.get("pack", "")))
+                target_pack = pack_name or set_names[0]
+                keyword = str(data.get("keyword", "")).strip()
+                refresh = bool(data.get("refresh", False))
+                job = _new_upload_job(target_pack, 0)
+                _update_upload_job(
+                    job["id"],
+                    status="queued",
+                    current=set_names[0],
+                    message=f"已创建 Telegram 导入任务：{set_names[0]}",
+                )
+                thread = threading.Thread(
+                    target=_process_tg_sticker_link,
+                    args=(link, target_pack, keyword, refresh, job["id"]),
+                    name=f"StickerTgImport-{job['id'][:8]}",
+                    daemon=True,
+                )
+                thread.start()
+                self._send_json(_get_upload_job(job["id"]) or job, 202)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("创建 Telegram 贴纸导入任务失败: %s", e)
+                self._send_json({"error": "创建 Telegram 贴纸导入任务失败，请检查服务日志。"}, 500)
             return
 
         if path not in {"/upload", "/api/uploads"}:

@@ -67,6 +67,44 @@
     </div>
   </section>
 
+  <section class="panel tg-panel">
+    <div class="panel-heading">
+      <h2>导入 Telegram 贴纸包</h2>
+      <p>粘贴 t.me/addstickers 链接，网页会复用机器人已有解析逻辑转换并保存为本地 GIF 贴纸包。</p>
+    </div>
+    <form id="tgForm" class="tg-form">
+      <label>
+        <span>贴纸包链接</span>
+        <input id="tgUrl" name="url" placeholder="https://t.me/addstickers/StickerSetName" required>
+      </label>
+
+      <label>
+        <span>保存为贴纸包</span>
+        <input id="tgPack" name="pack" placeholder="可选，默认使用 Telegram 贴纸包名">
+      </label>
+
+      <label>
+        <span>关键词</span>
+        <input id="tgKeyword" name="keyword" placeholder="可选，例如 猫猫虫；capoo;可爱">
+      </label>
+
+      <label class="checkbox-field">
+        <input id="tgRefresh" name="refresh" type="checkbox">
+        <span>强制重新拉取</span>
+      </label>
+
+      <button type="submit" class="primary">导入</button>
+    </form>
+    <div id="tgProgress" class="upload-progress" hidden>
+      <div class="progress-head">
+        <strong id="tgProgressText">等待导入...</strong>
+        <span id="tgProgressCount">0/0</span>
+      </div>
+      <progress id="tgProgressBar" value="0" max="100"></progress>
+      <p id="tgProgressDetail">粘贴链接后开始导入。</p>
+    </div>
+  </section>
+
   <section class="panel manage-panel">
     <div class="panel-heading inline-heading">
       <div>
