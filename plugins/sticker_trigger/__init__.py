@@ -24,6 +24,7 @@ logger = logging.getLogger("HikariBot.StickerPlugin")
 
 # 贴纸包最终只发送 GIF；其他素材应先经过 media_transcoder 转换
 MEDIA_EXTS = sticker_library.MEDIA_EXTS
+PACK_LIST_PAGE_SIZE = 5
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
@@ -137,6 +138,25 @@ async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
         await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
 
 
+async def _send_text_forward(bot: Bot, event: MessageEvent, texts: list[str]) -> None:
+    """合并转发多段文本。"""
+    from nonebot.adapters.onebot.v11 import GroupMessageEvent
+
+    nodes: list[MessageSegment] = [
+        MessageSegment.node_custom(
+            user_id=int(bot.self_id),
+            nickname="HikariBotNeo",
+            content=Message(text),
+        )
+        for text in texts
+    ]
+
+    if isinstance(event, GroupMessageEvent):
+        await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+    else:
+        await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
+
+
 # =========================
 # Matcher：中等优先级，不阻塞 pipeline
 # =========================
@@ -150,13 +170,82 @@ def _format_folder_label(folder_names: list[str]) -> str:
     return " + ".join(folder_names)
 
 
+def _sticker_library_stats_lines(state: dict) -> list[str]:
+    return [
+        "贴纸库统计：",
+        f"· 唯一贴纸：{state.get('total_stickers', 0)} 张",
+        f"· 贴纸包：{len(state.get('packs') or [])} 个",
+        f"· 关键词：{len(state.get('keywords') or [])} 个",
+        "· 同一关键词命中多个包时会合并去重",
+    ]
+
+
+def _format_keyword_preview(keywords: list[str], limit: int = 6) -> str:
+    if not keywords:
+        return "暂无关键词"
+    preview = keywords[:limit]
+    suffix = f" 等 {len(keywords)} 个" if len(keywords) > limit else ""
+    return f"{', '.join(preview)}{suffix}"
+
+
+def _format_pack_list_page(state: dict, page: int) -> str:
+    packs = state.get("packs") or []
+    total_pages = max(1, (len(packs) + PACK_LIST_PAGE_SIZE - 1) // PACK_LIST_PAGE_SIZE)
+    page = min(max(page, 1), total_pages)
+    start = (page - 1) * PACK_LIST_PAGE_SIZE
+    current_packs = packs[start:start + PACK_LIST_PAGE_SIZE]
+
+    lines = [
+        *_sticker_library_stats_lines(state),
+        "",
+        f"贴纸包列表 {page}/{total_pages}：",
+    ]
+
+    if not current_packs:
+        lines.append("暂无贴纸包。")
+    else:
+        for pack in current_packs:
+            keywords = _format_keyword_preview(pack.get("keywords") or [])
+            lines.append(f"· {pack['name']} ({pack['count']}张): {keywords}")
+
+    if page < total_pages:
+        lines.append("")
+        lines.append(f"发送「贴纸包列表 {page + 1}」查看下一页")
+    lines.append("发送「贴纸包统计」只看总数")
+    return "\n".join(lines)
+
+
+async def _send_pack_list(bot: Bot, event: MessageEvent, arg: str) -> None:
+    state = sticker_library.get_state()
+    packs = state.get("packs") or []
+    total_pages = max(1, (len(packs) + PACK_LIST_PAGE_SIZE - 1) // PACK_LIST_PAGE_SIZE)
+
+    if arg in {"全部", "all", "ALL"}:
+        pages = [_format_pack_list_page(state, page) for page in range(1, total_pages + 1)]
+        try:
+            await _send_text_forward(bot, event, pages)
+        except Exception as e:
+            logger.exception("[Sticker] 合并转发贴纸包列表失败: %s", e)
+            await bot.send(event, Message("完整列表发送失败，请使用「贴纸包列表 <页码>」分页查看。"))
+        return
+
+    page = 1
+    if arg:
+        if not arg.isdigit():
+            await bot.send(event, Message("用法：贴纸包列表、贴纸包列表 <页码>、贴纸包列表 全部"))
+            return
+        page = int(arg)
+
+    if page < 1 or page > total_pages:
+        await bot.send(event, Message(f"页码超出范围，目前共有 {total_pages} 页。"))
+        return
+
+    await bot.send(event, Message(_format_pack_list_page(state, page)))
+
+
 @sticker_matcher.handle()
 async def handle_sticker(bot: Bot, event: MessageEvent):
     """检测关键词并发送随机表情包。"""
-    pack_names = sticker_library.list_pack_names()
-    if not pack_names:
-        return
-
     text = event.get_plaintext().strip()
     if not text:
         return
@@ -203,13 +292,15 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         await bot.send(event, Message(format_stats(event)))
         return
 
-    # "贴纸包" → 列出所有可用贴纸包
-    if text == "贴纸包列表":
-        lines = ["当前贴纸包：", ""]
-        for pack in sticker_library.get_state()["packs"]:
-            kw_list = pack["keywords"]
-            lines.append(f"· {pack['name']} ({pack['count']}张): {', '.join(kw_list) if kw_list else '暂无关键词'}")
-        await bot.send(event, Message("\n".join(lines)))
+    # "贴纸包统计" → 显示本地贴纸库摘要
+    if text == "贴纸包统计":
+        await bot.send(event, Message("\n".join(_sticker_library_stats_lines(sticker_library.get_state()))))
+        return
+
+    # "贴纸包列表" / "贴纸包列表 2" / "贴纸包列表 全部" → 分页查看贴纸包
+    if text == "贴纸包列表" or text.startswith("贴纸包列表 "):
+        arg = text.removeprefix("贴纸包列表").strip()
+        await _send_pack_list(bot, event, arg)
         return
 
     # 解析关键词和可选数量："猫猫虫" 或 "猫猫虫 10"
