@@ -1,0 +1,210 @@
+"""
+轻量命令路由。
+
+明确命令放在这里注册；URL 自动解析和贴纸关键词触发仍然走各自的 fallback。
+"""
+
+from __future__ import annotations
+
+import inspect
+import logging
+import time
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Iterable
+
+from nonebot import on_message
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
+
+logger = logging.getLogger("HikariBot.CommandRouter")
+
+
+@dataclass(slots=True)
+class CommandContext:
+    bot: Bot
+    event: MessageEvent
+    text: str
+    args: str
+    command: str
+    matched: str
+
+    async def send(self, message) -> None:
+        await self.bot.send(self.event, message)
+
+
+CommandHandler = Callable[[CommandContext], Awaitable[None] | None]
+
+
+@dataclass(slots=True)
+class CommandSpec:
+    name: str
+    aliases: tuple[str, ...]
+    handler: CommandHandler
+    description: str = ""
+    usage: str = ""
+    require_tome: bool = False
+    private_only: bool = False
+    group_only: bool = False
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        return (self.name, *self.aliases)
+
+
+_commands: list[CommandSpec] = []
+_handled_event_ids: dict[int, float] = {}
+_HANDLED_TTL_SECONDS = 300
+
+
+def command(
+    name: str,
+    *,
+    aliases: Iterable[str] = (),
+    description: str = "",
+    usage: str = "",
+    require_tome: bool = False,
+    private_only: bool = False,
+    group_only: bool = False,
+) -> Callable[[CommandHandler], CommandHandler]:
+    """注册一个明确命令。"""
+
+    def decorator(func: CommandHandler) -> CommandHandler:
+        spec = CommandSpec(
+            name=name,
+            aliases=tuple(aliases),
+            handler=func,
+            description=description,
+            usage=usage or name,
+            require_tome=require_tome,
+            private_only=private_only,
+            group_only=group_only,
+        )
+        _commands.append(spec)
+        logger.info("已注册命令: %s", name)
+        return func
+
+    return decorator
+
+
+def iter_commands() -> list[CommandSpec]:
+    return list(_commands)
+
+
+def format_command_help() -> str:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for spec in _commands:
+        if spec.name in seen:
+            continue
+        seen.add(spec.name)
+        usage = spec.usage or spec.name
+        description = f"：{spec.description}" if spec.description else ""
+        lines.append(f"- {usage}{description}")
+    return "\n".join(lines)
+
+
+def is_command_handled(event: MessageEvent) -> bool:
+    _cleanup_handled_events()
+    return id(event) in _handled_event_ids
+
+
+def _mark_command_handled(event: MessageEvent) -> None:
+    _cleanup_handled_events()
+    _handled_event_ids[id(event)] = time.monotonic()
+
+
+def _cleanup_handled_events() -> None:
+    if len(_handled_event_ids) < 1000:
+        return
+    now = time.monotonic()
+    expired = [
+        event_id
+        for event_id, marked_at in _handled_event_ids.items()
+        if now - marked_at > _HANDLED_TTL_SECONDS
+    ]
+    for event_id in expired:
+        _handled_event_ids.pop(event_id, None)
+
+
+def _normalize_for_match(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _match_command(text: str) -> tuple[CommandSpec, str, str] | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    candidates: list[tuple[int, CommandSpec, str, str]] = []
+    folded_text = stripped.casefold()
+
+    for spec in _commands:
+        for name in spec.names:
+            normalized_name = _normalize_for_match(name)
+            if not normalized_name:
+                continue
+
+            if folded_text == normalized_name:
+                candidates.append((len(name), spec, name, ""))
+                continue
+
+            prefix = f"{normalized_name} "
+            if folded_text.startswith(prefix):
+                args = stripped[len(name):].strip()
+                candidates.append((len(name), spec, name, args))
+
+    if not candidates:
+        return None
+
+    _, spec, matched, args = max(candidates, key=lambda item: item[0])
+    return spec, matched, args
+
+
+def _scope_allowed(spec: CommandSpec, event: MessageEvent) -> bool:
+    is_group = isinstance(event, GroupMessageEvent)
+    if spec.private_only and is_group:
+        return False
+    if spec.group_only and not is_group:
+        return False
+    if spec.require_tome and is_group and not event.is_tome():
+        return False
+    return True
+
+
+command_matcher = on_message(priority=0, block=False)
+
+
+@command_matcher.handle()
+async def _handle_command(bot: Bot, event: MessageEvent) -> None:
+    text = event.get_plaintext().strip()
+    matched = _match_command(text)
+    if matched is None:
+        return
+
+    spec, matched_name, args = matched
+    if not _scope_allowed(spec, event):
+        return
+
+    ctx = CommandContext(
+        bot=bot,
+        event=event,
+        text=text,
+        args=args,
+        command=spec.name,
+        matched=matched_name,
+    )
+
+    logger.info("[Command] 命中 %s args=%r", spec.name, args)
+    _mark_command_handled(event)
+    try:
+        result = spec.handler(ctx)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:
+        logger.exception("[Command] 命令 %s 处理异常: %s", spec.name, e)
+        try:
+            from core.error_notifier import notify_error_to_superuser, send_user_error
+
+            await send_user_error(bot, event)
+            await notify_error_to_superuser(bot, event, e, f"Command:{spec.name}")
+        except Exception as notify_err:
+            logger.exception("[Command] 发送错误通知失败: %s", notify_err)

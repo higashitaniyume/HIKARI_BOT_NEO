@@ -93,6 +93,9 @@ logger.info("OneBot V11 适配器已注册，将在 Driver 就绪后连接 NapCa
 
 # ---- Step 6: 加载插件 ----
 
+# 加载明确命令路由（必须在加载插件之前）
+from core.command_router import command_matcher  # noqa: F401 — 触发 on_message 注册
+
 # 加载消息处理管道（必须在加载其他插件之前）
 from core.message_pipeline import msg_pipeline  # noqa: F401 — 触发 on_message 注册
 

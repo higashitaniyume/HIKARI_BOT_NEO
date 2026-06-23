@@ -74,7 +74,11 @@ msg_pipeline = on_message(priority=1, block=False)
 async def _pipeline_handle(bot: Bot, event: MessageEvent):
     """Pipeline 主入口：所有消息都经过此函数。"""
 
+    from core.command_router import is_command_handled
     from core.error_notifier import notify_error_to_superuser, send_user_error
+
+    if is_command_handled(event):
+        return
 
     if not _handlers:
         return

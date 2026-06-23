@@ -518,6 +518,7 @@ services:
 HIKARI_BOT_NEO/
   bot.py                         # 程序入口
   core/
+    command_router.py            # 明确命令路由
     config_loader.py             # 主配置和插件配置加载
     error_notifier.py            # 错误通知
     logger_setup.py              # 日志初始化

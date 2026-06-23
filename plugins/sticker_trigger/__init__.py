@@ -17,6 +17,7 @@ from pathlib import Path
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
+from core.command_router import CommandContext, command, is_command_handled
 from core.stats_tracker import increment as stats_increment, format_stats
 from plugins import sticker_library
 
@@ -243,64 +244,81 @@ async def _send_pack_list(bot: Bot, event: MessageEvent, arg: str) -> None:
     await bot.send(event, Message(_format_pack_list_page(state, page)))
 
 
+def _is_reserved_command_text(text: str) -> bool:
+    return (
+        text in {"随机贴纸", "统计", "贴纸包统计", "贴纸包列表"}
+        or text.startswith("拼图 ")
+        or text.startswith("贴纸包列表 ")
+    )
+
+
+@command("随机贴纸", description="从所有贴纸包随机发送一张贴纸")
+async def cmd_random_sticker(ctx: CommandContext) -> None:
+    all_files = sticker_library.get_all_files()
+    if not all_files:
+        await ctx.send(Message("贴纸包都是空的，请先添加一些表情包。"))
+        return
+    picked = random.choice(all_files)
+    logger.info(f"[Sticker] 随机表情包 → {picked.name}")
+    shared_path = _copy_to_shared(picked)
+    uri = shared_path.resolve().as_uri()
+    await ctx.send(Message(MessageSegment.image(uri)))
+    stats_increment(ctx.event, "stickers_sent", 1)
+
+
+@command("拼图", description="生成关键词对应贴纸包的预览拼图", usage="拼图 <关键词>")
+async def cmd_sticker_collage(ctx: CommandContext) -> None:
+    keyword = ctx.args.strip()
+    if not keyword:
+        await ctx.send(Message("用法：拼图 <关键词>"))
+        return
+
+    folder_names, all_in_folders = sticker_library.get_files_for_keyword(keyword)
+    if not folder_names:
+        return
+
+    folder_label = _format_folder_label(folder_names)
+    if not all_in_folders:
+        await ctx.send(Message(f"贴纸包 {folder_label} 是空的。"))
+        return
+
+    await ctx.send(Message(f"正在拼图 {folder_label}（{len(all_in_folders)} 张）..."))
+    try:
+        jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
+        uri = jpg_path.resolve().as_uri()
+        await ctx.send(Message(MessageSegment.image(uri)))
+        stats_increment(ctx.event, "collage_made", 1)
+    except Exception as e:
+        logger.exception(f"[Sticker] 拼图失败: {e}")
+        await ctx.send(Message(f"拼图失败: {e}"))
+
+
+@command("统计", description="查看当前会话统计")
+async def cmd_session_stats(ctx: CommandContext) -> None:
+    await ctx.send(Message(format_stats(ctx.event)))
+
+
+@command("贴纸包统计", description="查看贴纸库摘要")
+async def cmd_sticker_pack_stats(ctx: CommandContext) -> None:
+    await ctx.send(Message("\n".join(_sticker_library_stats_lines(sticker_library.get_state()))))
+
+
+@command("贴纸包列表", aliases=("sticker packs",), description="分页查看贴纸包", usage="贴纸包列表 [页码|全部]")
+async def cmd_sticker_pack_list(ctx: CommandContext) -> None:
+    await _send_pack_list(ctx.bot, ctx.event, ctx.args.strip())
+
+
 @sticker_matcher.handle()
 async def handle_sticker(bot: Bot, event: MessageEvent):
     """检测关键词并发送随机表情包。"""
+    if is_command_handled(event):
+        return
+
     text = event.get_plaintext().strip()
     if not text:
         return
 
-    # "随机表情包" → 从所有贴纸包中随机选一张发送
-    if text == "随机贴纸":
-        all_files = sticker_library.get_all_files()
-        if not all_files:
-            await bot.send(event, Message("贴纸包都是空的，请先添加一些表情包。"))
-            return
-        picked = random.choice(all_files)
-        logger.info(f"[Sticker] 随机表情包 → {picked.name}")
-        shared_path = _copy_to_shared(picked)
-        uri = shared_path.resolve().as_uri()
-        await bot.send(event, Message(MessageSegment.image(uri)))
-        stats_increment(event, "stickers_sent", 1)
-        return
-
-    # "拼图 capoo" → 将关键词对应的一个或多个贴纸包合并后拼图
-    if text.startswith("拼图 "):
-        keyword = text[3:].strip()
-        folder_names, all_in_folders = sticker_library.get_files_for_keyword(keyword)
-        if not folder_names:
-            return
-
-        folder_label = _format_folder_label(folder_names)
-        if not all_in_folders:
-            await bot.send(event, Message(f"贴纸包 {folder_label} 是空的。"))
-            return
-
-        await bot.send(event, Message(f"正在拼图 {folder_label}（{len(all_in_folders)} 张）..."))
-        try:
-            jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
-            uri = jpg_path.resolve().as_uri()
-            await bot.send(event, Message(MessageSegment.image(uri)))
-            stats_increment(event, "collage_made", 1)
-        except Exception as e:
-            logger.exception(f"[Sticker] 拼图失败: {e}")
-            await bot.send(event, Message(f"拼图失败: {e}"))
-        return
-
-    # "统计" → 显示当前会话的统计信息
-    if text == "统计":
-        await bot.send(event, Message(format_stats(event)))
-        return
-
-    # "贴纸包统计" → 显示本地贴纸库摘要
-    if text == "贴纸包统计":
-        await bot.send(event, Message("\n".join(_sticker_library_stats_lines(sticker_library.get_state()))))
-        return
-
-    # "贴纸包列表" / "贴纸包列表 2" / "贴纸包列表 全部" → 分页查看贴纸包
-    if text == "贴纸包列表" or text.startswith("贴纸包列表 "):
-        arg = text.removeprefix("贴纸包列表").strip()
-        await _send_pack_list(bot, event, arg)
+    if _is_reserved_command_text(text):
         return
 
     # 解析关键词和可选数量："猫猫虫" 或 "猫猫虫 10"
