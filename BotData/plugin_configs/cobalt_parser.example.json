@@ -1,6 +1,6 @@
 {
   "auto_parse": true,
-  "cobalt_api": "http://192.168.31.2:54257/",
+  "cobalt_api": "http://cobalt:9000/",
   "api_timeout": 90,
   "max_send": 6,
   "cache_dir": "/tmp/hikari_bot",
