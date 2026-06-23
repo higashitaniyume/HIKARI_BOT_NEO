@@ -24,7 +24,6 @@ STICKER_INPUT_EXTS = {
     ".tgs",
 }
 VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv"}
-PIL_STATIC_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 class TranscodeError(RuntimeError):
@@ -98,13 +97,6 @@ async def ensure_sticker_gif(
             shutil.copy2(input_path, output_path)
     elif suffix == ".tgs":
         await _tgs_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
-    elif suffix in PIL_STATIC_EXTS and _is_static_image(input_path):
-        await asyncio.to_thread(
-            _static_image_to_gif,
-            input_path,
-            output_path,
-            options or StickerGifOptions.from_config(),
-        )
     else:
         await _ffmpeg_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
 
@@ -112,61 +104,6 @@ async def ensure_sticker_gif(
         raise TranscodeError(f"GIF 输出文件无效: {output_path}")
 
     return output_path
-
-
-def _is_static_image(input_path: Path) -> bool:
-    try:
-        from PIL import Image
-
-        with Image.open(input_path) as img:
-            return not bool(getattr(img, "is_animated", False))
-    except Exception:
-        return False
-
-
-def _resize_image(img, width: int):
-    if width <= 0 or img.width <= width:
-        return img.copy()
-    height = max(1, round(img.height * (width / img.width)))
-    from PIL import Image
-
-    return img.resize((width, height), Image.Resampling.LANCZOS)
-
-
-def _image_has_alpha(img) -> bool:
-    return img.mode in {"RGBA", "LA"} or (img.mode == "P" and "transparency" in img.info)
-
-
-def _static_image_to_gif(input_path: Path, output_path: Path, options: StickerGifOptions) -> None:
-    from PIL import Image
-
-    with Image.open(input_path) as src:
-        if not _image_has_alpha(src):
-            img = _resize_image(src.convert("RGB"), options.width)
-            img.save(output_path, "GIF")
-            return
-
-        rgba = _resize_image(src.convert("RGBA"), options.width)
-        alpha = rgba.getchannel("A")
-        colors = max(2, min(255, int(options.max_colors) - 1))
-        quantized = rgba.convert("RGB").quantize(colors=colors, method=Image.Quantize.MEDIANCUT)
-
-        palette = quantized.getpalette() or []
-        transparent_index = min(255, len(palette) // 3)
-        palette = palette[: transparent_index * 3]
-        palette.extend([0, 0, 0])
-        palette.extend([0] * (768 - len(palette)))
-
-        out = quantized.copy()
-        out.putpalette(palette)
-        transparent_mask = alpha.point(lambda value: 255 if value < 128 else 0)
-        out.paste(transparent_index, transparent_mask)
-        out.save(
-            output_path,
-            "GIF",
-            transparency=transparent_index,
-            disposal=2,
-        )
 
 
 async def _ffmpeg_to_gif(input_path: Path, output_path: Path, options: StickerGifOptions) -> None:
