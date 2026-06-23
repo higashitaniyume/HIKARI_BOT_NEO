@@ -2,6 +2,7 @@ const state = {
   packs: [],
   keywords: [],
 };
+const MAX_UPLOAD_FILES = 99;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -164,12 +165,112 @@ function render() {
   renderKeywords();
 }
 
+function updateFileHint() {
+  const input = $("#file");
+  const hint = $("#fileHint");
+  const count = input.files?.length || 0;
+  if (!count) {
+    hint.textContent = `可多选，单次最多 ${MAX_UPLOAD_FILES} 个文件。`;
+    return;
+  }
+
+  if (count > MAX_UPLOAD_FILES) {
+    input.value = "";
+    hint.textContent = `已超过上限，请重新选择 ${MAX_UPLOAD_FILES} 个以内的文件。`;
+    showToast(`一次最多上传 ${MAX_UPLOAD_FILES} 个文件。`, true);
+    return;
+  }
+
+  hint.textContent = `已选择 ${count} 个文件。`;
+}
+
+function setUploadProgress(job) {
+  const panel = $("#uploadProgress");
+  const text = $("#uploadProgressText");
+  const count = $("#uploadProgressCount");
+  const bar = $("#uploadProgressBar");
+  const detail = $("#uploadProgressDetail");
+  const total = Number(job.total || 0);
+  const processed = Number(job.processed || 0);
+  const failed = Array.isArray(job.failed) ? job.failed : [];
+  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+  panel.hidden = false;
+  text.textContent = job.message || "正在处理...";
+  count.textContent = `${processed}/${total}`;
+  bar.value = percent;
+  detail.textContent = [
+    job.current ? `当前：${job.current}` : "",
+    `新增 ${job.saved || 0} 个`,
+    `复用 ${job.reused || 0} 个`,
+    `失败 ${failed.length} 个`,
+  ].filter(Boolean).join("，");
+}
+
+async function pollUploadJob(jobId) {
+  while (true) {
+    const res = await fetch(`/api/uploads/${jobId}`, { cache: "no-store" });
+    const job = await readJsonResponse(res, "读取上传进度失败");
+    setUploadProgress(job);
+
+    if (job.status === "done" || job.status === "failed") {
+      await fetchState();
+      showToast(job.message || "上传处理完成。", job.status === "failed");
+      return;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+}
+
+async function uploadStickers(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fileCount = $("#file").files?.length || 0;
+  if (fileCount <= 0) {
+    showToast("请选择要上传的文件。", true);
+    return;
+  }
+  if (fileCount > MAX_UPLOAD_FILES) {
+    showToast(`一次最多上传 ${MAX_UPLOAD_FILES} 个文件。`, true);
+    return;
+  }
+
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  setUploadProgress({
+    status: "uploading",
+    total: fileCount,
+    processed: 0,
+    saved: 0,
+    reused: 0,
+    failed: [],
+    message: "正在上传文件...",
+  });
+
+  try {
+    const res = await fetch("/api/uploads", {
+      method: "POST",
+      body: new FormData(form),
+    });
+    const job = await readJsonResponse(res, "创建上传任务失败");
+    setUploadProgress(job);
+    await pollUploadJob(job.id);
+    form.reset();
+    updateFileHint();
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
 async function addKeyword(event) {
   event.preventDefault();
   const pack = $("#keywordPack").value;
   const keyword = $("#keywordInput").value.trim();
   if (!pack || !keyword) {
-    showToast("请选择贴纸包并填写关键词。", true);
+    showToast("请选择贴纸包并填写一个或多个关键词。", true);
     return;
   }
 
@@ -205,6 +306,8 @@ async function deleteKeyword(pack, keyword) {
 }
 
 $("#keywordForm").addEventListener("submit", addKeyword);
+$("#uploadForm").addEventListener("submit", uploadStickers);
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
+$("#file").addEventListener("change", updateFileHint);
 
 fetchState().catch((err) => showToast(err.message, true));

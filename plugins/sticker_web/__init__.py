@@ -14,6 +14,7 @@ import re
 import tempfile
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -27,12 +28,15 @@ logger = logging.getLogger("HikariBot.StickerWeb")
 
 ALLOWED_EXTS = STICKER_INPUT_EXTS
 OUTPUT_EXTS = {".gif"}
+MAX_UPLOAD_FILES = 99
 TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 _STATIC_ROOT = Path(__file__).parent / "static"
 _COOKIE_NAME = "hikari_sticker_session"
 _server_started = False
 _server_lock = threading.Lock()
+_upload_jobs: dict[str, dict[str, Any]] = {}
+_upload_jobs_lock = threading.Lock()
 
 
 def _safe_pack_name(value: str) -> str:
@@ -98,7 +102,16 @@ def _normalize_keywords(value: Any) -> list[str]:
 
     keywords: list[str] = []
     for raw_keyword in raw_keywords:
-        keyword = str(raw_keyword).strip()
+        for keyword in _split_keywords(raw_keyword):
+            if keyword not in keywords:
+                keywords.append(keyword)
+    return keywords
+
+
+def _split_keywords(value: Any) -> list[str]:
+    keywords: list[str] = []
+    for keyword in re.split(r"[;；]+", str(value or "")):
+        keyword = keyword.strip()
         if keyword and keyword not in keywords:
             keywords.append(keyword)
     return keywords
@@ -109,7 +122,7 @@ def _register_trigger(pack_name: str, keyword: str = "") -> None:
     triggers = trigger_config.setdefault("triggers", {})
     keywords = _normalize_keywords(triggers.get(pack_name, []))
 
-    for candidate in (pack_name, keyword.strip()):
+    for candidate in [pack_name, *_split_keywords(keyword)]:
         if candidate and candidate not in keywords:
             keywords.append(candidate)
 
@@ -121,8 +134,9 @@ def _add_trigger_keyword(pack_name: str, keyword: str) -> None:
     trigger_config = _read_trigger_config()
     triggers = trigger_config.setdefault("triggers", {})
     keywords = _normalize_keywords(triggers.get(pack_name, []))
-    if keyword not in keywords:
-        keywords.append(keyword)
+    for candidate in _split_keywords(keyword):
+        if candidate not in keywords:
+            keywords.append(candidate)
     triggers[pack_name] = keywords
     _write_trigger_config(trigger_config)
 
@@ -179,6 +193,159 @@ def _pack_state() -> dict[str, Any]:
 
 def _json_bytes(data: Any) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+
+def _new_upload_job(pack_name: str, total: int) -> dict[str, Any]:
+    now = time.time()
+    job = {
+        "id": uuid.uuid4().hex,
+        "status": "queued",
+        "pack": pack_name,
+        "total": total,
+        "processed": 0,
+        "saved": 0,
+        "reused": 0,
+        "failed": [],
+        "current": "",
+        "message": "等待处理...",
+        "created_at": now,
+        "updated_at": now,
+    }
+    with _upload_jobs_lock:
+        _upload_jobs[job["id"]] = job
+    return job.copy()
+
+
+def _update_upload_job(job_id: str, **updates: Any) -> None:
+    with _upload_jobs_lock:
+        job = _upload_jobs.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = time.time()
+
+
+def _get_upload_job(job_id: str) -> dict[str, Any] | None:
+    with _upload_jobs_lock:
+        job = _upload_jobs.get(job_id)
+        return job.copy() if job else None
+
+
+def _process_upload_files(
+    pack_name: str,
+    keyword: str,
+    file_infos: list[dict[str, Any]],
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    dest_dir = _upload_root() / pack_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    _register_trigger(pack_name, keyword)
+
+    temp_dir = _temp_root()
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+    reused: list[str] = []
+    failed: list[str] = []
+
+    if job_id:
+        _update_upload_job(job_id, status="running", message="开始处理...")
+
+    for index, file_info in enumerate(file_infos, start=1):
+        filename = _safe_filename(str(file_info["filename"]))
+        if job_id:
+            _update_upload_job(
+                job_id,
+                current=filename,
+                processed=index - 1,
+                saved=len(saved),
+                reused=len(reused),
+                failed=failed.copy(),
+                message=f"正在处理 {index}/{len(file_infos)}：{filename}",
+            )
+
+        suffix = Path(filename).suffix.lower()
+        if suffix not in ALLOWED_EXTS:
+            failed.append(f"{filename}：不支持的文件格式 {suffix or '(无后缀)'}")
+            if job_id:
+                _update_upload_job(job_id, processed=index, failed=failed.copy())
+            continue
+
+        content = file_info["content"]
+        content_hash = _hash_content(content)
+        dest = dest_dir / f"{content_hash[:16]}.gif"
+
+        if dest.exists() and dest.stat().st_size > 0:
+            reused.append(dest.name)
+            if job_id:
+                _update_upload_job(job_id, processed=index, reused=len(reused))
+            continue
+
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                prefix=f"{content_hash[:16]}_",
+                dir=temp_dir,
+                delete=False,
+            ) as temp_file:
+                temp_file.write(content)
+                temp_path = Path(temp_file.name)
+
+            asyncio.run(ensure_sticker_gif(temp_path, dest))
+            saved.append(dest.name)
+        except TranscodeError as e:
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+            failed.append(f"{filename}：转 GIF 失败：{e}")
+        except Exception as e:
+            logger.exception("贴纸上传处理失败: %s", e)
+            if dest.exists():
+                dest.unlink(missing_ok=True)
+            failed.append(f"{filename}：处理失败，请检查服务日志")
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+
+        if job_id:
+            _update_upload_job(
+                job_id,
+                processed=index,
+                saved=len(saved),
+                reused=len(reused),
+                failed=failed.copy(),
+            )
+
+    details = [f"上传完成：{pack_name}"]
+    if saved:
+        details.append(f"新增 {len(saved)} 个")
+    if reused:
+        details.append(f"复用 {len(reused)} 个")
+    if failed:
+        details.append(f"失败 {len(failed)} 个：{'；'.join(failed[:5])}")
+        if len(failed) > 5:
+            details.append(f"另有 {len(failed) - 5} 个失败项已省略")
+
+    status = "failed" if failed and not saved and not reused else "done"
+    summary = "，".join(details)
+    if job_id:
+        _update_upload_job(
+            job_id,
+            status=status,
+            current="",
+            processed=len(file_infos),
+            saved=len(saved),
+            reused=len(reused),
+            failed=failed.copy(),
+            message=summary,
+        )
+
+    return {
+        "status": status,
+        "message": summary,
+        "saved": saved,
+        "reused": reused,
+        "failed": failed,
+    }
 
 
 def _auth_password() -> str:
@@ -362,6 +529,17 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(_pack_state())
             return
+        if parsed.path.startswith("/api/uploads/"):
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            job_id = parsed.path.removeprefix("/api/uploads/").strip("/")
+            job = _get_upload_job(job_id)
+            if job is None:
+                self._send_json({"error": "上传任务不存在。"}, 404)
+                return
+            self._send_json(job)
+            return
         if parsed.path not in {"/", "/index.html"}:
             self._send_html(_html_page("页面不存在。"), 404)
             return
@@ -402,7 +580,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 data = self._read_json_body()
                 pack_name = _safe_pack_name(str(data.get("pack", "")))
                 keyword = str(data.get("keyword", "")).strip()
-                if not pack_name or not keyword:
+                if not pack_name or not _split_keywords(keyword):
                     raise ValueError("贴纸包和关键词都不能为空。")
                 _add_trigger_keyword(pack_name, keyword)
                 self._send_json(_pack_state())
@@ -413,13 +591,16 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "新增贴纸关键词失败，请检查服务日志。"}, 500)
             return
 
-        if path != "/upload":
+        if path not in {"/upload", "/api/uploads"}:
             self._send_html(_html_page("页面不存在。"), 404)
             return
 
         try:
             fields, files = self._parse_multipart_form()
         except ValueError as e:
+            if path == "/api/uploads":
+                self._send_json({"error": str(e)}, 400)
+                return
             self._send_html(_html_page(str(e)), 400)
             return
 
@@ -429,61 +610,42 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         pack_name = existing_pack or new_pack
 
         if not pack_name:
+            if path == "/api/uploads":
+                self._send_json({"error": "请先选择已有贴纸包，或输入新贴纸包名称。"}, 400)
+                return
             self._send_html(_html_page("请先选择已有贴纸包，或输入新贴纸包名称。"), 400)
             return
 
-        file_info = files.get("file")
-        if file_info is None or not file_info["filename"]:
+        file_infos = [file_info for file_info in files.get("file", []) if file_info.get("filename")]
+        if not file_infos:
+            if path == "/api/uploads":
+                self._send_json({"error": "请选择要上传的文件。"}, 400)
+                return
             self._send_html(_html_page("请选择要上传的文件。"), 400)
             return
 
-        filename = _safe_filename(file_info["filename"])
-        suffix = Path(filename).suffix.lower()
-        if suffix not in ALLOWED_EXTS:
-            self._send_html(_html_page(f"不支持的文件格式：{suffix}"), 400)
+        if len(file_infos) > MAX_UPLOAD_FILES:
+            if path == "/api/uploads":
+                self._send_json({"error": f"一次最多上传 {MAX_UPLOAD_FILES} 个文件。"}, 400)
+                return
+            self._send_html(_html_page(f"一次最多上传 {MAX_UPLOAD_FILES} 个文件。"), 400)
             return
 
-        content = file_info["content"]
-        content_hash = _hash_content(content)
-        dest_dir = _upload_root() / pack_name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / f"{content_hash[:16]}.gif"
-
-        _register_trigger(pack_name, keyword)
-        if dest.exists() and dest.stat().st_size > 0:
-            self._send_html(_html_page(f"贴纸已存在，已复用：{pack_name}/{dest.name}"))
+        if path == "/api/uploads":
+            job = _new_upload_job(pack_name, len(file_infos))
+            thread = threading.Thread(
+                target=_process_upload_files,
+                args=(pack_name, keyword, file_infos, job["id"]),
+                name=f"StickerUpload-{job['id'][:8]}",
+                daemon=True,
+            )
+            thread.start()
+            self._send_json(job, 202)
             return
 
-        temp_dir = _temp_root()
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix,
-                prefix=f"{content_hash[:16]}_",
-                dir=temp_dir,
-                delete=False,
-            ) as temp_file:
-                temp_file.write(content)
-                temp_path = Path(temp_file.name)
-
-            asyncio.run(ensure_sticker_gif(temp_path, dest))
-        except TranscodeError as e:
-            if dest.exists():
-                dest.unlink(missing_ok=True)
-            self._send_html(_html_page(f"贴纸转 GIF 失败：{e}"), 400)
-            return
-        except Exception as e:
-            logger.exception("贴纸上传处理失败: %s", e)
-            if dest.exists():
-                dest.unlink(missing_ok=True)
-            self._send_html(_html_page("贴纸上传处理失败，请检查服务日志。"), 500)
-            return
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
-
-        self._send_html(_html_page(f"上传成功：{pack_name}/{dest.name}"))
+        result = _process_upload_files(pack_name, keyword, file_infos)
+        status = 400 if result["status"] == "failed" else 200
+        self._send_html(_html_page(result["message"]), status)
 
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
@@ -508,7 +670,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             payload["error"] = "没有找到这个关键词关联。"
         self._send_json(payload, status)
 
-    def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, list[dict[str, Any]]]]:
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type.lower():
             raise ValueError("请求格式错误：需要 multipart/form-data。")
@@ -532,7 +694,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             raise ValueError("请求格式错误：未找到 multipart 内容。")
 
         fields: dict[str, str] = {}
-        files: dict[str, dict[str, Any]] = {}
+        files: dict[str, list[dict[str, Any]]] = {}
 
         for part in message.iter_parts():
             disposition = part.get("Content-Disposition", "")
@@ -546,10 +708,10 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             filename = part.get_filename()
             payload = part.get_payload(decode=True) or b""
             if filename:
-                files[name] = {
+                files.setdefault(name, []).append({
                     "filename": filename,
                     "content": payload,
-                }
+                })
             else:
                 charset = part.get_content_charset() or "utf-8"
                 fields[name] = payload.decode(charset, errors="replace")

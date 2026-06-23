@@ -145,6 +145,14 @@ label span {
   color: #39424e;
 }
 
+label small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 input,
 select,
 button {
@@ -184,6 +192,38 @@ button {
   background: #fff;
   color: var(--accent);
   border-color: var(--border);
+}
+
+.upload-progress {
+  margin-top: 14px;
+  border: 1px solid #b9d9de;
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px;
+}
+
+.progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.progress-head strong,
+.progress-head span {
+  overflow-wrap: anywhere;
+}
+
+progress {
+  width: 100%;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.upload-progress p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .grid.two-col {

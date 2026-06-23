@@ -29,9 +29,9 @@
   <section class="panel upload-panel">
     <div class="panel-heading">
       <h2>上传贴纸</h2>
-      <p>素材会统一转换为 GIF。选择已有贴纸包，或输入新名称自动创建。</p>
+      <p>素材会统一转换为 GIF。支持一次选择多个文件，最多 99 个。</p>
     </div>
-    <form action="/upload" method="post" enctype="multipart/form-data" class="upload-form">
+    <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data" class="upload-form">
       <label>
         <span>已有贴纸包</span>
         <select id="existing_pack" name="existing_pack">
@@ -46,16 +46,25 @@
 
       <label>
         <span>额外关键词</span>
-        <input id="keyword" name="keyword" placeholder="可选，例如 猫猫虫">
+        <input id="keyword" name="keyword" placeholder="可选，例如 猫猫虫；capoo;可爱">
       </label>
 
       <label class="file-field">
         <span>贴纸文件</span>
-        <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" required>
+        <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" multiple required>
+        <small id="fileHint">可多选，单次最多 99 个文件。</small>
       </label>
 
       <button type="submit" class="primary">上传</button>
     </form>
+    <div id="uploadProgress" class="upload-progress" hidden>
+      <div class="progress-head">
+        <strong id="uploadProgressText">等待上传...</strong>
+        <span id="uploadProgressCount">0/0</span>
+      </div>
+      <progress id="uploadProgressBar" value="0" max="100"></progress>
+      <p id="uploadProgressDetail">选择文件后开始上传。</p>
+    </div>
   </section>
 
   <section class="panel manage-panel">
@@ -74,7 +83,7 @@
       </label>
       <label>
         <span>关键词</span>
-        <input id="keywordInput" placeholder="例如 猫猫虫" required>
+        <input id="keywordInput" placeholder="例如 猫猫虫；capoo;可爱" required>
       </label>
       <button type="submit" class="primary">添加关联</button>
     </form>
