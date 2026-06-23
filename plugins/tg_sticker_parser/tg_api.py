@@ -15,6 +15,11 @@ TG_STICKER_RE = re.compile(
 )
 
 _TRAILING_PUNCTUATION = "./,，。!！?？:：;；)]）】》>\"'"
+_MAX_RETRIES = 3
+
+
+def _retry_delay(attempt: int) -> float:
+    return min(4.0, 2.0 ** attempt)
 
 
 def normalize_sticker_set_name(name: str) -> str:
@@ -69,22 +74,26 @@ class TelegramBotApi:
 
         last_error: Any = None
 
-        for _ in range(3):
+        for attempt in range(_MAX_RETRIES):
             try:
                 resp = await self.client.post(url, json=params)
                 resp.raise_for_status()
                 data = resp.json()
-            except httpx.ConnectError as e:
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
+                last_error = e
+                if attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(_retry_delay(attempt))
+                    continue
+                if isinstance(e, httpx.ConnectError):
+                    raise TelegramApiError(
+                        f"连接 Telegram API 失败，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
+                    ) from e
+                if isinstance(e, httpx.TimeoutException):
+                    raise TelegramApiError(
+                        f"连接 Telegram API 超时，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
+                    ) from e
                 raise TelegramApiError(
-                    f"连接 Telegram API 失败: {type(e).__name__}: {repr(e)}"
-                ) from e
-            except httpx.TimeoutException as e:
-                raise TelegramApiError(
-                    f"连接 Telegram API 超时: {type(e).__name__}: {repr(e)}"
-                ) from e
-            except httpx.HTTPError as e:
-                raise TelegramApiError(
-                    f"请求 Telegram API 失败: {type(e).__name__}: {repr(e)}"
+                    f"请求 Telegram API 失败，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
                 ) from e
 
             if data.get("ok"):
@@ -113,32 +122,36 @@ class TelegramBotApi:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = save_path.with_suffix(save_path.suffix + ".part")
 
-        try:
-            async with self.client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                with tmp_path.open("wb") as f:
-                    async for chunk in resp.aiter_bytes():
-                        if chunk:
-                            f.write(chunk)
-            tmp_path.replace(save_path)
-        except httpx.ConnectError as e:
+        for attempt in range(_MAX_RETRIES):
             tmp_path.unlink(missing_ok=True)
-            raise TelegramApiError(
-                f"下载 Telegram 文件失败: {type(e).__name__}: {repr(e)}"
-            ) from e
-        except httpx.TimeoutException as e:
-            tmp_path.unlink(missing_ok=True)
-            raise TelegramApiError(
-                f"下载 Telegram 文件超时: {type(e).__name__}: {repr(e)}"
-            ) from e
-        except httpx.HTTPError as e:
-            tmp_path.unlink(missing_ok=True)
-            raise TelegramApiError(
-                f"下载 Telegram 文件请求失败: {type(e).__name__}: {repr(e)}"
-            ) from e
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+            try:
+                async with self.client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    with tmp_path.open("wb") as f:
+                        async for chunk in resp.aiter_bytes():
+                            if chunk:
+                                f.write(chunk)
+                tmp_path.replace(save_path)
+                return save_path
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
+                tmp_path.unlink(missing_ok=True)
+                if attempt < _MAX_RETRIES - 1:
+                    await asyncio.sleep(_retry_delay(attempt))
+                    continue
+                if isinstance(e, httpx.ConnectError):
+                    raise TelegramApiError(
+                        f"下载 Telegram 文件失败，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
+                    ) from e
+                if isinstance(e, httpx.TimeoutException):
+                    raise TelegramApiError(
+                        f"下载 Telegram 文件超时，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
+                    ) from e
+                raise TelegramApiError(
+                    f"下载 Telegram 文件请求失败，已重试 {_MAX_RETRIES} 次: {type(e).__name__}: {repr(e)}"
+                ) from e
+            except Exception:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
         return save_path
 
