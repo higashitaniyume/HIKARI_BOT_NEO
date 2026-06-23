@@ -58,6 +58,11 @@ uv.lock
 # Temporary media
 /tmp/hikari_bot/
 
+# Docker runtime data
+astrbot/
+napcat/
+sharedFolder/
+
 # Deployment scripts and systemd service files
 deploy.ps1
 hikari-bot-neo.service

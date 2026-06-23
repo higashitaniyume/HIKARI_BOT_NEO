@@ -1,0 +1,17 @@
+.git
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+BotData/logs
+UserData/stats
+astrbot
+napcat
+sharedFolder
+
+.pytest_cache
+.mypy_cache
+.ruff_cache

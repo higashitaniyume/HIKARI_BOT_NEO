@@ -1,0 +1,24 @@
+
+version: "3"
+services:
+  napcat:
+    environment:
+      - NAPCAT_UID=${NAPCAT_UID}
+      - NAPCAT_GID=${NAPCAT_GID}
+    ports:
+      - 3000:3000
+      - 3001:3001
+      - 6099:6099
+      - 54258:54258
+      - 3004:3004
+      - 54253:54253
+    container_name: napcat
+    network_mode: bridge
+    restart: always
+    image: mlikiowa/napcat-docker:latest
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./ntqq:/app/.config/QQ
+      - /opt/sharedFolder:/app/sharedFolder
+      - /opt/HIKARI_BOT/data/pixiv_cache:/opt/HIKARI_BOT/data/pixiv_cache
+      - /tmp/hikari_bot:/tmp/hikari_bot

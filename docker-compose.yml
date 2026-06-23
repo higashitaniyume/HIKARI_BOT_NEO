@@ -1,0 +1,85 @@
+name: hikari-bot-neo
+
+services:
+  hikari-bot-neo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hikari-bot-neo:latest
+    container_name: hikari-bot-neo
+    restart: unless-stopped
+    depends_on:
+      - napcat
+      - cobalt
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "${HIKARI_STICKER_WEB_PORT:-54213}:54213"
+    volumes:
+      - ./BotData:/app/BotData
+      - ./UserData:/app/UserData
+      - ./sharedFolder:/app/sharedFolder
+      - hikari_tmp:/tmp/hikari_bot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    environment:
+      NAPCAT_UID: "${NAPCAT_UID:-1000}"
+      NAPCAT_GID: "${NAPCAT_GID:-1000}"
+      TZ: Asia/Shanghai
+    ports:
+      - "${NAPCAT_WEBUI_PORT:-3000}:3000"
+      - "${NAPCAT_WS_PORT:-3001}:3001"
+      - "${NAPCAT_ONEBOT_PORT:-6099}:6099"
+      - "${NAPCAT_REVERSE_WS_PORT:-54258}:54258"
+      - "${NAPCAT_EXTRA_PORT:-3004}:3004"
+      - "${NAPCAT_BOT_WS_PORT:-54253}:54253"
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      - ./napcat/ntqq:/app/.config/QQ
+      - ./sharedFolder:/app/sharedFolder
+      - hikari_tmp:/tmp/hikari_bot
+
+  cobalt:
+    image: ghcr.io/imputnet/cobalt:11
+    container_name: cobalt
+    init: true
+    read_only: true
+    restart: unless-stopped
+    ports:
+      - "${COBALT_PORT:-54257}:9000/tcp"
+    environment:
+      API_URL: "${COBALT_API_URL:-http://localhost:54257/}"
+    labels:
+      - com.centurylinklabs.watchtower.scope=cobalt
+
+  watchtower:
+    image: ghcr.io/containrrr/watchtower
+    container_name: hikari-cobalt-watchtower
+    restart: unless-stopped
+    command: --cleanup --scope cobalt --interval 900 --include-restarting
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  astrbot:
+    image: soulter/astrbot:latest
+    container_name: astrbot
+    restart: unless-stopped
+    ports:
+      - "${ASTRBOT_WEB_PORT:-6185}:6185"
+      - "${ASTRBOT_PORT:-6199}:6199"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./astrbot/data:/AstrBot/data
+      - ./sharedFolder:/app/sharedFolder
+      - /etc/localtime:/etc/localtime:ro
+
+volumes:
+  hikari_tmp:
