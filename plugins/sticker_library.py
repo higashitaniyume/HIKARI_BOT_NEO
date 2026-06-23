@@ -359,6 +359,7 @@ def get_state() -> dict[str, Any]:
     index = load_index()
     packs: list[dict[str, Any]] = []
     keyword_map: dict[str, list[str]] = {}
+    stickers = index.get("stickers") or {}
     for pack_name, pack in sorted((index.get("packs") or {}).items()):
         keywords = split_keywords(pack.get("keywords") or [])
         packs.append({
@@ -373,7 +374,11 @@ def get_state() -> dict[str, Any]:
         {"keyword": keyword, "packs": sorted(pack_names)}
         for keyword, pack_names in sorted(keyword_map.items(), key=lambda item: item[0])
     ]
-    return {"packs": packs, "keywords": keywords}
+    return {
+        "packs": packs,
+        "keywords": keywords,
+        "total_stickers": len(stickers),
+    }
 
 
 def register_pack_keywords(pack_name: str, keywords: Any = "", include_pack_name: bool = True) -> None:

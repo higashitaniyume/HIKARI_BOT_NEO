@@ -1,6 +1,7 @@
 const state = {
   packs: [],
   keywords: [],
+  totalStickers: 0,
 };
 const MAX_UPLOAD_FILES = 99;
 
@@ -42,6 +43,7 @@ async function fetchState() {
   const data = await readJsonResponse(res, "读取贴纸数据失败");
   state.packs = data.packs || [];
   state.keywords = data.keywords || [];
+  state.totalStickers = Number(data.total_stickers || 0);
   render();
 }
 
@@ -158,6 +160,7 @@ function renderKeywords() {
 }
 
 function render() {
+  $("#stickerCount").textContent = state.totalStickers;
   $("#packCount").textContent = state.packs.length;
   $("#keywordCount").textContent = state.keywords.length;
   renderSelects();
@@ -331,6 +334,7 @@ async function addKeyword(event) {
     const data = await readJsonResponse(res, "添加失败");
     state.packs = data.packs || [];
     state.keywords = data.keywords || [];
+    state.totalStickers = Number(data.total_stickers || 0);
     $("#keywordInput").value = "";
     render();
     showToast("关键词关联已添加。");
@@ -346,6 +350,7 @@ async function deleteKeyword(pack, keyword) {
     const data = await readJsonResponse(res, "删除失败");
     state.packs = data.packs || [];
     state.keywords = data.keywords || [];
+    state.totalStickers = Number(data.total_stickers || 0);
     render();
     showToast("关键词关联已删除。");
   } catch (err) {
