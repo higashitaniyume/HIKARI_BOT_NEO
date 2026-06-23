@@ -20,6 +20,8 @@ STORAGE_ROOT = LEGACY_ROOT / "_library"
 MEDIA_EXTS = {".gif"}
 
 _lock = threading.RLock()
+_index_cache: dict[str, Any] | None = None
+_index_cache_mtime_ns: int | None = None
 
 
 def split_keywords(value: Any) -> list[str]:
@@ -145,6 +147,25 @@ def _storage_path(sticker_id: str) -> Path:
     return STORAGE_ROOT / Path(sticker_id).name
 
 
+def _file_path_from_meta(stickers: dict[str, Any], sticker_id: str) -> Path:
+    meta = stickers.get(sticker_id) or {}
+    return _storage_path(str(meta.get("file") or sticker_id))
+
+
+def _pack_files_from_index(index: dict[str, Any], pack_name: str, *, check_exists: bool = True) -> list[Path]:
+    pack = (index.get("packs") or {}).get(safe_pack_name(pack_name))
+    if not pack:
+        return []
+
+    files: list[Path] = []
+    stickers = index.get("stickers") or {}
+    for sticker_id in pack.get("stickers") or []:
+        path = _file_path_from_meta(stickers, str(sticker_id))
+        if not check_exists or (path.is_file() and path.suffix.lower() in MEDIA_EXTS and path.stat().st_size > 0):
+            files.append(path)
+    return sorted(files)
+
+
 def _ensure_pack(index: dict[str, Any], pack_name: str) -> dict[str, Any]:
     safe_name = safe_pack_name(pack_name)
     if not safe_name:
@@ -237,24 +258,35 @@ def _migrate_legacy_dirs(index: dict[str, Any]) -> int:
 
 
 def load_index() -> dict[str, Any]:
+    global _index_cache, _index_cache_mtime_ns
     with _lock:
         if LIBRARY_CONFIG_PATH.exists():
+            mtime_ns = LIBRARY_CONFIG_PATH.stat().st_mtime_ns
+            if _index_cache is not None and _index_cache_mtime_ns == mtime_ns:
+                return _index_cache
             index = _normalize_index(_read_json(LIBRARY_CONFIG_PATH))
+            _index_cache = index
+            _index_cache_mtime_ns = mtime_ns
             return index
 
         index = _empty_index()
         migrated = _migrate_legacy_dirs(index)
         _atomic_write_json(LIBRARY_CONFIG_PATH, index)
         _sync_legacy_trigger_config(index)
+        _index_cache = index
+        _index_cache_mtime_ns = LIBRARY_CONFIG_PATH.stat().st_mtime_ns
         logger.info("[StickerLibrary] 已初始化贴纸库，迁移旧贴纸 %d 个", migrated)
         return index
 
 
 def save_index(index: dict[str, Any]) -> None:
+    global _index_cache, _index_cache_mtime_ns
     with _lock:
         normalized = _normalize_index(index)
         _atomic_write_json(LIBRARY_CONFIG_PATH, normalized)
         _sync_legacy_trigger_config(normalized)
+        _index_cache = normalized
+        _index_cache_mtime_ns = LIBRARY_CONFIG_PATH.stat().st_mtime_ns
 
 
 def list_pack_names() -> list[str]:
@@ -264,24 +296,15 @@ def list_pack_names() -> list[str]:
 
 def get_pack_files(pack_name: str) -> list[Path]:
     index = load_index()
-    pack = (index.get("packs") or {}).get(safe_pack_name(pack_name))
-    if not pack:
-        return []
-    files: list[Path] = []
-    stickers = index.get("stickers") or {}
-    for sticker_id in pack.get("stickers") or []:
-        meta = stickers.get(sticker_id) or {}
-        path = _storage_path(str(meta.get("file") or sticker_id))
-        if path.is_file() and path.suffix.lower() in MEDIA_EXTS and path.stat().st_size > 0:
-            files.append(path)
-    return sorted(files)
+    return _pack_files_from_index(index, pack_name, check_exists=True)
 
 
 def get_packs_files(pack_names: list[str]) -> list[Path]:
+    index = load_index()
     files: list[Path] = []
     seen: set[Path] = set()
     for pack_name in pack_names:
-        for path in get_pack_files(pack_name):
+        for path in _pack_files_from_index(index, pack_name, check_exists=True):
             resolved = path.resolve()
             if resolved not in seen:
                 seen.add(resolved)
@@ -290,11 +313,14 @@ def get_packs_files(pack_names: list[str]) -> list[Path]:
 
 
 def get_all_files() -> list[Path]:
-    return get_packs_files(list_pack_names())
+    index = load_index()
+    return get_packs_files(sorted((index.get("packs") or {}).keys()))
 
 
 def count_pack(pack_name: str) -> int:
-    return len(get_pack_files(pack_name))
+    index = load_index()
+    pack = (index.get("packs") or {}).get(safe_pack_name(pack_name))
+    return len(pack.get("stickers") or []) if pack else 0
 
 
 def get_keyword_map() -> dict[str, list[str]]:
@@ -309,8 +335,24 @@ def get_keyword_map() -> dict[str, list[str]]:
 
 
 def get_files_for_keyword(keyword: str) -> tuple[list[str], list[Path]]:
-    pack_names = get_keyword_map().get(str(keyword).strip(), [])
-    return pack_names, get_packs_files(pack_names)
+    index = load_index()
+    keyword_map: dict[str, list[str]] = {}
+    for pack_name, pack in (index.get("packs") or {}).items():
+        for item in split_keywords(pack.get("keywords") or []):
+            packs = keyword_map.setdefault(item, [])
+            if pack_name not in packs:
+                packs.append(pack_name)
+
+    pack_names = sorted(keyword_map.get(str(keyword).strip(), []))
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for pack_name in pack_names:
+        for path in _pack_files_from_index(index, pack_name, check_exists=True):
+            resolved = path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                files.append(path)
+    return pack_names, files
 
 
 def get_state() -> dict[str, Any]:
@@ -321,7 +363,7 @@ def get_state() -> dict[str, Any]:
         keywords = split_keywords(pack.get("keywords") or [])
         packs.append({
             "name": pack_name,
-            "count": count_pack(pack_name),
+            "count": len(pack.get("stickers") or []),
             "keywords": keywords,
         })
         for keyword in keywords:

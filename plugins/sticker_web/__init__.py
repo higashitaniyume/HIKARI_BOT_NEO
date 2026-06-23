@@ -449,7 +449,13 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
+
+    def _write_body(self, body: bytes) -> None:
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            logger.info("[StickerWeb] 客户端在响应写入前断开连接")
 
     def _redirect(self, location: str, cookie: str | None = None) -> None:
         self.send_response(303)
@@ -487,7 +493,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _send_static(self, parsed_path: str) -> None:
         relative = unquote(parsed_path.removeprefix("/static/")).replace("\\", "/")
@@ -511,7 +517,7 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        self._write_body(body)
 
     def _read_json_body(self) -> dict[str, Any]:
         try:
