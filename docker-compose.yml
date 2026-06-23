@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${HIKARI_IMAGE:-higashitaniyume/hikaribot:latest}
+    image: ${HIKARI_IMAGE:-hyumerin/hikaribot:latest}
     container_name: hikaribot-docker
     restart: unless-stopped
     depends_on:

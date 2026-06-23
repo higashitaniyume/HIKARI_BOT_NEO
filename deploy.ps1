@@ -6,10 +6,11 @@ param(
     [string]$ServerIP = "192.168.31.2",
     [string]$ServerUser = "root",
     [string]$DeployPath = "/opt/hikaribot-dockcer",
-    [string]$Image = "higashitaniyume/hikaribot:latest",
+    [string]$Image = "hyumerin/hikaribot:latest",
     [string]$NapcatAccount = "",
     [switch]$Push,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$AllServices
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,8 +78,11 @@ if ($NapcatAccount -ne "") {
 }
 
 Write-Host "[6/6] 启动 Docker 服务..." -ForegroundColor Yellow
-Run-Remote "docker rm -f hikaribot-docker napcat cobalt astrbot 2>/dev/null || true"
-Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans"
+if ($AllServices) {
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans"
+} else {
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps --force-recreate hikaribot"
+}
 
 Write-Host ""
 Write-Host "部署完成。" -ForegroundColor Green

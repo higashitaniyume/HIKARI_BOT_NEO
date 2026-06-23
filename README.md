@@ -66,7 +66,7 @@ name: hikaribot
 
 services:
   hikaribot:
-    image: higashitaniyume/hikaribot:latest
+    image: hyumerin/hikaribot:latest
     container_name: hikaribot-docker
     restart: unless-stopped
     depends_on:
@@ -212,10 +212,10 @@ Windows PowerShell：
 
 这个脚本会：
 
-1. 在本机构建 `higashitaniyume/hikaribot:latest`
+1. 在本机构建 `hyumerin/hikaribot:latest`
 2. 通过 SSH 把镜像传到服务器并 `docker load`
 3. 上传 `deploy/docker-compose.server.yml` 为服务器目录下的 `docker-compose.yml`
-4. 在服务器执行 `docker compose up -d --remove-orphans`
+4. 默认只重建并重启 `hikaribot`，不会动 `napcat`、`cobalt`、`astrbot`
 
 如果已经登录 Docker Hub，也可以推送镜像后让服务器拉取：
 
@@ -223,12 +223,18 @@ Windows PowerShell：
 .\deploy.ps1 -Push
 ```
 
+如果是第一次在服务器部署，或者确实想更新所有服务：
+
+```powershell
+.\deploy.ps1 -AllServices
+```
+
 手动推送镜像：
 
 ```bash
 docker login
-docker build -t higashitaniyume/hikaribot:latest .
-docker push higashitaniyume/hikaribot:latest
+docker build -t hyumerin/hikaribot:latest .
+docker push hyumerin/hikaribot:latest
 ```
 
 ### 访问地址
