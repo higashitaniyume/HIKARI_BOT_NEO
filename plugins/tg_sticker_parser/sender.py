@@ -13,6 +13,8 @@ from nonebot.adapters.onebot.v11 import (
     PrivateMessageEvent,
 )
 
+from core.error_notifier import notify_error_to_superuser, send_user_error
+
 logger = logging.getLogger("HikariBot.TgStickerSender")
 
 
@@ -235,4 +237,8 @@ async def send_sticker_outputs(
             )
     except Exception as e:
         logger.exception("发送合并转发消息失败: %s", e)
-        await bot.send(event, f"发送合并转发消息失败: {e}")
+        await send_user_error(bot, event)
+        try:
+            await notify_error_to_superuser(bot, event, e, "TgStickerForwardSend")
+        except Exception as notify_error:
+            logger.exception("发送管理员错误通知失败: %s", notify_error)

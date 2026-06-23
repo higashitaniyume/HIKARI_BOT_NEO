@@ -58,7 +58,12 @@ class AutoCobaltHandler:
                 result = await call_cobalt_api(url, cfg.get("cobalt_api", "http://192.168.31.2:54257/"), cfg.get("api_key", ""), cfg.get("api_timeout", 90))
 
                 if result.status == "error":
-                    await bot.send(event, f"解析失败：{result.error_code}\n链接：{url}")
+                    await send_user_error(bot, event)
+                    try:
+                        error = RuntimeError(f"Cobalt API 返回错误: {result.error_code}, url={url}")
+                        await notify_error_to_superuser(bot, event, error, "CobaltParser")
+                    except Exception as notify_err:
+                        logger.exception(f"发送错误通知失败: {notify_err}")
                     continue
 
                 await send_cobalt_result(bot, event, result, cfg)

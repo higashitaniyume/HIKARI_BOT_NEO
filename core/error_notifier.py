@@ -17,7 +17,7 @@ from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, MessageEv
 
 logger = logging.getLogger("HikariBot.ErrorNotifier")
 
-USER_ERROR_MESSAGE = "解析失败，请稍后再试。"
+USER_ERROR_MESSAGE = "处理失败，请稍后再试。"
 
 _KEY_VALUE_SECRET_RE = re.compile(
     r"(?i)\b(cookie|token|api[_-]?key|password|passwd|secret)\b\s*[:=]\s*([^\s,;]+)"

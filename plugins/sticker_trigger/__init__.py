@@ -21,6 +21,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.command_router import CommandContext, command, is_command_handled
+from core.error_notifier import notify_error_to_superuser
 from core.stats_tracker import increment as stats_increment, format_stats
 from plugins import sticker_library
 
@@ -125,6 +126,13 @@ def _log_send_failure(label: str, error: Exception) -> None:
         logger.warning("[Sticker] %s 发送超时: %s", label, error)
     else:
         logger.exception("[Sticker] %s 发送失败: %s", label, error)
+
+
+async def _notify_sticker_error(bot: Bot, event: MessageEvent, error: Exception, feature: str) -> None:
+    try:
+        await notify_error_to_superuser(bot, event, error, feature)
+    except Exception as notify_error:
+        logger.exception("[Sticker] 发送管理员错误通知失败: %s", notify_error)
 
 
 async def _make_collage(files: list[Path], folder_name: str) -> Path:
@@ -347,7 +355,8 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
     except Exception as e:
         logger.exception("[Sticker] 拼图生成失败: %s", e)
-        await _try_send_text(ctx.bot, ctx.event, f"拼图失败: {e}", "拼图失败提示")
+        await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerCollage")
+        await _try_send_text(ctx.bot, ctx.event, "拼图失败，请稍后再试。", "拼图失败提示")
         return
 
     try:
@@ -355,6 +364,7 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         stats_increment(ctx.event, "collage_made", 1)
     except Exception as e:
         _log_send_failure("拼图", e)
+        await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerCollageSend")
         await _try_send_text(
             ctx.bot,
             ctx.event,
@@ -421,6 +431,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
                 sent += 1
             except Exception as e:
                 _log_send_failure(f"贴纸 {p.name}", e)
+                await _notify_sticker_error(bot, event, e, "StickerSend")
         if sent:
             stats_increment(event, "stickers_sent", sent)
     else:
@@ -429,6 +440,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
             stats_increment(event, "stickers_sent", len(picked))
         except Exception as e:
             _log_send_failure("贴纸合并转发", e)
+            await _notify_sticker_error(bot, event, e, "StickerForwardSend")
             logger.info("[Sticker] 合并转发失败，降级为逐张发送")
             sent = 0
             for p in picked:
@@ -437,6 +449,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
                     sent += 1
                 except Exception as send_error:
                     _log_send_failure(f"贴纸 {p.name}", send_error)
+                    await _notify_sticker_error(bot, event, send_error, "StickerSend")
             if sent:
                 stats_increment(event, "stickers_sent", sent)
 
