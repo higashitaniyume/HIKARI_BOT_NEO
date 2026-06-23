@@ -3,7 +3,7 @@
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageEvent
 
-HELP_TEXT = """HIKARI BOT NEO 帮助
+HELP_TEXT = """HIKARI BOT 帮助
 
 媒体解析：
 - 直接发送 Pixiv 作品链接：解析并发送图片
@@ -36,7 +36,7 @@ help_matcher = on_message(priority=3, block=False)
 @help_matcher.handle()
 async def handle_help(event: MessageEvent):
     text = event.get_plaintext().strip().lower()
-    if text not in {"帮助", "help", "菜单"}:
+    if text not in {"帮助","/help", "help", "菜单"}:
         return
 
     if isinstance(event, GroupMessageEvent) and not event.is_tome():

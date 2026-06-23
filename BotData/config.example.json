@@ -17,12 +17,9 @@
     "temp_media": "/tmp/hikari_bot"
   },
   "features": {
+    "message_collector": true,
     "pixiv_parser": true,
-    "cobalt_parser": true,
-    "tg_sticker_parser": true,
-    "sticker_trigger": true,
-    "sticker_web": true,
-    "bot_help": true
+    "cobalt_parser": true
   },
   "media": {
     "send_path_prefix": "file://"

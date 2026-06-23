@@ -15,14 +15,35 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "port": 54213,
     "upload_root": "BotData/Gifs",
     "temp_root": "/tmp/hikari_bot/sticker_uploads",
+    "password": "change-me",
+    "session_ttl_seconds": 604800,
 }
+
+
+def _write_config(data: dict[str, Any]) -> None:
+    CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def ensure_config() -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not CONFIG_PATH.exists():
-        CONFIG_PATH.write_text(json.dumps(DEFAULT_CONFIG, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_config(DEFAULT_CONFIG)
         logger.info("已创建贴纸上传页面配置文件: %s", CONFIG_PATH)
+        return
+
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    changed = False
+    for key, value in DEFAULT_CONFIG.items():
+        if key not in data:
+            data[key] = value
+            changed = True
+    if changed:
+        _write_config(data)
+        logger.info("已补全贴纸上传页面配置文件: %s", CONFIG_PATH)
 
 
 def get_config() -> dict[str, Any]:

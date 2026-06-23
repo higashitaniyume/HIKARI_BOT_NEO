@@ -9,6 +9,7 @@
 import hashlib
 import logging
 import random
+import re
 import shutil
 import time
 from pathlib import Path
@@ -60,6 +61,11 @@ def _copy_to_shared(source: Path) -> Path:
     return dest
 
 
+def _safe_output_label(value: str) -> str:
+    value = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", value).strip(" ._")
+    return value[:48] or "stickers"
+
+
 async def _make_collage(files: list[Path], folder_name: str) -> Path:
     """将所有图片的第一帧拼成尽可能正方形的网格图。
 
@@ -106,7 +112,8 @@ async def _make_collage(files: list[Path], folder_name: str) -> Path:
             col = i % cols
             canvas.paste(img.convert("RGB"), (col * THUMB_SIZE, row * THUMB_SIZE))
 
-        out_path = SHARED_DIR / f"collage_{folder_name}_{len(images)}.jpg"
+        label = _safe_output_label(folder_name)
+        out_path = SHARED_DIR / f"collage_{label}_{len(images)}.jpg"
         canvas.save(out_path, "JPEG", quality=85)
         return out_path
 
@@ -143,14 +150,57 @@ sticker_matcher = on_message(priority=10, block=False)
 GIFS_ROOT = Path("BotData/Gifs")
 
 
-def _build_lookup(triggers: dict) -> dict[str, str]:
-    """从 {folder: [keywords]} 构建 {keyword: folder_name} 反向查找表。"""
-    lookup: dict[str, str] = {}
+def _normalize_keywords(value) -> list[str]:
+    if isinstance(value, list):
+        raw_keywords = value
+    elif value:
+        raw_keywords = [value]
+    else:
+        raw_keywords = []
+
+    keywords: list[str] = []
+    for raw_keyword in raw_keywords:
+        keyword = str(raw_keyword).strip()
+        if keyword and keyword not in keywords:
+            keywords.append(keyword)
+    return keywords
+
+
+def _build_lookup(triggers: dict) -> dict[str, list[str]]:
+    """从 {folder: [keywords]} 构建 {keyword: [folder_name, ...]} 反向查找表。"""
+    lookup: dict[str, list[str]] = {}
     for folder_name, keywords in triggers.items():
-        if isinstance(keywords, list):
-            for kw in keywords:
-                lookup[str(kw)] = folder_name
+        for kw in _normalize_keywords(keywords):
+            folders = lookup.setdefault(kw, [])
+            folder = str(folder_name)
+            if folder not in folders:
+                folders.append(folder)
     return lookup
+
+
+def _files_in_folder(folder_name: str) -> list[Path]:
+    folder_path = GIFS_ROOT / folder_name
+    if not folder_path.is_dir():
+        return []
+    return [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
+
+
+def _collect_folder_files(folder_names: list[str]) -> list[Path]:
+    files: list[Path] = []
+    seen: set[Path] = set()
+    for folder_name in folder_names:
+        for file_path in _files_in_folder(folder_name):
+            resolved = file_path.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                files.append(file_path)
+    return files
+
+
+def _format_folder_label(folder_names: list[str]) -> str:
+    if len(folder_names) == 1:
+        return folder_names[0]
+    return " + ".join(folder_names)
 
 
 @sticker_matcher.handle()
@@ -169,12 +219,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     if text == "随机贴纸":
         all_files: list[Path] = []
         for folder_name in triggers:
-            folder_path = GIFS_ROOT / folder_name
-            if folder_path.is_dir():
-                all_files.extend(
-                    f for f in folder_path.iterdir()
-                    if f.is_file() and f.suffix.lower() in MEDIA_EXTS
-                )
+            all_files.extend(_files_in_folder(str(folder_name)))
         if not all_files:
             await bot.send(event, Message("贴纸包都是空的，请先添加一些表情包。"))
             return
@@ -186,24 +231,23 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         stats_increment(event, "stickers_sent", 1)
         return
 
-    # "拼图 capoo" → 将该贴纸包所有图片的第一帧拼成一张大图
+    # "拼图 capoo" → 将关键词对应的一个或多个贴纸包合并后拼图
     if text.startswith("拼图 "):
         keyword = text[3:].strip()
         lookup = _build_lookup(triggers)
-        folder_name = lookup.get(keyword)
-        if folder_name is None:
-            return
-        folder_path = GIFS_ROOT / folder_name
-        if not folder_path.is_dir():
-            return
-        all_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
-        if not all_in_folder:
-            await bot.send(event, Message(f"贴纸包 {folder_name} 是空的。"))
+        folder_names = lookup.get(keyword)
+        if folder_names is None:
             return
 
-        await bot.send(event, Message(f"正在拼图 {folder_name}（{len(all_in_folder)} 张）..."))
+        all_in_folders = _collect_folder_files(folder_names)
+        folder_label = _format_folder_label(folder_names)
+        if not all_in_folders:
+            await bot.send(event, Message(f"贴纸包 {folder_label} 是空的。"))
+            return
+
+        await bot.send(event, Message(f"正在拼图 {folder_label}（{len(all_in_folders)} 张）..."))
         try:
-            jpg_path = await _make_collage(all_in_folder, folder_name)
+            jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
             uri = jpg_path.resolve().as_uri()
             await bot.send(event, Message(MessageSegment.image(uri)))
             stats_increment(event, "collage_made", 1)
@@ -221,12 +265,9 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     if text == "贴纸包列表":
         lines = ["当前贴纸包：", ""]
         for folder_name, keywords in triggers.items():
-            kw_list = keywords if isinstance(keywords, list) else [keywords]
-            folder_path = GIFS_ROOT / folder_name
-            count = 0
-            if folder_path.is_dir():
-                count = sum(1 for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS)
-            lines.append(f"· {folder_name} ({count}张): {', '.join(kw_list)}")
+            kw_list = _normalize_keywords(keywords)
+            count = len(_files_in_folder(str(folder_name)))
+            lines.append(f"· {folder_name} ({count}张): {', '.join(kw_list) if kw_list else '暂无关键词'}")
         await bot.send(event, Message("\n".join(lines)))
         return
 
@@ -240,21 +281,17 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
             keyword = parts[0]
             count = int(parts[1])
 
-    folder_name = lookup.get(keyword)
-    if folder_name is None:
+    folder_names = lookup.get(keyword)
+    if folder_names is None:
         return
 
-    # 从文件夹随机选取 count 张不重复的表情包
-    folder_path = GIFS_ROOT / folder_name
-    if not folder_path.is_dir():
+    # 从关键词对应的所有文件夹里随机选取 count 张不重复的表情包
+    all_in_folders = _collect_folder_files(folder_names)
+    if not all_in_folders:
+        logger.warning(f"[Sticker] 关键词 '{keyword}' 匹配, 但贴纸包 {_format_folder_label(folder_names)} 无可用媒体文件")
         return
 
-    all_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
-    if not all_in_folder:
-        logger.warning(f"[Sticker] 关键词 '{keyword}' 匹配, 但文件夹 {folder_name} 无可用媒体文件")
-        return
-
-    picked = random.sample(all_in_folder, min(count, len(all_in_folder)))
+    picked = random.sample(all_in_folders, min(count, len(all_in_folders)))
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
 
