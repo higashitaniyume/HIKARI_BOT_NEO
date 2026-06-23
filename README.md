@@ -479,8 +479,34 @@ BotData/Gifs/_library/
 - 上传贴纸素材到已有贴纸包，保存前会统一转换为 GIF。
 - 输入新贴纸包名称并上传，自动创建贴纸包。
 - 填写额外触发词，自动写入贴纸库索引。
+- 整理机器人静默收集到的待整理表情，并批量加入贴纸包或删除。
 
 支持上传素材后缀：`.gif`、`.jpg`、`.jpeg`、`.png`、`.webp`、`.mp4`、`.webm`、`.mov`、`.mkv`、`.tgs`。最终保存为 `.gif`。上传内容会用 SHA256 哈希命名；同一份素材重复上传会复用已有 GIF，不会再生成副本。
+
+### 贴纸静默收集
+
+配置文件：`BotData/plugin_configs/sticker_collector.json`
+
+机器人会静默收集群聊和私聊消息中的图片表情，统一转为 GIF 后放入待整理收集箱：
+
+```text
+BotData/Gifs/_inbox/
+BotData/plugin_configs/sticker_inbox.json
+```
+
+待整理表情不会自动进入正式贴纸包，需要在贴纸管理网页中手动分配或删除。收集箱按 GIF 哈希去重；如果超过配置的 `max_pending`，会自动移除最旧的待整理项。
+
+关键字段：
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用静默收集 |
+| `collect_group` | 是否收集群聊图片 |
+| `collect_private` | 是否收集私聊图片 |
+| `allowed_groups` | 指定允许收集的群号；为空表示所有群 |
+| `ignored_users` | 忽略指定 QQ 用户 |
+| `max_pending` | 收集箱最多保留多少个待整理项 |
+| `temp_root` | 下载和转码临时目录 |
 
 ### JMComic
 
@@ -528,6 +554,7 @@ HIKARI_BOT_NEO/
     pixiv_parser/                # Pixiv 解析
     cobalt_parser/               # Instagram / Facebook 解析
     tg_sticker_parser/           # Telegram 贴纸包解析
+    sticker_collector/           # 群聊/私聊表情静默收集
     sticker_trigger/             # 本地贴纸关键词触发
     sticker_web/                 # 贴纸上传页面
     bot_help/                    # 帮助信息

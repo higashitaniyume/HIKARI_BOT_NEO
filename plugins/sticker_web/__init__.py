@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from plugins import sticker_inbox
 from plugins import sticker_library
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
@@ -91,6 +92,10 @@ def _html_page(message: str = "") -> bytes:
 
 def _pack_state() -> dict[str, Any]:
     return sticker_library.get_state()
+
+
+def _inbox_state() -> dict[str, Any]:
+    return {"items": sticker_inbox.list_items()}
 
 
 def _json_bytes(data: Any) -> bytes:
@@ -539,6 +544,25 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self._write_body(body)
 
+    def _send_inbox_item(self, item_id: str) -> None:
+        safe_id = Path(unquote(item_id or "")).name
+        if not safe_id or safe_id != unquote(item_id or ""):
+            self._send_json({"error": "收集项不存在。"}, 404)
+            return
+
+        path = sticker_inbox.get_item_path(safe_id)
+        if path is None:
+            self._send_json({"error": "收集项不存在。"}, 404)
+            return
+
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/gif")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        self._write_body(body)
+
     def _read_json_body(self) -> dict[str, Any]:
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -574,6 +598,19 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 self._unauthorized_json()
                 return
             self._send_json(_pack_state())
+            return
+        if parsed.path == "/api/inbox":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            self._send_json(_inbox_state())
+            return
+        if parsed.path.startswith("/api/inbox/") and parsed.path.endswith("/image"):
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            item_id = parsed.path.removeprefix("/api/inbox/").removesuffix("/image").strip("/")
+            self._send_inbox_item(item_id)
             return
         if parsed.path.startswith("/api/stickers/"):
             if not self._is_authenticated():
@@ -676,6 +713,40 @@ class StickerWebHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("创建 Telegram 贴纸导入任务失败: %s", e)
                 self._send_json({"error": "创建 Telegram 贴纸导入任务失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/inbox/assign":
+            try:
+                data = self._read_json_body()
+                item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
+                pack_name = _safe_pack_name(str(data.get("pack", "")))
+                keyword = str(data.get("keyword", "")).strip()
+                if not item_ids:
+                    raise ValueError("请选择要整理的表情。")
+                if not pack_name:
+                    raise ValueError("请选择或输入目标贴纸包。")
+                result = sticker_inbox.assign_items(item_ids, pack_name, keyword)
+                self._send_json({"result": result, "inbox": _inbox_state(), "state": _pack_state()})
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("整理收集箱贴纸失败: %s", e)
+                self._send_json({"error": "整理收集箱贴纸失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/inbox/delete":
+            try:
+                data = self._read_json_body()
+                item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
+                if not item_ids:
+                    raise ValueError("请选择要删除的表情。")
+                removed = sticker_inbox.delete_items(item_ids)
+                self._send_json({"removed": removed, "inbox": _inbox_state()})
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("删除收集箱贴纸失败: %s", e)
+                self._send_json({"error": "删除收集箱贴纸失败，请检查服务日志。"}, 500)
             return
 
         if path not in {"/upload", "/api/uploads"}:

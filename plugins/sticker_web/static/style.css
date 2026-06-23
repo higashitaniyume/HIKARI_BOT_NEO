@@ -152,6 +152,16 @@ p {
   margin-bottom: 18px;
 }
 
+.panel-count {
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.panel-count strong {
+  color: var(--text);
+  font-size: 22px;
+}
+
 .upload-form,
 .tg-form {
   display: grid;
@@ -175,6 +185,18 @@ p {
   background: var(--panel-soft);
   padding: 16px;
   margin: 8px 0 24px;
+}
+
+.inbox-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(200px, 260px) minmax(220px, 1fr) auto auto;
+  gap: 14px;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 16px;
+  margin-bottom: 14px;
 }
 
 label span {
@@ -255,6 +277,16 @@ button:disabled {
   background: var(--accent-strong);
 }
 
+.danger-button {
+  background: #fff;
+  color: var(--danger);
+  border-color: #e6b2ae;
+}
+
+.danger-button:hover {
+  background: #fff0ef;
+}
+
 .ghost {
   width: auto;
   min-width: 86px;
@@ -309,6 +341,56 @@ progress {
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
   gap: 22px;
   align-items: start;
+}
+
+.inbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.inbox-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.inbox-card {
+  position: relative;
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+}
+
+.inbox-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 20px;
+  min-height: 20px;
+  z-index: 1;
+}
+
+.inbox-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid #dfe5e0;
+  border-radius: 8px;
+  background: #f6f8f5;
+  object-fit: contain;
+}
+
+.inbox-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .library-section {
@@ -501,7 +583,8 @@ progress {
   .statline,
   .upload-form,
   .tg-form,
-  .keyword-form {
+  .keyword-form,
+  .inbox-form {
     grid-template-columns: 1fr;
   }
 
@@ -512,7 +595,9 @@ progress {
 
   .link-button,
   .overview-panel .ghost,
-  .keyword-form .primary {
+  .keyword-form .primary,
+  .inbox-form .primary,
+  .inbox-form .danger-button {
     width: 100%;
   }
 
@@ -522,5 +607,10 @@ progress {
 
   .preview-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .inbox-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

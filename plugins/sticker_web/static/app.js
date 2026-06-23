@@ -1,6 +1,7 @@
 const state = {
   packs: [],
   keywords: [],
+  inbox: [],
   totalStickers: 0,
 };
 const MAX_UPLOAD_FILES = 99;
@@ -44,18 +45,31 @@ async function fetchState() {
   state.packs = data.packs || [];
   state.keywords = data.keywords || [];
   state.totalStickers = Number(data.total_stickers || 0);
+  await fetchInbox(false);
   render();
+}
+
+async function fetchInbox(shouldRender = true) {
+  const res = await fetch("/api/inbox", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取待整理表情失败");
+  state.inbox = data.items || [];
+  if (shouldRender) {
+    render();
+  }
 }
 
 function renderSelects() {
   const uploadSelect = $("#existing_pack");
   const keywordSelect = $("#keywordPack");
+  const inboxSelect = $("#inboxPack");
   uploadSelect.replaceChildren(option("", "新建贴纸包"));
   keywordSelect.replaceChildren();
+  inboxSelect.replaceChildren(option("", "选择已有贴纸包"));
 
   for (const pack of state.packs) {
     uploadSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
     keywordSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
+    inboxSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
   }
 
   if (!state.packs.length) {
@@ -189,11 +203,76 @@ function renderKeywords() {
   }
 }
 
+function inboxImageUrl(itemId) {
+  return `/api/inbox/${encodeURIComponent(itemId)}/image`;
+}
+
+function formatTime(seconds) {
+  if (!seconds) {
+    return "未知时间";
+  }
+  return new Date(Number(seconds) * 1000).toLocaleString();
+}
+
+function getSelectedInboxIds() {
+  return Array.from(document.querySelectorAll(".inbox-check:checked")).map((input) => input.value);
+}
+
+function updateInboxSelectionText() {
+  const selected = getSelectedInboxIds();
+  $("#inboxSelectedText").textContent = `已选择 ${selected.length} 个`;
+  const allBox = $("#inboxSelectAll");
+  allBox.checked = Boolean(state.inbox.length) && selected.length === state.inbox.length;
+  allBox.indeterminate = selected.length > 0 && selected.length < state.inbox.length;
+}
+
+function renderInbox() {
+  const list = $("#inboxList");
+  $("#inboxCount").textContent = state.inbox.length;
+  list.className = "inbox-list";
+  list.replaceChildren();
+
+  if (!state.inbox.length) {
+    list.className = "inbox-list empty";
+    list.textContent = "暂无待整理表情";
+    updateInboxSelectionText();
+    return;
+  }
+
+  for (const item of state.inbox) {
+    const card = document.createElement("article");
+    card.className = "inbox-card";
+
+    const checkbox = document.createElement("input");
+    checkbox.className = "inbox-check";
+    checkbox.type = "checkbox";
+    checkbox.value = item.id;
+    checkbox.addEventListener("change", updateInboxSelectionText);
+
+    const image = document.createElement("img");
+    image.src = inboxImageUrl(item.id);
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+
+    const meta = document.createElement("div");
+    meta.className = "inbox-meta";
+    const source = item.group_id ? `群 ${item.group_id}` : "私聊";
+    meta.textContent = `${source} / 用户 ${item.sender_id || "未知"} / ${formatTime(item.created_at)}`;
+
+    card.append(checkbox, image, meta);
+    list.append(card);
+  }
+
+  updateInboxSelectionText();
+}
+
 function render() {
   $("#stickerCount").textContent = state.totalStickers;
   $("#packCount").textContent = state.packs.length;
   $("#keywordCount").textContent = state.keywords.length;
   renderSelects();
+  renderInbox();
   renderPacks();
   renderKeywords();
 }
@@ -388,9 +467,76 @@ async function deleteKeyword(pack, keyword) {
   }
 }
 
+async function assignInboxItems(event) {
+  event.preventDefault();
+  const ids = getSelectedInboxIds();
+  const pack = $("#inboxNewPack").value.trim() || $("#inboxPack").value;
+  const keyword = $("#inboxKeyword").value.trim();
+  if (!ids.length) {
+    showToast("请选择要整理的表情。", true);
+    return;
+  }
+  if (!pack) {
+    showToast("请选择已有贴纸包，或输入新贴纸包名称。", true);
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/inbox/assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, pack, keyword }),
+    });
+    const data = await readJsonResponse(res, "整理失败");
+    state.packs = data.state?.packs || state.packs;
+    state.keywords = data.state?.keywords || state.keywords;
+    state.totalStickers = Number(data.state?.total_stickers || state.totalStickers);
+    state.inbox = data.inbox?.items || [];
+    $("#inboxNewPack").value = "";
+    $("#inboxKeyword").value = "";
+    render();
+    showToast(`已加入贴纸包：${data.result?.assigned || 0} 个。`);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deleteInboxItems() {
+  const ids = getSelectedInboxIds();
+  if (!ids.length) {
+    showToast("请选择要删除的表情。", true);
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/inbox/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await readJsonResponse(res, "删除失败");
+    state.inbox = data.inbox?.items || [];
+    render();
+    showToast(`已删除 ${data.removed || 0} 个待整理表情。`);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+function toggleInboxSelection(event) {
+  const checked = event.currentTarget.checked;
+  for (const input of document.querySelectorAll(".inbox-check")) {
+    input.checked = checked;
+  }
+  updateInboxSelectionText();
+}
+
 $("#keywordForm").addEventListener("submit", addKeyword);
 $("#uploadForm").addEventListener("submit", uploadStickers);
 $("#tgForm").addEventListener("submit", importTelegramStickers);
+$("#inboxForm").addEventListener("submit", assignInboxItems);
+$("#inboxDeleteBtn").addEventListener("click", deleteInboxItems);
+$("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
 $("#file").addEventListener("change", updateFileHint);
 
