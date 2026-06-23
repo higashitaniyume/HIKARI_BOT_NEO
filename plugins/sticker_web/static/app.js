@@ -3,6 +3,7 @@ const state = {
   keywords: [],
   inbox: [],
   totalStickers: 0,
+  draggingInboxIds: [],
 };
 const MAX_UPLOAD_FILES = 99;
 
@@ -135,6 +136,10 @@ function renderPacks() {
   for (const pack of state.packs) {
     const item = document.createElement("article");
     item.className = "pack-card";
+    item.addEventListener("dragenter", enterPackDrop);
+    item.addEventListener("dragover", overPackDrop);
+    item.addEventListener("dragleave", leavePackDrop);
+    item.addEventListener("drop", (event) => dropInboxOnPack(event, pack));
 
     const head = document.createElement("div");
     head.className = "pack-head";
@@ -230,10 +235,82 @@ function getSelectedInboxIds() {
 
 function updateInboxSelectionText() {
   const selected = getSelectedInboxIds();
+  const selectedSet = new Set(selected);
+  for (const card of document.querySelectorAll(".inbox-card")) {
+    card.classList.toggle("is-selected", selectedSet.has(card.dataset.inboxId));
+  }
   $("#inboxSelectedText").textContent = `已选择 ${selected.length} 个`;
   const allBox = $("#inboxSelectAll");
   allBox.checked = Boolean(state.inbox.length) && selected.length === state.inbox.length;
   allBox.indeterminate = selected.length > 0 && selected.length < state.inbox.length;
+}
+
+function inboxDragIds(itemId) {
+  const selected = getSelectedInboxIds();
+  return selected.includes(itemId) ? selected : [itemId];
+}
+
+function hasInboxDrag(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("application/x-hikari-inbox");
+}
+
+function startInboxDrag(event, itemId) {
+  const ids = inboxDragIds(itemId);
+  state.draggingInboxIds = ids;
+  event.currentTarget.classList.add("is-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-hikari-inbox", JSON.stringify({ ids }));
+  event.dataTransfer.setData("text/plain", ids.join(","));
+}
+
+function endInboxDrag(event) {
+  event.currentTarget.classList.remove("is-dragging");
+  state.draggingInboxIds = [];
+  for (const card of document.querySelectorAll(".pack-card.is-drop-target")) {
+    card.classList.remove("is-drop-target");
+  }
+}
+
+function enterPackDrop(event) {
+  if (!hasInboxDrag(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.currentTarget.classList.add("is-drop-target");
+}
+
+function overPackDrop(event) {
+  if (!hasInboxDrag(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+}
+
+function leavePackDrop(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) {
+    event.currentTarget.classList.remove("is-drop-target");
+  }
+}
+
+async function dropInboxOnPack(event, pack) {
+  if (!hasInboxDrag(event)) {
+    return;
+  }
+  event.preventDefault();
+  event.currentTarget.classList.remove("is-drop-target");
+
+  let ids = state.draggingInboxIds;
+  try {
+    const payload = JSON.parse(event.dataTransfer.getData("application/x-hikari-inbox") || "{}");
+    if (Array.isArray(payload.ids)) {
+      ids = payload.ids.map(String).filter(Boolean);
+    }
+  } catch {
+    ids = state.draggingInboxIds;
+  }
+
+  await assignInboxIdsToPack(ids, pack.name, $("#inboxKeyword").value.trim());
 }
 
 function renderInbox() {
@@ -252,6 +329,10 @@ function renderInbox() {
   for (const item of state.inbox) {
     const card = document.createElement("article");
     card.className = "inbox-card";
+    card.draggable = true;
+    card.dataset.inboxId = item.id;
+    card.addEventListener("dragstart", (event) => startInboxDrag(event, item.id));
+    card.addEventListener("dragend", endInboxDrag);
 
     const checkbox = document.createElement("input");
     checkbox.className = "inbox-check";
@@ -264,6 +345,7 @@ function renderInbox() {
     image.alt = "";
     image.loading = "lazy";
     image.decoding = "async";
+    image.draggable = false;
 
     const meta = document.createElement("div");
     meta.className = "inbox-meta";
@@ -498,12 +580,9 @@ async function deletePack(pack) {
   }
 }
 
-async function assignInboxItems(event) {
-  event.preventDefault();
-  const ids = getSelectedInboxIds();
-  const pack = $("#inboxNewPack").value.trim() || $("#inboxPack").value;
-  const keyword = $("#inboxKeyword").value.trim();
-  if (!ids.length) {
+async function assignInboxIdsToPack(ids, pack, keyword, { clearInputs = false } = {}) {
+  const itemIds = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+  if (!itemIds.length) {
     showToast("请选择要整理的表情。", true);
     return;
   }
@@ -516,20 +595,30 @@ async function assignInboxItems(event) {
     const res = await fetch("/api/inbox/assign", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, pack, keyword }),
+      body: JSON.stringify({ ids: itemIds, pack, keyword }),
     });
     const data = await readJsonResponse(res, "整理失败");
     state.packs = data.state?.packs || state.packs;
     state.keywords = data.state?.keywords || state.keywords;
     state.totalStickers = Number(data.state?.total_stickers || state.totalStickers);
     state.inbox = data.inbox?.items || [];
-    $("#inboxNewPack").value = "";
-    $("#inboxKeyword").value = "";
+    if (clearInputs) {
+      $("#inboxNewPack").value = "";
+      $("#inboxKeyword").value = "";
+    }
     render();
-    showToast(`已加入贴纸包：${data.result?.assigned || 0} 个。`);
+    showToast(`已加入 ${pack}：${data.result?.assigned || 0} 个。`);
   } catch (err) {
     showToast(err.message, true);
   }
+}
+
+async function assignInboxItems(event) {
+  event.preventDefault();
+  const ids = getSelectedInboxIds();
+  const pack = $("#inboxNewPack").value.trim() || $("#inboxPack").value;
+  const keyword = $("#inboxKeyword").value.trim();
+  await assignInboxIdsToPack(ids, pack, keyword, { clearInputs: true });
 }
 
 async function deleteInboxItems() {

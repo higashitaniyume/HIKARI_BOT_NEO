@@ -366,6 +366,21 @@ progress {
   border-radius: 8px;
   background: #fff;
   padding: 10px;
+  cursor: grab;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.inbox-card:active {
+  cursor: grabbing;
+}
+
+.inbox-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(20, 108, 124, 0.12);
+}
+
+.inbox-card.is-dragging {
+  opacity: 0.55;
 }
 
 .inbox-check {
@@ -428,6 +443,13 @@ progress {
 .pack-card {
   display: grid;
   gap: 12px;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.pack-card.is-drop-target {
+  border-color: var(--accent);
+  background: #f5fbfb;
+  box-shadow: 0 0 0 3px rgba(20, 108, 124, 0.14);
 }
 
 .preview-strip {
