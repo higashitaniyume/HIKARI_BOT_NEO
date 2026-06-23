@@ -6,6 +6,7 @@
 - 贴纸库索引：由 sticker_library.json 管理贴纸包、关键词和文件关系
 """
 
+import asyncio
 import hashlib
 import logging
 import random
@@ -13,9 +14,11 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import Awaitable, Callable, TypeVar
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.command_router import CommandContext, command, is_command_handled
 from core.stats_tracker import increment as stats_increment, format_stats
@@ -26,9 +29,12 @@ logger = logging.getLogger("HikariBot.StickerPlugin")
 # 贴纸包最终只发送 GIF；其他素材应先经过 media_transcoder 转换
 MEDIA_EXTS = sticker_library.MEDIA_EXTS
 PACK_LIST_PAGE_SIZE = 5
+SEND_RETRY_ATTEMPTS = 2
+SEND_RETRY_DELAY_SECONDS = 2.0
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
+T = TypeVar("T")
 
 
 def _cleanup_shared_dir():
@@ -63,6 +69,62 @@ def _copy_to_shared(source: Path) -> Path:
 def _safe_output_label(value: str) -> str:
     value = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", value).strip(" ._")
     return value[:48] or "stickers"
+
+
+def _is_send_timeout(error: ActionFailed) -> bool:
+    text = f"{getattr(error, 'message', '')}\n{getattr(error, 'wording', '')}"
+    return getattr(error, "retcode", None) == 1200 or "Timeout" in text
+
+
+async def _send_with_retry(
+    action: Callable[[], Awaitable[T]],
+    label: str,
+    *,
+    attempts: int = SEND_RETRY_ATTEMPTS,
+) -> T:
+    last_error: ActionFailed | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await action()
+        except ActionFailed as e:
+            last_error = e
+            if not _is_send_timeout(e) or attempt >= attempts:
+                raise
+            logger.warning(
+                "[Sticker] %s 发送超时，%.1fs 后重试 %d/%d: %s",
+                label,
+                SEND_RETRY_DELAY_SECONDS,
+                attempt,
+                attempts - 1,
+                e,
+            )
+            await asyncio.sleep(SEND_RETRY_DELAY_SECONDS)
+
+    assert last_error is not None
+    raise last_error
+
+
+async def _send_image(bot: Bot, event: MessageEvent, path: Path, label: str) -> None:
+    shared_path = _copy_to_shared(path)
+    uri = shared_path.resolve().as_uri()
+    await _send_with_retry(
+        lambda: bot.send(event, Message(MessageSegment.image(uri))),
+        label,
+    )
+
+
+async def _try_send_text(bot: Bot, event: MessageEvent, text: str, label: str) -> None:
+    try:
+        await _send_with_retry(lambda: bot.send(event, Message(text)), label)
+    except Exception as e:
+        logger.warning("[Sticker] %s 文本提示发送失败: %s", label, e)
+
+
+def _log_send_failure(label: str, error: Exception) -> None:
+    if isinstance(error, ActionFailed) and _is_send_timeout(error):
+        logger.warning("[Sticker] %s 发送超时: %s", label, error)
+    else:
+        logger.exception("[Sticker] %s 发送失败: %s", label, error)
 
 
 async def _make_collage(files: list[Path], folder_name: str) -> Path:
@@ -260,9 +322,7 @@ async def cmd_random_sticker(ctx: CommandContext) -> None:
         return
     picked = random.choice(all_files)
     logger.info(f"[Sticker] 随机表情包 → {picked.name}")
-    shared_path = _copy_to_shared(picked)
-    uri = shared_path.resolve().as_uri()
-    await ctx.send(Message(MessageSegment.image(uri)))
+    await _send_image(ctx.bot, ctx.event, picked, "随机贴纸")
     stats_increment(ctx.event, "stickers_sent", 1)
 
 
@@ -282,15 +342,25 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         await ctx.send(Message(f"贴纸包 {folder_label} 是空的。"))
         return
 
-    await ctx.send(Message(f"正在拼图 {folder_label}（{len(all_in_folders)} 张）..."))
+    await _try_send_text(ctx.bot, ctx.event, f"正在拼图 {folder_label}（{len(all_in_folders)} 张）...", "拼图进度")
     try:
         jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
-        uri = jpg_path.resolve().as_uri()
-        await ctx.send(Message(MessageSegment.image(uri)))
+    except Exception as e:
+        logger.exception("[Sticker] 拼图生成失败: %s", e)
+        await _try_send_text(ctx.bot, ctx.event, f"拼图失败: {e}", "拼图失败提示")
+        return
+
+    try:
+        await _send_image(ctx.bot, ctx.event, jpg_path, "拼图")
         stats_increment(ctx.event, "collage_made", 1)
     except Exception as e:
-        logger.exception(f"[Sticker] 拼图失败: {e}")
-        await ctx.send(Message(f"拼图失败: {e}"))
+        _log_send_failure("拼图", e)
+        await _try_send_text(
+            ctx.bot,
+            ctx.event,
+            "拼图已经生成，但发送图片超时了。可以稍后重试，或检查 NapCat/QQ 是否卡住。",
+            "拼图失败提示",
+        )
 
 
 @command("统计", description="查看当前会话统计")
@@ -343,19 +413,31 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
 
-    stats_increment(event, "stickers_sent", len(picked))
-
     if len(picked) <= 10:
+        sent = 0
         for p in picked:
-            shared_path = _copy_to_shared(p)
-            uri = shared_path.resolve().as_uri()
-            await bot.send(event, Message(MessageSegment.image(uri)))
+            try:
+                await _send_image(bot, event, p, f"贴纸 {p.name}")
+                sent += 1
+            except Exception as e:
+                _log_send_failure(f"贴纸 {p.name}", e)
+        if sent:
+            stats_increment(event, "stickers_sent", sent)
     else:
         try:
-            await _send_forward(bot, event, picked)
-        except Exception:
+            await _send_with_retry(lambda: _send_forward(bot, event, picked), "贴纸合并转发")
+            stats_increment(event, "stickers_sent", len(picked))
+        except Exception as e:
+            _log_send_failure("贴纸合并转发", e)
+            logger.info("[Sticker] 合并转发失败，降级为逐张发送")
+            sent = 0
             for p in picked:
-                shared_path = _copy_to_shared(p)
-                await bot.send(event, Message(MessageSegment.image(shared_path.resolve().as_uri())))
+                try:
+                    await _send_image(bot, event, p, f"贴纸 {p.name}")
+                    sent += 1
+                except Exception as send_error:
+                    _log_send_failure(f"贴纸 {p.name}", send_error)
+            if sent:
+                stats_increment(event, "stickers_sent", sent)
 
     _cleanup_shared_dir()
