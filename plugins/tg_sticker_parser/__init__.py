@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 import shutil
@@ -13,6 +12,7 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from core.message_pipeline import register_handler
 from core.stats_tracker import increment as stats_increment
+from plugins import sticker_library
 from plugins.media_transcoder import StickerGifOptions, ensure_sticker_gif
 from plugins.media_transcoder.config import get_config as get_transcoder_config
 
@@ -26,8 +26,6 @@ logger = logging.getLogger("HikariBot.TgStickerPlugin")
 get_config()
 
 MEDIA_EXTS = {".gif"}
-GIFS_ROOT = Path("BotData/Gifs")
-TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
 
 
 @dataclass(slots=True)
@@ -177,14 +175,8 @@ def get_direct_send_limit(cfg: dict[str, Any]) -> int:
 
 
 def find_saved_gifs(set_name: str) -> list[Path]:
-    """读取已保存到 BotData/Gifs 的 GIF。"""
-    folder = GIFS_ROOT / set_name
-    if not folder.is_dir():
-        return []
-    return sorted(
-        p for p in folder.iterdir()
-        if p.is_file() and p.suffix.lower() in MEDIA_EXTS and p.stat().st_size > 0
-    )
+    """读取已保存到本地贴纸库的 GIF。"""
+    return sticker_library.get_pack_files(set_name)
 
 
 def prepare_cached_gifs_for_send(gif_paths: list[Path], output_root: Path) -> list[Path]:
@@ -204,44 +196,13 @@ def prepare_cached_gifs_for_send(gif_paths: list[Path], output_root: Path) -> li
 
 
 def save_gifs_to_pack(set_name: str, gif_paths: list[Path]) -> list[Path]:
-    """保存转换结果到 BotData/Gifs/<set_name>。"""
-    gifs_dest = GIFS_ROOT / set_name
-    gifs_dest.mkdir(parents=True, exist_ok=True)
-
-    saved_paths: list[Path] = []
-    for gif_path in gif_paths:
-        if not gif_path.exists() or gif_path.stat().st_size <= 0:
-            continue
-        dest = gifs_dest / gif_path.name
-        shutil.copy2(gif_path, dest)
-        saved_paths.append(dest)
-
-    return saved_paths
+    """保存转换结果到本地贴纸库。"""
+    return sticker_library.save_gifs_to_pack(set_name, gif_paths, source="telegram")
 
 
 async def register_sticker_trigger(set_name: str, keyword: str) -> None:
-    """把贴纸包注册到 sticker_trigger.json。"""
-    trigger_config: dict[str, Any] = {}
-    if TRIGGER_CONFIG_PATH.exists():
-        try:
-            with TRIGGER_CONFIG_PATH.open("r", encoding="utf-8") as f:
-                trigger_config = json.load(f)
-        except Exception as e:
-            logger.warning("[TgSticker] 读取 sticker_trigger.json 失败，将重建配置: %s", e)
-
-    triggers = trigger_config.setdefault("triggers", {})
-    keywords = triggers.get(set_name, [])
-    if not isinstance(keywords, list):
-        keywords = [keywords] if keywords else []
-
-    for candidate in (set_name, keyword):
-        if candidate and candidate not in keywords:
-            keywords.append(candidate)
-
-    triggers[set_name] = keywords
-    TRIGGER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with TRIGGER_CONFIG_PATH.open("w", encoding="utf-8") as f:
-        json.dump(trigger_config, f, ensure_ascii=False, indent=2)
+    """把贴纸包注册到本地贴纸库。"""
+    sticker_library.register_pack_keywords(set_name, keyword, include_pack_name=True)
 
 
 async def parse_sticker_set_to_gifs(

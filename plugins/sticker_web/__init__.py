@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from plugins import sticker_library
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
 from plugins.tg_sticker_parser.config import get_config as get_tg_config
@@ -30,9 +31,7 @@ from .config import get_config
 logger = logging.getLogger("HikariBot.StickerWeb")
 
 ALLOWED_EXTS = STICKER_INPUT_EXTS
-OUTPUT_EXTS = {".gif"}
 MAX_UPLOAD_FILES = 99
-TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 _STATIC_ROOT = Path(__file__).parent / "static"
 _COOKIE_NAME = "hikari_sticker_session"
@@ -58,11 +57,6 @@ def _safe_filename(value: str) -> str:
     return value[:120]
 
 
-def _upload_root() -> Path:
-    cfg = get_config()
-    return Path(str(cfg.get("upload_root", "BotData/Gifs")))
-
-
 def _temp_root() -> Path:
     cfg = get_config()
     return Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_uploads")))
@@ -72,95 +66,20 @@ def _hash_content(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _list_packs() -> list[str]:
-    root = _upload_root()
-    if not root.is_dir():
-        return []
-    return sorted(p.name for p in root.iterdir() if p.is_dir())
-
-
-def _read_trigger_config() -> dict[str, Any]:
-    trigger_config: dict[str, Any] = {}
-    if TRIGGER_CONFIG_PATH.exists():
-        try:
-            trigger_config = json.loads(TRIGGER_CONFIG_PATH.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning("读取 sticker_trigger.json 失败，将重建配置: %s", e)
-    trigger_config.setdefault("triggers", {})
-    return trigger_config
-
-
-def _write_trigger_config(trigger_config: dict[str, Any]) -> None:
-    TRIGGER_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TRIGGER_CONFIG_PATH.write_text(json.dumps(trigger_config, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _normalize_keywords(value: Any) -> list[str]:
-    if isinstance(value, list):
-        raw_keywords = value
-    elif value:
-        raw_keywords = [value]
-    else:
-        raw_keywords = []
-
-    keywords: list[str] = []
-    for raw_keyword in raw_keywords:
-        for keyword in _split_keywords(raw_keyword):
-            if keyword not in keywords:
-                keywords.append(keyword)
-    return keywords
-
-
 def _split_keywords(value: Any) -> list[str]:
-    keywords: list[str] = []
-    for keyword in re.split(r"[;；]+", str(value or "")):
-        keyword = keyword.strip()
-        if keyword and keyword not in keywords:
-            keywords.append(keyword)
-    return keywords
+    return sticker_library.split_keywords(value)
 
 
 def _register_trigger(pack_name: str, keyword: str = "") -> None:
-    trigger_config = _read_trigger_config()
-    triggers = trigger_config.setdefault("triggers", {})
-    keywords = _normalize_keywords(triggers.get(pack_name, []))
-
-    for candidate in [pack_name, *_split_keywords(keyword)]:
-        if candidate and candidate not in keywords:
-            keywords.append(candidate)
-
-    triggers[pack_name] = keywords
-    _write_trigger_config(trigger_config)
+    sticker_library.register_pack_keywords(pack_name, keyword, include_pack_name=True)
 
 
 def _add_trigger_keyword(pack_name: str, keyword: str) -> None:
-    trigger_config = _read_trigger_config()
-    triggers = trigger_config.setdefault("triggers", {})
-    keywords = _normalize_keywords(triggers.get(pack_name, []))
-    for candidate in _split_keywords(keyword):
-        if candidate not in keywords:
-            keywords.append(candidate)
-    triggers[pack_name] = keywords
-    _write_trigger_config(trigger_config)
+    sticker_library.add_keywords(pack_name, keyword)
 
 
 def _remove_trigger_keyword(pack_name: str, keyword: str) -> bool:
-    trigger_config = _read_trigger_config()
-    triggers = trigger_config.setdefault("triggers", {})
-    keywords = _normalize_keywords(triggers.get(pack_name, []))
-    next_keywords = [kw for kw in keywords if kw != keyword]
-    if len(next_keywords) == len(keywords):
-        return False
-    triggers[pack_name] = next_keywords
-    _write_trigger_config(trigger_config)
-    return True
-
-
-def _count_media(pack_name: str) -> int:
-    folder = _upload_root() / pack_name
-    if not folder.is_dir():
-        return 0
-    return sum(1 for f in folder.iterdir() if f.is_file() and f.suffix.lower() in OUTPUT_EXTS)
+    return sticker_library.remove_keyword(pack_name, keyword)
 
 
 def _html_page(message: str = "") -> bytes:
@@ -171,27 +90,7 @@ def _html_page(message: str = "") -> bytes:
 
 
 def _pack_state() -> dict[str, Any]:
-    trigger_config = _read_trigger_config()
-    triggers = trigger_config.setdefault("triggers", {})
-    known_packs = set(_list_packs()) | {str(pack) for pack in triggers}
-    packs: list[dict[str, Any]] = []
-    keyword_map: dict[str, list[str]] = {}
-
-    for pack_name in sorted(known_packs):
-        keywords = _normalize_keywords(triggers.get(pack_name, []))
-        packs.append({
-            "name": pack_name,
-            "count": _count_media(pack_name),
-            "keywords": keywords,
-        })
-        for keyword in keywords:
-            keyword_map.setdefault(keyword, []).append(pack_name)
-
-    keywords = [
-        {"keyword": keyword, "packs": sorted(pack_names)}
-        for keyword, pack_names in sorted(keyword_map.items(), key=lambda item: item[0])
-    ]
-    return {"packs": packs, "keywords": keywords}
+    return sticker_library.get_state()
 
 
 def _json_bytes(data: Any) -> bytes:
@@ -240,8 +139,6 @@ def _process_upload_files(
     file_infos: list[dict[str, Any]],
     job_id: str | None = None,
 ) -> dict[str, Any]:
-    dest_dir = _upload_root() / pack_name
-    dest_dir.mkdir(parents=True, exist_ok=True)
     _register_trigger(pack_name, keyword)
 
     temp_dir = _temp_root()
@@ -275,15 +172,9 @@ def _process_upload_files(
 
         content = file_info["content"]
         content_hash = _hash_content(content)
-        dest = dest_dir / f"{content_hash[:16]}.gif"
-
-        if dest.exists() and dest.stat().st_size > 0:
-            reused.append(dest.name)
-            if job_id:
-                _update_upload_job(job_id, processed=index, reused=len(reused))
-            continue
 
         temp_path: Path | None = None
+        temp_gif_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
                 suffix=suffix,
@@ -294,20 +185,28 @@ def _process_upload_files(
                 temp_file.write(content)
                 temp_path = Path(temp_file.name)
 
-            asyncio.run(ensure_sticker_gif(temp_path, dest))
-            saved.append(dest.name)
+            temp_gif_path = temp_dir / f"{content_hash[:16]}_{uuid.uuid4().hex}.gif"
+            asyncio.run(ensure_sticker_gif(temp_path, temp_gif_path))
+            saved_path, created = sticker_library.save_gif_to_pack(
+                pack_name,
+                temp_gif_path,
+                source="upload",
+                original_name=filename,
+            )
+            if created:
+                saved.append(saved_path.name)
+            else:
+                reused.append(saved_path.name)
         except TranscodeError as e:
-            if dest.exists():
-                dest.unlink(missing_ok=True)
             failed.append(f"{filename}：转 GIF 失败：{e}")
         except Exception as e:
             logger.exception("贴纸上传处理失败: %s", e)
-            if dest.exists():
-                dest.unlink(missing_ok=True)
             failed.append(f"{filename}：处理失败，请检查服务日志")
         finally:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
+            if temp_gif_path is not None:
+                temp_gif_path.unlink(missing_ok=True)
 
         if job_id:
             _update_upload_job(
@@ -378,9 +277,13 @@ async def _process_tg_sticker_link_async(
         message=f"准备导入 Telegram 贴纸包：{set_name}",
     )
 
-    cached_gifs = find_saved_gifs(target_pack) or find_saved_gifs(set_name)
+    cached_pack = target_pack
+    cached_gifs = find_saved_gifs(target_pack)
+    if not cached_gifs:
+        cached_pack = set_name
+        cached_gifs = find_saved_gifs(set_name)
     if cached_gifs and not refresh:
-        saved_paths = cached_gifs if all(path.parent.name == target_pack for path in cached_gifs) else save_gifs_to_pack(target_pack, cached_gifs)
+        saved_paths = cached_gifs if cached_pack == target_pack else save_gifs_to_pack(target_pack, cached_gifs)
         _register_trigger(target_pack, keyword)
         _update_upload_job(
             job_id,

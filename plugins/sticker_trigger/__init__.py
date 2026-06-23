@@ -1,9 +1,9 @@
 """
 表情包触发插件。
 
-检测消息中的关键词，发送对应文件夹中的随机表情包。
+检测消息中的关键词，发送对应贴纸包中的随机表情包。
 - 纯关键词消息（如只发 "capoo"）→ 发送随机表情包
-- 配置热重载：修改 sticker_trigger.json 立即生效
+- 贴纸库索引：由 sticker_library.json 管理贴纸包、关键词和文件关系
 """
 
 import hashlib
@@ -17,16 +17,13 @@ from pathlib import Path
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
-from .config import get_config
 from core.stats_tracker import increment as stats_increment, format_stats
+from plugins import sticker_library
 
 logger = logging.getLogger("HikariBot.StickerPlugin")
 
-# 触发首次加载
-get_config()
-
 # 贴纸包最终只发送 GIF；其他素材应先经过 media_transcoder 转换
-MEDIA_EXTS = {".gif"}
+MEDIA_EXTS = sticker_library.MEDIA_EXTS
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
@@ -147,56 +144,6 @@ async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
 sticker_matcher = on_message(priority=10, block=False)
 
 
-GIFS_ROOT = Path("BotData/Gifs")
-
-
-def _normalize_keywords(value) -> list[str]:
-    if isinstance(value, list):
-        raw_keywords = value
-    elif value:
-        raw_keywords = [value]
-    else:
-        raw_keywords = []
-
-    keywords: list[str] = []
-    for raw_keyword in raw_keywords:
-        keyword = str(raw_keyword).strip()
-        if keyword and keyword not in keywords:
-            keywords.append(keyword)
-    return keywords
-
-
-def _build_lookup(triggers: dict) -> dict[str, list[str]]:
-    """从 {folder: [keywords]} 构建 {keyword: [folder_name, ...]} 反向查找表。"""
-    lookup: dict[str, list[str]] = {}
-    for folder_name, keywords in triggers.items():
-        for kw in _normalize_keywords(keywords):
-            folders = lookup.setdefault(kw, [])
-            folder = str(folder_name)
-            if folder not in folders:
-                folders.append(folder)
-    return lookup
-
-
-def _files_in_folder(folder_name: str) -> list[Path]:
-    folder_path = GIFS_ROOT / folder_name
-    if not folder_path.is_dir():
-        return []
-    return [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in MEDIA_EXTS]
-
-
-def _collect_folder_files(folder_names: list[str]) -> list[Path]:
-    files: list[Path] = []
-    seen: set[Path] = set()
-    for folder_name in folder_names:
-        for file_path in _files_in_folder(folder_name):
-            resolved = file_path.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                files.append(file_path)
-    return files
-
-
 def _format_folder_label(folder_names: list[str]) -> str:
     if len(folder_names) == 1:
         return folder_names[0]
@@ -206,9 +153,8 @@ def _format_folder_label(folder_names: list[str]) -> str:
 @sticker_matcher.handle()
 async def handle_sticker(bot: Bot, event: MessageEvent):
     """检测关键词并发送随机表情包。"""
-    cfg = get_config()
-    triggers: dict = cfg.get("triggers", {})
-    if not triggers:
+    pack_names = sticker_library.list_pack_names()
+    if not pack_names:
         return
 
     text = event.get_plaintext().strip()
@@ -217,9 +163,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
 
     # "随机表情包" → 从所有贴纸包中随机选一张发送
     if text == "随机贴纸":
-        all_files: list[Path] = []
-        for folder_name in triggers:
-            all_files.extend(_files_in_folder(str(folder_name)))
+        all_files = sticker_library.get_all_files()
         if not all_files:
             await bot.send(event, Message("贴纸包都是空的，请先添加一些表情包。"))
             return
@@ -234,12 +178,10 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     # "拼图 capoo" → 将关键词对应的一个或多个贴纸包合并后拼图
     if text.startswith("拼图 "):
         keyword = text[3:].strip()
-        lookup = _build_lookup(triggers)
-        folder_names = lookup.get(keyword)
-        if folder_names is None:
+        folder_names, all_in_folders = sticker_library.get_files_for_keyword(keyword)
+        if not folder_names:
             return
 
-        all_in_folders = _collect_folder_files(folder_names)
         folder_label = _format_folder_label(folder_names)
         if not all_in_folders:
             await bot.send(event, Message(f"贴纸包 {folder_label} 是空的。"))
@@ -264,15 +206,13 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
     # "贴纸包" → 列出所有可用贴纸包
     if text == "贴纸包列表":
         lines = ["当前贴纸包：", ""]
-        for folder_name, keywords in triggers.items():
-            kw_list = _normalize_keywords(keywords)
-            count = len(_files_in_folder(str(folder_name)))
-            lines.append(f"· {folder_name} ({count}张): {', '.join(kw_list) if kw_list else '暂无关键词'}")
+        for pack in sticker_library.get_state()["packs"]:
+            kw_list = pack["keywords"]
+            lines.append(f"· {pack['name']} ({pack['count']}张): {', '.join(kw_list) if kw_list else '暂无关键词'}")
         await bot.send(event, Message("\n".join(lines)))
         return
 
     # 解析关键词和可选数量："猫猫虫" 或 "猫猫虫 10"
-    lookup = _build_lookup(triggers)
     keyword = text
     count = 1
     if " " in text:
@@ -281,12 +221,11 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
             keyword = parts[0]
             count = int(parts[1])
 
-    folder_names = lookup.get(keyword)
-    if folder_names is None:
+    folder_names, all_in_folders = sticker_library.get_files_for_keyword(keyword)
+    if not folder_names:
         return
 
     # 从关键词对应的所有文件夹里随机选取 count 张不重复的表情包
-    all_in_folders = _collect_folder_files(folder_names)
     if not all_in_folders:
         logger.warning(f"[Sticker] 关键词 '{keyword}' 匹配, 但贴纸包 {_format_folder_label(folder_names)} 无可用媒体文件")
         return
