@@ -84,6 +84,9 @@ if ($AllServices) {
     Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps --force-recreate hikaribot"
 }
 
+Write-Host "清理服务器旧镜像层..." -ForegroundColor Yellow
+Run-Remote "docker image prune -f"
+
 Write-Host ""
 Write-Host "部署完成。" -ForegroundColor Green
 Write-Host "查看状态: ssh ${ServerUser}@${ServerIP} `"cd $DeployPath && docker compose ps`"" -ForegroundColor Gray
