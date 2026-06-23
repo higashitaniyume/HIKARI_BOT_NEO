@@ -77,25 +77,55 @@ function chip(keyword, packName) {
   return node;
 }
 
+function previewUrl(stickerId) {
+  return `/api/stickers/${encodeURIComponent(stickerId)}`;
+}
+
+function renderPreviewStrip(pack) {
+  const strip = document.createElement("div");
+  strip.className = "preview-strip";
+  const previews = Array.isArray(pack.previews) ? pack.previews : [];
+
+  if (!previews.length) {
+    strip.classList.add("empty-preview");
+    strip.textContent = "暂无预览";
+    return strip;
+  }
+
+  for (const stickerId of previews) {
+    const frame = document.createElement("div");
+    frame.className = "preview-frame";
+    const image = document.createElement("img");
+    image.src = previewUrl(stickerId);
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    frame.append(image);
+    strip.append(frame);
+  }
+
+  return strip;
+}
+
 function renderPacks() {
   const list = $("#packList");
-  list.className = "list";
+  list.className = "pack-list";
   list.replaceChildren();
 
   if (!state.packs.length) {
-    list.className = "list empty";
+    list.className = "pack-list empty";
     list.textContent = "暂无贴纸包";
     return;
   }
 
   for (const pack of state.packs) {
     const item = document.createElement("article");
-    item.className = "item";
+    item.className = "pack-card";
 
     const head = document.createElement("div");
-    head.className = "item-head";
+    head.className = "pack-head";
     const title = document.createElement("div");
-    title.className = "item-title";
+    title.className = "pack-title";
     title.textContent = pack.name;
     const badge = document.createElement("div");
     badge.className = "badge";
@@ -115,7 +145,7 @@ function renderPacks() {
       chips.append(empty);
     }
 
-    item.append(head, chips);
+    item.append(renderPreviewStrip(pack), head, chips);
     list.append(item);
   }
 }
@@ -133,7 +163,7 @@ function renderKeywords() {
 
   for (const relation of state.keywords) {
     const item = document.createElement("article");
-    item.className = "item";
+    item.className = "keyword-card";
 
     const head = document.createElement("div");
     head.className = "item-head";

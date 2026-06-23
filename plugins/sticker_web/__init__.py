@@ -519,6 +519,26 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self._write_body(body)
 
+    def _send_sticker(self, sticker_id: str) -> None:
+        safe_id = Path(unquote(sticker_id or "")).name
+        if not safe_id or safe_id != unquote(sticker_id or ""):
+            self._send_json({"error": "贴纸不存在。"}, 404)
+            return
+
+        path = sticker_library.get_sticker_path(safe_id)
+        if path is None:
+            self._send_json({"error": "贴纸不存在。"}, 404)
+            return
+
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "image/gif"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        self._write_body(body)
+
     def _read_json_body(self) -> dict[str, Any]:
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
@@ -554,6 +574,13 @@ class StickerWebHandler(BaseHTTPRequestHandler):
                 self._unauthorized_json()
                 return
             self._send_json(_pack_state())
+            return
+        if parsed.path.startswith("/api/stickers/"):
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            sticker_id = parsed.path.removeprefix("/api/stickers/").strip("/")
+            self._send_sticker(sticker_id)
             return
         if parsed.path.startswith("/api/uploads/"):
             if not self._is_authenticated():

@@ -18,6 +18,7 @@ LEGACY_TRIGGER_CONFIG_PATH = Path("BotData/plugin_configs/sticker_trigger.json")
 LEGACY_ROOT = Path("BotData/Gifs")
 STORAGE_ROOT = LEGACY_ROOT / "_library"
 MEDIA_EXTS = {".gif"}
+PACK_PREVIEW_LIMIT = 6
 
 _lock = threading.RLock()
 _index_cache: dict[str, Any] | None = None
@@ -299,6 +300,17 @@ def get_pack_files(pack_name: str) -> list[Path]:
     return _pack_files_from_index(index, pack_name, check_exists=True)
 
 
+def get_sticker_path(sticker_id: str) -> Path | None:
+    index = load_index()
+    safe_id = Path(str(sticker_id or "")).name
+    if not safe_id or safe_id not in (index.get("stickers") or {}):
+        return None
+    path = _file_path_from_meta(index.get("stickers") or {}, safe_id)
+    if path.is_file() and path.suffix.lower() in MEDIA_EXTS and path.stat().st_size > 0:
+        return path
+    return None
+
+
 def get_packs_files(pack_names: list[str]) -> list[Path]:
     index = load_index()
     files: list[Path] = []
@@ -362,10 +374,16 @@ def get_state() -> dict[str, Any]:
     stickers = index.get("stickers") or {}
     for pack_name, pack in sorted((index.get("packs") or {}).items()):
         keywords = split_keywords(pack.get("keywords") or [])
+        preview_ids = [
+            sticker_id
+            for sticker_id in pack.get("stickers") or []
+            if sticker_id in stickers
+        ][:PACK_PREVIEW_LIMIT]
         packs.append({
             "name": pack_name,
             "count": len(pack.get("stickers") or []),
             "keywords": keywords,
+            "previews": preview_ids,
         })
         for keyword in keywords:
             keyword_map.setdefault(keyword, []).append(pack_name)
