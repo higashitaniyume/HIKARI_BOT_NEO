@@ -34,6 +34,8 @@ SEND_RETRY_ATTEMPTS = 2
 SEND_RETRY_DELAY_SECONDS = 2.0
 STICKER_FORWARD_CHUNK_SIZE = 80
 STICKER_FORWARD_CHUNK_DELAY_SECONDS = 1.0
+PACK_PREVIEW_LIMIT = 6
+PACK_PREVIEW_IMAGE_WIDTH = 1200
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
@@ -189,6 +191,228 @@ async def _make_collage(files: list[Path], folder_name: str) -> Path:
         return out_path
 
     return await asyncio.to_thread(_do_collage)
+
+
+def _font_candidates(bold: bool = False) -> list[str]:
+    if bold:
+        return [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            "C:/Windows/Fonts/NotoSansSC-VF.ttf",
+            "C:/Windows/Fonts/msyhbd.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+        ]
+    return [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "C:/Windows/Fonts/NotoSansSC-VF.ttf",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simsun.ttc",
+    ]
+
+
+def _load_font(size: int, *, bold: bool = False):
+    from PIL import ImageFont
+
+    for candidate in _font_candidates(bold):
+        path = Path(candidate)
+        if path.exists():
+            try:
+                return ImageFont.truetype(str(path), size=size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def _text_width(draw, text: str, font) -> int:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
+
+
+def _line_height(draw, font) -> int:
+    bbox = draw.textbbox((0, 0), "Ag国", font=font)
+    return max(1, bbox[3] - bbox[1])
+
+
+def _wrap_text(draw, text: str, font, max_width: int, max_lines: int) -> list[str]:
+    text = str(text or "").strip()
+    if not text:
+        return [""]
+
+    lines: list[str] = []
+    current = ""
+    for char in text:
+        candidate = current + char
+        if current and _text_width(draw, candidate, font) > max_width:
+            lines.append(current)
+            current = char
+            if len(lines) >= max_lines:
+                break
+        else:
+            current = candidate
+
+    if len(lines) < max_lines and current:
+        lines.append(current)
+
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+
+    if lines and _text_width(draw, lines[-1], font) > max_width:
+        while lines[-1] and _text_width(draw, lines[-1] + "...", font) > max_width:
+            lines[-1] = lines[-1][:-1]
+        lines[-1] = lines[-1] + "..."
+    elif current and len("".join(lines)) < len(text):
+        while lines[-1] and _text_width(draw, lines[-1] + "...", font) > max_width:
+            lines[-1] = lines[-1][:-1]
+        lines[-1] = lines[-1] + "..."
+
+    return lines or [""]
+
+
+def _load_preview_frame(path: Path, size: int):
+    from PIL import Image
+
+    with Image.open(path) as img:
+        if getattr(img, "is_animated", False):
+            img.seek(0)
+        frame = img.convert("RGBA")
+        frame.thumbnail((size, size), Image.Resampling.LANCZOS)
+        tile = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        x = (size - frame.width) // 2
+        y = (size - frame.height) // 2
+        tile.alpha_composite(frame, (x, y))
+        return tile
+
+
+async def _make_pack_preview_image() -> Path:
+    import asyncio
+
+    def _do_render() -> Path:
+        from PIL import Image, ImageDraw
+
+        state = sticker_library.get_state()
+        packs = state.get("packs") or []
+        if not packs:
+            raise RuntimeError("暂无贴纸包。")
+
+        width = PACK_PREVIEW_IMAGE_WIDTH
+        margin = 36
+        card_gap = 18
+        card_padding = 22
+        thumb_size = 132
+        thumb_gap = 12
+        title_font = _load_font(34, bold=True)
+        subtitle_font = _load_font(22)
+        name_font = _load_font(28, bold=True)
+        meta_font = _load_font(18)
+        keyword_font = _load_font(20)
+        scratch = Image.new("RGB", (width, 400), (255, 255, 255))
+        draw = ImageDraw.Draw(scratch)
+
+        preview_area_width = thumb_size * 3 + thumb_gap * 2
+        text_width = width - margin * 2 - card_padding * 2 - preview_area_width - 28
+        rows: list[dict] = []
+        for pack in packs:
+            keywords = pack.get("keywords") or []
+            keyword_text = "关键词：" + ("、".join(str(item) for item in keywords) if keywords else "暂无关键词")
+            title_lines = _wrap_text(draw, str(pack.get("name") or ""), name_font, text_width, 2)
+            keyword_lines = _wrap_text(draw, keyword_text, keyword_font, text_width, 3)
+            text_height = (
+                len(title_lines) * (_line_height(draw, name_font) + 4)
+                + 10
+                + _line_height(draw, meta_font)
+                + 12
+                + len(keyword_lines) * (_line_height(draw, keyword_font) + 5)
+            )
+            preview_ids = [str(item) for item in pack.get("previews") or []][:PACK_PREVIEW_LIMIT]
+            preview_paths = [
+                path
+                for sticker_id in preview_ids
+                if (path := sticker_library.get_sticker_path(sticker_id)) is not None
+            ]
+            preview_rows = 2 if len(preview_paths) > 3 else 1
+            preview_height = preview_rows * thumb_size + max(0, preview_rows - 1) * thumb_gap
+            card_height = max(text_height, preview_height) + card_padding * 2
+            rows.append({
+                "pack": pack,
+                "title_lines": title_lines,
+                "keyword_lines": keyword_lines,
+                "preview_paths": preview_paths,
+                "height": card_height,
+            })
+
+        header_height = 118
+        total_height = margin + header_height + sum(row["height"] for row in rows) + card_gap * (len(rows) - 1) + margin
+        image = Image.new("RGB", (width, total_height), (246, 248, 245))
+        draw = ImageDraw.Draw(image)
+
+        y = margin
+        draw.text((margin, y), "贴纸包预览", fill=(26, 33, 28), font=title_font)
+        y += 48
+        summary = f"{len(packs)} 个贴纸包 / {state.get('total_stickers', 0)} 张唯一贴纸 / {len(state.get('keywords') or [])} 个关键词"
+        draw.text((margin, y), summary, fill=(92, 104, 96), font=subtitle_font)
+        y = margin + header_height
+
+        for row in rows:
+            pack = row["pack"]
+            card_x = margin
+            card_y = y
+            card_w = width - margin * 2
+            card_h = row["height"]
+            draw.rounded_rectangle(
+                (card_x, card_y, card_x + card_w, card_y + card_h),
+                radius=18,
+                fill=(255, 255, 255),
+                outline=(220, 228, 220),
+                width=2,
+            )
+
+            text_x = card_x + card_padding
+            text_y = card_y + card_padding
+            for line in row["title_lines"]:
+                draw.text((text_x, text_y), line, fill=(24, 32, 27), font=name_font)
+                text_y += _line_height(draw, name_font) + 4
+            text_y += 8
+            draw.text((text_x, text_y), f"{pack.get('count', 0)} 张贴纸", fill=(92, 104, 96), font=meta_font)
+            text_y += _line_height(draw, meta_font) + 12
+            for line in row["keyword_lines"]:
+                draw.text((text_x, text_y), line, fill=(54, 68, 58), font=keyword_font)
+                text_y += _line_height(draw, keyword_font) + 5
+
+            preview_x = card_x + card_w - card_padding - preview_area_width
+            preview_y = card_y + (card_h - (thumb_size * 2 + thumb_gap)) // 2
+            preview_y = max(card_y + card_padding, preview_y)
+            for index, path in enumerate(row["preview_paths"]):
+                col = index % 3
+                line = index // 3
+                tile_x = preview_x + col * (thumb_size + thumb_gap)
+                tile_y = preview_y + line * (thumb_size + thumb_gap)
+                draw.rounded_rectangle(
+                    (tile_x, tile_y, tile_x + thumb_size, tile_y + thumb_size),
+                    radius=14,
+                    fill=(246, 248, 245),
+                    outline=(224, 231, 225),
+                )
+                try:
+                    frame = _load_preview_frame(path, thumb_size - 16)
+                    image.paste(frame.convert("RGB"), (tile_x + 8, tile_y + 8), frame)
+                except Exception as e:
+                    logger.warning("[Sticker] 贴纸包预览图加载失败: %s -> %s", path, e)
+
+            if not row["preview_paths"]:
+                empty_text = "暂无预览"
+                tx = preview_x + (preview_area_width - _text_width(draw, empty_text, keyword_font)) // 2
+                ty = card_y + card_h // 2 - _line_height(draw, keyword_font) // 2
+                draw.text((tx, ty), empty_text, fill=(139, 149, 140), font=keyword_font)
+
+            y += card_h + card_gap
+
+        SHARED_DIR.mkdir(parents=True, exist_ok=True)
+        out_path = SHARED_DIR / f"pack_preview_{int(time.time())}.png"
+        image.save(out_path, "PNG", optimize=True)
+        return out_path
+
+    return await asyncio.to_thread(_do_render)
 
 
 async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
@@ -360,7 +584,7 @@ async def _send_pack_list(bot: Bot, event: MessageEvent, arg: str) -> None:
 
 def _is_reserved_command_text(text: str) -> bool:
     return (
-        text in {"随机贴纸", "统计", "贴纸包统计", "贴纸包列表"}
+        text in {"随机贴纸", "统计", "贴纸包统计", "贴纸包列表", "贴纸包预览"}
         or text.startswith("拼图 ")
         or text.startswith("贴纸包列表 ")
     )
@@ -430,6 +654,23 @@ async def cmd_sticker_pack_stats(ctx: CommandContext) -> None:
 @command("贴纸包列表", aliases=("sticker packs",), description="分页查看贴纸包", usage="贴纸包列表 [页码|全部]")
 async def cmd_sticker_pack_list(ctx: CommandContext) -> None:
     await _send_pack_list(ctx.bot, ctx.event, ctx.args.strip())
+
+
+@command("贴纸包预览", description="生成包含所有贴纸包名称、关键词和预览图的长图")
+async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
+    state = sticker_library.get_state()
+    if not state.get("packs"):
+        await ctx.send(Message("暂无贴纸包。"))
+        return
+
+    await _try_send_text(ctx.bot, ctx.event, "正在生成贴纸包预览图...", "贴纸包预览进度")
+    try:
+        preview_path = await _make_pack_preview_image()
+        await _send_image(ctx.bot, ctx.event, preview_path, "贴纸包预览")
+    except Exception as e:
+        logger.exception("[Sticker] 贴纸包预览生成或发送失败: %s", e)
+        await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerPackPreview")
+        await _try_send_text(ctx.bot, ctx.event, "贴纸包预览生成失败，请稍后再试。", "贴纸包预览失败提示")
 
 
 @sticker_matcher.handle()
