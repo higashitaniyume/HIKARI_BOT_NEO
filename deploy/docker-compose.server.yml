@@ -1,10 +1,7 @@
-name: hikari-bot-neo
+name: hikaribot
 
 services:
   hikaribot:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: ${HIKARI_IMAGE:-higashitaniyume/hikaribot:latest}
     container_name: hikaribot-docker
     restart: unless-stopped

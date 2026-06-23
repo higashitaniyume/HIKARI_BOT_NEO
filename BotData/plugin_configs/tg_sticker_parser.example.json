@@ -1,0 +1,20 @@
+{
+  "enabled": false,
+  "auto_parse": true,
+  "bot_token": "",
+  "api_base": "https://api.telegram.org",
+  "proxy": "",
+  "output_root": "/tmp/hikari_bot/tg_stickers",
+  "gif_fps": 30,
+  "gif_width": 512,
+  "gif_max_colors": 256,
+  "ffmpeg_concurrency": 2,
+  "direct_send_limit": 10,
+  "merged_send_limit": 100,
+  "max_send_count": 999,
+  "send_delay_seconds": 0.5,
+  "keep_original": true,
+  "tgs_converter_cmd": [
+    "lottie_convert.py"
+  ]
+}

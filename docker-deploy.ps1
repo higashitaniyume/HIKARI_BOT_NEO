@@ -1,7 +1,3 @@
-param(
-    [string[]]$Profile = @()
-)
-
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -15,15 +11,9 @@ if (-not (Test-Path "BotData/config.json")) {
     $createdConfig = $true
 }
 
-$pluginExamples = @(
-    "pixiv_parser",
-    "cobalt_parser",
-    "media_transcoder",
-    "sticker_web"
-)
-
-foreach ($name in $pluginExamples) {
-    $example = "BotData/plugin_configs/$name.example.json"
+Get-ChildItem "BotData/plugin_configs" -Filter "*.example.json" | ForEach-Object {
+    $name = $_.BaseName -replace "\.example$", ""
+    $example = $_.FullName
     $target = "BotData/plugin_configs/$name.json"
     if ((Test-Path $example) -and -not (Test-Path $target)) {
         Copy-Item $example $target
@@ -41,13 +31,7 @@ if (-not (Test-Path "docker-compose.yml")) {
     throw "docker-compose.yml not found."
 }
 
-$composeArgs = @("compose")
-foreach ($item in $Profile) {
-    $composeArgs += @("--profile", $item)
-}
-$composeArgs += @("up", "-d", "--build", "--remove-orphans")
-
-docker @composeArgs
+docker compose up -d --build --remove-orphans
 
 Write-Host "Docker compose deployment finished."
-Write-Host "Logs: docker compose logs -f hikari-bot-neo"
+Write-Host "Logs: docker compose logs -f hikaribot"

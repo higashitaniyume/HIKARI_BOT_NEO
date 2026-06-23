@@ -11,11 +11,11 @@ if not exist "BotData\config.json" (
   set "CREATED_CONFIG=1"
 )
 
-for %%N in (pixiv_parser cobalt_parser media_transcoder sticker_web) do (
-  if exist "BotData\plugin_configs\%%N.example.json" (
-    if not exist "BotData\plugin_configs\%%N.json" (
-      copy "BotData\plugin_configs\%%N.example.json" "BotData\plugin_configs\%%N.json" >nul
-      echo Created BotData\plugin_configs\%%N.json from example.
+for %%E in (BotData\plugin_configs\*.example.json) do (
+  for %%N in ("%%~nE") do (
+    if not exist "BotData\plugin_configs\%%~nN.json" (
+      copy "%%E" "BotData\plugin_configs\%%~nN.json" >nul
+      echo Created BotData\plugin_configs\%%~nN.json from example.
       set "CREATED_CONFIG=1"
     )
   )
@@ -35,4 +35,4 @@ docker compose up -d --build --remove-orphans
 if errorlevel 1 exit /b 1
 
 echo Docker compose deployment finished.
-echo Logs: docker compose logs -f hikari-bot-neo
+echo Logs: docker compose logs -f hikaribot

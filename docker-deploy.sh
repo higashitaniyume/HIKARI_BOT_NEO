@@ -12,10 +12,11 @@ if [ ! -f "BotData/config.json" ]; then
   CREATED_CONFIG=1
 fi
 
-for name in pixiv_parser cobalt_parser media_transcoder sticker_web; do
-  example="BotData/plugin_configs/$name.example.json"
+for example in BotData/plugin_configs/*.example.json; do
+  [ -f "$example" ] || continue
+  name="$(basename "$example" .example.json)"
   target="BotData/plugin_configs/$name.json"
-  if [ -f "$example" ] && [ ! -f "$target" ]; then
+  if [ ! -f "$target" ]; then
     cp "$example" "$target"
     echo "Created $target from example."
     CREATED_CONFIG=1
@@ -35,4 +36,4 @@ fi
 docker compose up -d --build --remove-orphans
 
 echo "Docker compose deployment finished."
-echo "Logs: docker compose logs -f hikari-bot-neo"
+echo "Logs: docker compose logs -f hikaribot"

@@ -21,6 +21,7 @@ env/
 # Environment files (forbidden in this project)
 .env
 .env.*
+!.env.example
 dotenv*
 
 # Config files with secrets (templates in *.example.json)
@@ -31,8 +32,6 @@ BotData/plugin_configs/*.json
 # Gifs: keep directory structure, ignore actual media
 BotData/Gifs/*/**
 !BotData/Gifs/**/.gitkeep
-BotData/plugin_configs/*.json
-!BotData/plugin_configs/*.example.json
 
 # Logs (history logs on dev machine)
 BotData/logs/*.log
@@ -47,9 +46,6 @@ UserData/stats/
 .DS_Store
 Thumbs.db
 
-# uv
-uv.lock
-
 # MyPy / PyTest
 .mypy_cache/
 .pytest_cache/
@@ -62,7 +58,5 @@ uv.lock
 astrbot/
 napcat/
 sharedFolder/
-
-# Deployment scripts and systemd service files
-deploy.ps1
-hikari-bot-neo.service
+tmp/
+legacy/

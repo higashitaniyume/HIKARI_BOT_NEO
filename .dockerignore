@@ -5,6 +5,9 @@ __pycache__
 *.pyo
 *.pyd
 .Python
+.env
+.env.*
+!.env.example
 
 BotData/logs
 BotData/config.json
