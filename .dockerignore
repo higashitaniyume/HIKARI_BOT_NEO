@@ -7,6 +7,12 @@ __pycache__
 .Python
 
 BotData/logs
+BotData/config.json
+BotData/plugin_configs/*.json
+!BotData/plugin_configs/*.example.json
+BotData/Gifs/**
+!BotData/Gifs/**/.gitkeep
+UserData/**
 UserData/stats
 astrbot
 napcat
