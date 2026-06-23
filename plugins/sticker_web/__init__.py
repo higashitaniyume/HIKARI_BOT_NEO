@@ -416,6 +416,7 @@ async def _process_tg_sticker_link_async(
         gif_paths = result.get("gif_paths") or []
         total_count = int(result.get("total_count") or len(gif_paths))
         failed_count = int(result.get("failed_count") or 0)
+        failed_items = [str(item) for item in result.get("failed_items") or []]
 
         if not gif_paths:
             _update_upload_job(
@@ -434,6 +435,10 @@ async def _process_tg_sticker_link_async(
         message = f"Telegram 贴纸包导入完成：{target_pack}，新增/覆盖 {len(saved_paths)} 个"
         if failed_count:
             message += f"，失败 {failed_count} 个"
+            if failed_items:
+                message += f"：{'；'.join(failed_items[:3])}"
+                if len(failed_items) > 3:
+                    message += f"；另有 {len(failed_items) - 3} 个失败项已省略"
         _update_upload_job(
             job_id,
             status="done",
@@ -441,7 +446,7 @@ async def _process_tg_sticker_link_async(
             processed=total_count,
             saved=len(saved_paths),
             reused=0,
-            failed=[] if failed_count <= 0 else [f"转换失败 {failed_count} 个"],
+            failed=failed_items if failed_items else ([] if failed_count <= 0 else [f"转换失败 {failed_count} 个"]),
             current="",
             message=message,
         )

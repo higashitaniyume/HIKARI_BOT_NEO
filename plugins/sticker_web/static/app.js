@@ -204,6 +204,7 @@ function setJobProgress(job, prefix = "upload") {
     `新增 ${job.saved || 0} 个`,
     `复用 ${job.reused || 0} 个`,
     `失败 ${failed.length} 个`,
+    failed.length ? `失败详情：${failed.slice(0, 5).join("；")}${failed.length > 5 ? `；另有 ${failed.length - 5} 个失败项已省略` : ""}` : "",
   ].filter(Boolean).join("，");
 }
 

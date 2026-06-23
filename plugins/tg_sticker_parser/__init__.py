@@ -276,6 +276,7 @@ async def parse_sticker_set_to_gifs(
                 "title": title,
                 "total_count": 0,
                 "failed_count": 0,
+                "failed_items": [],
             }
 
         if bot is not None and event is not None:
@@ -294,14 +295,14 @@ async def parse_sticker_set_to_gifs(
         transcode_options = StickerGifOptions.from_config(transcoder_cfg)
         sem = asyncio.Semaphore(max(1, int(transcoder_cfg.get("sticker_ffmpeg_concurrency", 2))))
 
-        async def process_one(index: int, sticker: dict[str, Any]) -> Path | None:
+        async def process_one(index: int, sticker: dict[str, Any]) -> tuple[Path | None, str | None]:
             async with sem:
                 file_unique_id = sticker.get("file_unique_id") or f"unknown_{index}"
                 file_id = sticker.get("file_id")
 
                 if not file_id:
                     logger.warning("[TgSticker] 第 %s 个贴纸缺少 file_id，跳过", index)
-                    return None
+                    return None, f"第 {index} 个贴纸缺少 file_id"
 
                 try:
                     file_info = await api.get_file(file_id)
@@ -322,10 +323,10 @@ async def parse_sticker_set_to_gifs(
                         )
 
                     if gif_path.exists() and gif_path.stat().st_size > 0:
-                        return gif_path
+                        return gif_path, None
 
                     logger.warning("[TgSticker] 第 %s 个贴纸转换后文件无效: %s", index, gif_path)
-                    return None
+                    return None, f"第 {index} 个贴纸转换后文件无效"
 
                 except Exception as e:
                     logger.exception(
@@ -333,14 +334,14 @@ async def parse_sticker_set_to_gifs(
                         index,
                         e,
                     )
-                    return None
+                    return None, f"第 {index} 个贴纸处理失败：{e}"
 
         tasks = [
             process_one(index, sticker)
             for index, sticker in enumerate(stickers, start=1)
         ]
 
-        results: list[Path | None] = []
+        results: list[tuple[Path | None, str | None]] = []
         processed_count = 0
         for task in asyncio.as_completed(tasks):
             results.append(await task)
@@ -354,7 +355,8 @@ async def parse_sticker_set_to_gifs(
                 })
                 if asyncio.iscoroutine(maybe_awaitable):
                     await maybe_awaitable
-        gif_paths = [p for p in results if isinstance(p, Path) and p.exists() and p.stat().st_size > 0]
+        gif_paths = [p for p, _ in results if isinstance(p, Path) and p.exists() and p.stat().st_size > 0]
+        failed_items = [failure for _, failure in results if failure]
 
         failed_count = len(stickers) - len(gif_paths)
 
@@ -367,6 +369,7 @@ async def parse_sticker_set_to_gifs(
             "title": title,
             "total_count": len(stickers),
             "failed_count": failed_count,
+            "failed_items": failed_items,
         }
 
     finally:
