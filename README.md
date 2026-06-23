@@ -511,15 +511,26 @@ BotData/plugin_configs/sticker_inbox.json
 
 ### JMComic
 
-配置文件：`BotData/jmcomic/option.yml`
+配置文件：
 
-仅私聊可用，所有用户都可以触发，群聊中不会解析：
+- `BotData/jmcomic/option.yml`：JMComic 下载配置
+- `BotData/plugin_configs/jmcomic_api.json`：机器人触发配置
+
+默认仅私聊可用，所有用户都可以触发：
 
 ```text
 jm 123456
 ```
 
-机器人会下载漫画、导出 PDF，并通过 NapCat 上传到当前私聊。下载和 PDF 临时目录默认位于 `/tmp/hikari_bot/jmcomic`。
+如果需要允许群聊识别，把 `BotData/plugin_configs/jmcomic_api.json` 改为：
+
+```json
+{
+  "allow_group": true
+}
+```
+
+机器人会下载漫画、导出 PDF，并通过 NapCat 上传到当前私聊或群聊。下载和 PDF 临时目录默认位于 `/tmp/hikari_bot/jmcomic`。
 
 ---
 
