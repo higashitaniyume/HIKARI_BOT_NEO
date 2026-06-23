@@ -32,6 +32,8 @@ MEDIA_EXTS = sticker_library.MEDIA_EXTS
 PACK_LIST_PAGE_SIZE = 5
 SEND_RETRY_ATTEMPTS = 2
 SEND_RETRY_DELAY_SECONDS = 2.0
+STICKER_FORWARD_CHUNK_SIZE = 80
+STICKER_FORWARD_CHUNK_DELAY_SECONDS = 1.0
 
 # NapCat 共享目录（NapCat 容器必须挂载此目录）
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
@@ -207,6 +209,48 @@ async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
         await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
     else:
         await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
+
+
+def _chunk_files(files: list[Path], chunk_size: int) -> list[list[Path]]:
+    safe_size = max(1, int(chunk_size))
+    return [files[i:i + safe_size] for i in range(0, len(files), safe_size)]
+
+
+async def _send_many_stickers(bot: Bot, event: MessageEvent, picked: list[Path]) -> int:
+    if len(picked) <= 10:
+        sent = 0
+        for p in picked:
+            try:
+                await _send_image(bot, event, p, f"贴纸 {p.name}")
+                sent += 1
+            except Exception as e:
+                _log_send_failure(f"贴纸 {p.name}", e)
+                await _notify_sticker_error(bot, event, e, "StickerSend")
+        return sent
+
+    sent = 0
+    chunks = _chunk_files(picked, STICKER_FORWARD_CHUNK_SIZE)
+    for index, chunk in enumerate(chunks, start=1):
+        label = f"贴纸合并转发 {index}/{len(chunks)}"
+        try:
+            await _send_with_retry(lambda chunk=chunk: _send_forward(bot, event, chunk), label)
+            sent += len(chunk)
+        except Exception as e:
+            _log_send_failure(label, e)
+            await _notify_sticker_error(bot, event, e, "StickerForwardSend")
+            logger.info("[Sticker] %s 失败，降级为逐张发送", label)
+            for p in chunk:
+                try:
+                    await _send_image(bot, event, p, f"贴纸 {p.name}")
+                    sent += 1
+                except Exception as send_error:
+                    _log_send_failure(f"贴纸 {p.name}", send_error)
+                    await _notify_sticker_error(bot, event, send_error, "StickerSend")
+
+        if index < len(chunks):
+            await asyncio.sleep(STICKER_FORWARD_CHUNK_DELAY_SECONDS)
+
+    return sent
 
 
 async def _send_text_forward(bot: Bot, event: MessageEvent, texts: list[str]) -> None:
@@ -419,38 +463,16 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         logger.warning(f"[Sticker] 关键词 '{keyword}' 匹配, 但贴纸包 {_format_folder_label(folder_names)} 无可用媒体文件")
         return
 
+    if count <= 0:
+        await _try_send_text(bot, event, "数量至少为 1。", "贴纸数量提示")
+        return
+
     picked = random.sample(all_in_folders, min(count, len(all_in_folders)))
 
     logger.info(f"[Sticker] 关键词 '{keyword}' x{len(picked)} → {[p.name for p in picked]}")
 
-    if len(picked) <= 10:
-        sent = 0
-        for p in picked:
-            try:
-                await _send_image(bot, event, p, f"贴纸 {p.name}")
-                sent += 1
-            except Exception as e:
-                _log_send_failure(f"贴纸 {p.name}", e)
-                await _notify_sticker_error(bot, event, e, "StickerSend")
-        if sent:
-            stats_increment(event, "stickers_sent", sent)
-    else:
-        try:
-            await _send_with_retry(lambda: _send_forward(bot, event, picked), "贴纸合并转发")
-            stats_increment(event, "stickers_sent", len(picked))
-        except Exception as e:
-            _log_send_failure("贴纸合并转发", e)
-            await _notify_sticker_error(bot, event, e, "StickerForwardSend")
-            logger.info("[Sticker] 合并转发失败，降级为逐张发送")
-            sent = 0
-            for p in picked:
-                try:
-                    await _send_image(bot, event, p, f"贴纸 {p.name}")
-                    sent += 1
-                except Exception as send_error:
-                    _log_send_failure(f"贴纸 {p.name}", send_error)
-                    await _notify_sticker_error(bot, event, send_error, "StickerSend")
-            if sent:
-                stats_increment(event, "stickers_sent", sent)
+    sent = await _send_many_stickers(bot, event, picked)
+    if sent:
+        stats_increment(event, "stickers_sent", sent)
 
     _cleanup_shared_dir()
