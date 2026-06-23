@@ -573,3 +573,15 @@ HIKARI_BOT_NEO/
 - `core.message_pipeline` 会先注册全局消息管道，自动解析类插件通过 `register_handler()` 接入。
 - 插件配置大多支持热重载，修改 JSON 后下条消息即可生效。
 - `BotData/config.json`、`BotData/plugin_configs/*.json`、`UserData/stats`、日志和实际贴纸媒体文件默认不提交。
+
+---
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE) 开源。
+
+使用本项目解析、下载或转发第三方平台内容时，请自行确认相关平台服务条款和内容版权要求。
+
+## 用户协议与隐私政策
+
+仓库提供了面向自部署场景的 [用户协议模板](USER_AGREEMENT.md) 和 [隐私政策模板](PRIVACY_POLICY.md)。实际部署前，请将服务运营者、联系方式、数据保存期限和第三方服务配置补充为你的真实情况。

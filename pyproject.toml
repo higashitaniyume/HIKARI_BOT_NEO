@@ -3,6 +3,7 @@ name = "HIKARI_BOT_NEO"
 version = "0.1.0"
 description = "NoneBot QQ Bot - HikariBotNeo"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10, <4.0"
 dependencies = [
     "nonebot2[websockets]>=2.5.0",

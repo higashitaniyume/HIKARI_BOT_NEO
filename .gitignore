@@ -42,6 +42,10 @@ UserData/private/*.jsonl
 UserData/group/*.jsonl
 UserData/stats/
 
+# Local deployment legal documents
+USER_AGREEMENT.local.md
+PRIVACY_POLICY.local.md
+
 # System
 .DS_Store
 Thumbs.db
