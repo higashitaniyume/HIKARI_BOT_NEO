@@ -810,11 +810,34 @@ class StickerWebHandler(BaseHTTPRequestHandler):
         if not self._is_authenticated():
             self._unauthorized_json()
             return
+        params = parse_qs(parsed.query)
+
+        if parsed.path == "/api/packs":
+            pack_name = _safe_pack_name(params.get("pack", [""])[0])
+            if not pack_name:
+                self._send_json({"error": "贴纸包不能为空。"}, 400)
+                return
+
+            try:
+                result = sticker_library.delete_pack(pack_name)
+                payload = _pack_state()
+                payload["result"] = result
+                if not result.get("deleted"):
+                    payload["error"] = "没有找到这个贴纸包。"
+                    self._send_json(payload, 404)
+                    return
+                self._send_json(payload)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("删除贴纸包失败: %s", e)
+                self._send_json({"error": "删除贴纸包失败，请检查服务日志。"}, 500)
+            return
+
         if parsed.path != "/api/keywords":
             self._send_json({"error": "页面不存在。"}, 404)
             return
 
-        params = parse_qs(parsed.query)
         pack_name = _safe_pack_name(params.get("pack", [""])[0])
         keyword = params.get("keyword", [""])[0].strip()
         if not pack_name or not keyword:

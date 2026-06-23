@@ -426,6 +426,58 @@ def remove_keyword(pack_name: str, keyword: str) -> bool:
         return True
 
 
+def delete_pack(pack_name: str) -> dict[str, Any]:
+    safe_name = safe_pack_name(pack_name)
+    if not safe_name:
+        raise ValueError("贴纸包名称不能为空。")
+
+    with _lock:
+        index = load_index()
+        packs = index.setdefault("packs", {})
+        pack = packs.pop(safe_name, None)
+        if not pack:
+            return {
+                "deleted": False,
+                "pack": safe_name,
+                "removed_stickers": 0,
+                "deleted_files": 0,
+            }
+
+        removed_sticker_ids = [
+            Path(str(sticker_id)).name
+            for sticker_id in pack.get("stickers") or []
+            if Path(str(sticker_id)).name
+        ]
+        still_referenced: set[str] = set()
+        for other_pack in packs.values():
+            for sticker_id in other_pack.get("stickers") or []:
+                safe_id = Path(str(sticker_id)).name
+                if safe_id:
+                    still_referenced.add(safe_id)
+
+        stickers = index.setdefault("stickers", {})
+        deleted_files = 0
+        for sticker_id in removed_sticker_ids:
+            if sticker_id in still_referenced:
+                continue
+            path = _file_path_from_meta(stickers, sticker_id)
+            stickers.pop(sticker_id, None)
+            try:
+                if path.is_file():
+                    path.unlink()
+                    deleted_files += 1
+            except Exception as e:
+                logger.warning("[StickerLibrary] 删除贴纸文件失败: %s -> %s", path, e)
+
+        save_index(index)
+        return {
+            "deleted": True,
+            "pack": safe_name,
+            "removed_stickers": len(removed_sticker_ids),
+            "deleted_files": deleted_files,
+        }
+
+
 def save_gifs_to_pack(pack_name: str, gif_paths: list[Path], *, source: str = "import") -> list[Path]:
     saved_paths: list[Path] = []
     with _lock:

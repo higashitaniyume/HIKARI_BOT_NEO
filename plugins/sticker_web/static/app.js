@@ -144,7 +144,17 @@ function renderPacks() {
     const badge = document.createElement("div");
     badge.className = "badge";
     badge.textContent = `${pack.count} 张`;
-    head.append(title, badge);
+    const actions = document.createElement("div");
+    actions.className = "pack-actions";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "icon-danger-button";
+    deleteButton.title = `删除贴纸包 ${pack.name}`;
+    deleteButton.setAttribute("aria-label", `删除贴纸包 ${pack.name}`);
+    deleteButton.textContent = "×";
+    deleteButton.addEventListener("click", () => deletePack(pack));
+    actions.append(badge, deleteButton);
+    head.append(title, actions);
 
     const chips = document.createElement("div");
     chips.className = "chips";
@@ -462,6 +472,27 @@ async function deleteKeyword(pack, keyword) {
     state.totalStickers = Number(data.total_stickers || 0);
     render();
     showToast("关键词关联已删除。");
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deletePack(pack) {
+  const confirmed = window.confirm(`确定删除贴纸包「${pack.name}」吗？\n将移除这个贴纸包，并删除不再被其他贴纸包引用的本地文件。`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ pack: pack.name });
+    const res = await fetch(`/api/packs?${params}`, { method: "DELETE" });
+    const data = await readJsonResponse(res, "删除贴纸包失败");
+    state.packs = data.packs || [];
+    state.keywords = data.keywords || [];
+    state.totalStickers = Number(data.total_stickers || 0);
+    render();
+    const result = data.result || {};
+    showToast(`已删除 ${result.pack || pack.name}，移除 ${result.removed_stickers || 0} 个关联，删除 ${result.deleted_files || 0} 个本地文件。`);
   } catch (err) {
     showToast(err.message, true);
   }

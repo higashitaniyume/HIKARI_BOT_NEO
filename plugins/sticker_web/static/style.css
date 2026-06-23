@@ -464,8 +464,35 @@ progress {
 
 .pack-head,
 .item-head {
+  display: flex;
+  gap: 10px;
   align-items: start;
   justify-content: space-between;
+}
+
+.pack-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.icon-danger-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid #f1b9b2;
+  background: #fff0ef;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+
+.icon-danger-button:hover {
+  background: #ffe2df;
 }
 
 .pack-title,
