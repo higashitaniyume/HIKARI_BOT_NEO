@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "api_url": "https://zh.stardewvalleywiki.com/mediawiki/api.php",
+  "timeout": 12,
+  "search_limit": 3,
+  "summary_max_chars": 220,
+  "proxy": ""
+}
