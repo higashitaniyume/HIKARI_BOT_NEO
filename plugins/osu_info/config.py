@@ -20,6 +20,9 @@ DEFAULT_OSU_CONFIG: dict[str, Any] = {
     "ranking_limit": 10,
     "score_limit": 5,
     "beatmap_search_limit": 5,
+    "download_no_video": True,
+    "download_max_file_mb": 80,
+    "session_cookie": "",
 }
 
 _first_load_done = False

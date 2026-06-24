@@ -73,6 +73,24 @@ def _rank_text(value: Any) -> str:
     return f"#{text}" if text != "-" else "未上榜"
 
 
+def _score_title(score: dict[str, Any]) -> tuple[str, str]:
+    beatmap = score.get("beatmap") or {}
+    beatmapset = score.get("beatmapset") or {}
+    title = f"{beatmapset.get('artist') or '?'} - {beatmapset.get('title') or '?'}"
+    version = beatmap.get("version") or ""
+    return title, version
+
+
+def _score_mods(score: dict[str, Any]) -> str:
+    mods = score.get("mods") or []
+    if isinstance(mods, list):
+        return "".join(
+            mod.get("acronym", str(mod)) if isinstance(mod, dict) else str(mod)
+            for mod in mods
+        )
+    return str(mods)
+
+
 def _date(value: Any) -> str:
     if not value:
         return "-"
@@ -260,8 +278,11 @@ async def render_user_card(
     *,
     title: str = "osu! 用户信息",
     proxy: str = "",
+    recent_scores: list[dict[str, Any]] | None = None,
 ) -> Path:
-    canvas = Canvas(900, 620)
+    visible_scores = (recent_scores or [])[:3]
+    score_rows = max(0, len(visible_scores))
+    canvas = Canvas(900, 620 + score_rows * 88)
     avatar = await fetch_avatar(user, cache_dir / "images", proxy=proxy)
     _draw_header(canvas, user, mode, avatar)
     stats = user.get("statistics") or {}
@@ -294,6 +315,39 @@ async def render_user_card(
     )
     canvas.draw.text((60, 538), f"成绩等级：{rank_text}", font=_font(21, bold=True), fill=TEXT)
     canvas.draw.text((620, 540), "osu.ppy.sh/users/" + str(user.get("id")), font=_font(17), fill=MUTED)
+    y = 608
+    for idx, score in enumerate(visible_scores, start=1):
+        score_title, version = _score_title(score)
+        pp = score.get("pp")
+        mods_text = _score_mods(score) or "NM"
+        canvas.card((38, y, 862, y + 76), 12, PANEL)
+        canvas.draw.text((60, y + 16), f"最近 #{idx}", font=_font(18, bold=True), fill=ACCENT)
+        canvas.draw.text(
+            (156, y + 12),
+            _fit_text(canvas.draw, score_title, _font(20, bold=True), 420),
+            font=_font(20, bold=True),
+            fill=TEXT,
+        )
+        canvas.draw.text(
+            (156, y + 40),
+            _fit_text(canvas.draw, f"[{version}]  {mods_text}", _font(15), 420),
+            font=_font(15),
+            fill=MUTED,
+        )
+        canvas.draw.text((620, y + 14), _safe(score.get("rank")), font=_font(23, bold=True), fill=YELLOW)
+        canvas.draw.text(
+            (680, y + 15),
+            f"{_num(pp, 2)}pp" if pp is not None else "no pp",
+            font=_font(19, bold=True),
+            fill=ACCENT if pp is not None else MUTED,
+        )
+        canvas.draw.text(
+            (680, y + 42),
+            f"{_pct(score.get('accuracy'))} · {_date(score.get('created_at'))}",
+            font=_font(14),
+            fill=MUTED,
+        )
+        y += 88
     return canvas.save(_output_path(cache_dir, "user"))
 
 
@@ -352,13 +406,10 @@ async def render_dashboard(
         canvas.card((38, y, 902, y + 86), 12, PANEL)
         canvas.draw.text((62, y + 29), "暂无最近成绩。", font=_font(24, bold=True), fill=MUTED)
     for idx, score in enumerate(visible_scores, start=1):
-        beatmap = score.get("beatmap") or {}
-        beatmapset = score.get("beatmapset") or {}
         canvas.card((38, y, 902, y + 86), 12, PANEL)
         rank = _safe(score.get("rank"))
         pp = score.get("pp")
-        title = f"{beatmapset.get('artist') or '?'} - {beatmapset.get('title') or '?'}"
-        version = beatmap.get("version") or ""
+        title, version = _score_title(score)
         canvas.draw.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
         canvas.draw.text((112, y + 14), _fit_text(canvas.draw, title, _font(22, bold=True), 500), font=_font(22, bold=True), fill=TEXT)
         canvas.draw.text((112, y + 44), _fit_text(canvas.draw, f"[{version}]", _font(17), 500), font=_font(17), fill=MUTED)
@@ -384,16 +435,9 @@ async def render_scores(
         canvas.card((38, y, 942, y + 92), 12, PANEL)
         canvas.draw.text((62, y + 32), "暂无成绩。", font=_font(24, bold=True), fill=MUTED)
     for idx, score in enumerate(scores, start=1):
-        beatmap = score.get("beatmap") or {}
-        beatmapset = score.get("beatmapset") or {}
         canvas.card((38, y, 942, y + 92), 12, PANEL)
-        title = f"{beatmapset.get('artist') or '?'} - {beatmapset.get('title') or '?'}"
-        version = beatmap.get("version") or ""
-        mods = score.get("mods") or []
-        if isinstance(mods, list):
-            mods_text = "".join(m.get("acronym", str(m)) if isinstance(m, dict) else str(m) for m in mods)
-        else:
-            mods_text = str(mods)
+        title, version = _score_title(score)
+        mods_text = _score_mods(score)
         canvas.draw.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
         canvas.draw.text((116, y + 14), _fit_text(canvas.draw, title, _font(21, bold=True), 520), font=_font(21, bold=True), fill=TEXT)
         canvas.draw.text((116, y + 44), _fit_text(canvas.draw, f"[{version}]  {mods_text or 'NM'}", _font(16), 520), font=_font(16), fill=MUTED)
@@ -405,21 +449,24 @@ async def render_scores(
 
 
 async def render_ranking(ranking: dict[str, Any], mode: str, cache_dir: Path, *, country: str | None = None, limit: int = 10) -> Path:
-    users = list(ranking.get("ranking") or [])[:limit]
-    canvas = Canvas(920, 190 + max(1, len(users)) * 76)
+    entries = list(ranking.get("ranking") or [])[:limit]
+    canvas = Canvas(920, 190 + max(1, len(entries)) * 76)
     title = f"osu! 排行榜 · {mode_label(mode)}"
     subtitle = f"范围：{country.upper()}" if country else "范围：全球"
     canvas.title(38, 34, title, subtitle)
     y = 126
-    if not users:
+    if not entries:
         canvas.card((38, y, 882, y + 72), 12, PANEL)
         canvas.draw.text((62, y + 22), "没有查询到排行榜数据。", font=_font(22, bold=True), fill=MUTED)
-    for idx, user in enumerate(users, start=1):
-        stats = user.get("statistics") or {}
-        rank = stats.get("global_rank") or idx
+    for idx, entry in enumerate(entries, start=1):
+        user = entry.get("user") if isinstance(entry.get("user"), dict) else entry
+        stats = entry if "pp" in entry or "global_rank" in entry else user.get("statistics") or {}
+        rank = idx if country else stats.get("global_rank") or idx
         canvas.card((38, y, 882, y + 64), 10, PANEL)
         canvas.draw.text((62, y + 16), f"#{_num(rank)}", font=_font(22, bold=True), fill=ACCENT)
-        canvas.draw.text((172, y + 16), _fit_text(canvas.draw, _safe(user.get("username"), "Unknown"), _font(22, bold=True), 360), font=_font(22, bold=True), fill=TEXT)
+        country_code = (user.get("country") or {}).get("code") or user.get("country_code") or "--"
+        username = f"{_safe(user.get('username'), 'Unknown')} · {country_code}"
+        canvas.draw.text((172, y + 16), _fit_text(canvas.draw, username, _font(22, bold=True), 360), font=_font(22, bold=True), fill=TEXT)
         canvas.draw.text((560, y + 16), f"{_num(stats.get('pp'), 2)}pp", font=_font(21, bold=True), fill=BLUE)
         canvas.draw.text((708, y + 18), _pct(stats.get("hit_accuracy")), font=_font(18), fill=MUTED)
         y += 76

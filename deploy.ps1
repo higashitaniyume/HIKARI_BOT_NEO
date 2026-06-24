@@ -1,5 +1,7 @@
 # HIKARI_BOT_NEO Docker server deploy script.
-# Usage: .\deploy.ps1
+# Usage:
+#   .\deploy.ps1        # build and deploy hikaribot to the server
+#   .\deploy.ps1 -l     # build and run only hikaribot locally, without starting NapCat/cobalt/astrbot
 # Default target: root@192.168.31.2:/opt/hikaribot-dockcer
 
 param(
@@ -8,6 +10,8 @@ param(
     [string]$DeployPath = "/opt/hikaribot-dockcer",
     [string]$Image = "hyumerin/hikaribot:latest",
     [string]$NapcatAccount = "",
+    [Alias("l")]
+    [switch]$Local,
     [switch]$Push,
     [switch]$SkipBuild,
     [switch]$AllServices
@@ -18,6 +22,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $ProjectRoot = $PSScriptRoot
 $ServerCompose = Join-Path $ProjectRoot "deploy\docker-compose.server.yml"
+$LocalCompose = Join-Path $ProjectRoot "docker-compose.yml"
 
 function Quote-RemoteSingle {
     param([string]$Value)
@@ -43,22 +48,70 @@ function Copy-ResourceDirectory {
     scp -r "$LocalPath" "${ServerUser}@${ServerIP}:${RemotePath}/"
 }
 
-if (-not (Test-Path $ServerCompose)) {
+if (-not $Local -and -not (Test-Path $ServerCompose)) {
     throw "Missing server compose template: $ServerCompose"
+}
+
+if (-not (Test-Path $LocalCompose)) {
+    throw "Missing local compose file: $LocalCompose"
 }
 
 Set-Location $ProjectRoot
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  HIKARI BOT NEO - Docker 部署" -ForegroundColor Cyan
+if ($Local) {
+    Write-Host "  HIKARI BOT NEO - 本地 Docker 运行" -ForegroundColor Cyan
+} else {
+    Write-Host "  HIKARI BOT NEO - Docker 部署" -ForegroundColor Cyan
+}
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
+if ($Local -and $Push) {
+    throw "-Push 只用于服务器部署，不能和 -l/-Local 一起使用。"
+}
+
+if ($Local -and $AllServices) {
+    throw "-AllServices 会启动依赖服务，不能和只运行 bot 的 -l/-Local 一起使用。"
+}
+
 if (-not $SkipBuild) {
-    Write-Host "[1/6] 构建镜像 $Image ..." -ForegroundColor Yellow
+    if ($Local) {
+        Write-Host "[1/3] 构建本地镜像 $Image ..." -ForegroundColor Yellow
+    } else {
+        Write-Host "[1/6] 构建镜像 $Image ..." -ForegroundColor Yellow
+    }
     docker build -t $Image .
 } else {
-    Write-Host "[1/6] 跳过本地构建，使用已有镜像 $Image" -ForegroundColor Yellow
+    if ($Local) {
+        Write-Host "[1/3] 跳过本地构建，使用已有镜像 $Image" -ForegroundColor Yellow
+    } else {
+        Write-Host "[1/6] 跳过本地构建，使用已有镜像 $Image" -ForegroundColor Yellow
+    }
+}
+
+if ($Local) {
+    Write-Host "[2/3] 准备本地挂载目录..." -ForegroundColor Yellow
+    $localDirs = @(
+        "BotData",
+        "UserData",
+        "sharedFolder",
+        "tmp\hikari_bot"
+    )
+    foreach ($dir in $localDirs) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot $dir) | Out-Null
+    }
+
+    Write-Host "[3/3] 启动本机 hikaribot 服务（不启动 NapCat/cobalt/astrbot）..." -ForegroundColor Yellow
+    $env:HIKARI_IMAGE = $Image
+    docker compose -f $LocalCompose up -d --no-deps --force-recreate hikaribot
+
+    Write-Host ""
+    Write-Host "本地 hikaribot 已启动。" -ForegroundColor Green
+    Write-Host "查看状态: docker compose -f `"$LocalCompose`" ps hikaribot" -ForegroundColor Gray
+    Write-Host "查看日志: docker compose -f `"$LocalCompose`" logs -f hikaribot" -ForegroundColor Gray
+    Write-Host "停止本地 bot: docker compose -f `"$LocalCompose`" stop hikaribot" -ForegroundColor Gray
+    return
 }
 
 if ($Push) {

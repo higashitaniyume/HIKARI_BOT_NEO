@@ -79,16 +79,19 @@ class OsuApiClient:
             if self._token and now < self._expires_at - 60:
                 return self._token
 
-            async with httpx.AsyncClient(**self._client_kwargs()) as client:
-                response = await client.post(
-                    self.oauth_url,
-                    data={
-                        "client_id": client_id,
-                        "client_secret": client_secret,
-                        "grant_type": "client_credentials",
-                        "scope": "public",
-                    },
-                )
+            try:
+                async with httpx.AsyncClient(**self._client_kwargs()) as client:
+                    response = await client.post(
+                        self.oauth_url,
+                        data={
+                            "client_id": client_id,
+                            "client_secret": client_secret,
+                            "grant_type": "client_credentials",
+                            "scope": "public",
+                        },
+                    )
+            except httpx.RequestError as e:
+                raise OsuAuthError(f"osu! OAuth 连接失败: {type(e).__name__}") from e
 
             if response.status_code >= 400:
                 raise OsuAuthError(f"osu! OAuth 失败: HTTP {response.status_code}")

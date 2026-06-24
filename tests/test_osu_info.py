@@ -14,9 +14,10 @@ from PIL import Image
 
 import plugins.osu_info as osu_plugin
 from plugins.osu_info import api as osu_api
-from plugins.osu_info.config import get_config as get_osu_config
+from plugins.osu_info import downloader as osu_downloader
 from plugins.osu_info import render as osu_render
 from plugins.osu_info import storage as osu_storage
+from plugins.osu_info.config import get_config as get_osu_config
 
 
 class FakeEvent:
@@ -70,6 +71,7 @@ class FakeOsuClient:
         }
         self.beatmap = {
             "id": 11,
+            "beatmapset_id": 1,
             "url": "https://osu.ppy.sh/beatmaps/11",
             "version": "Hard",
             "difficulty_rating": 4.56,
@@ -101,7 +103,18 @@ class FakeOsuClient:
 
     async def get_ranking(self, *args, **kwargs):
         self.calls.append(("get_ranking", args, kwargs))
-        return {"ranking": [self.user]}
+        return {
+            "ranking": [
+                {
+                    **self.user["statistics"],
+                    "user": {
+                        "id": self.user["id"],
+                        "username": self.user["username"],
+                        "country": self.user["country"],
+                    },
+                }
+            ]
+        }
 
     async def get_beatmap(self, *args, **kwargs):
         self.calls.append(("get_beatmap", args, kwargs))
@@ -149,6 +162,22 @@ class OsuParsingTests(unittest.TestCase):
         self.assertEqual(osu_plugin._extract_beatmap_id("https://osu.ppy.sh/beatmapsets/1#osu/234"), 234)
         self.assertEqual(osu_plugin._extract_beatmap_id("https://osu.ppy.sh/beatmaps/345"), 345)
         self.assertIsNone(osu_plugin._extract_beatmap_id("artist title"))
+
+    def test_download_url_and_beatmapset_id_parsing(self) -> None:
+        self.assertEqual(
+            osu_downloader.official_download_url(123, no_video=True),
+            "https://osu.ppy.sh/beatmapsets/123/download?noVideo=1",
+        )
+        self.assertEqual(
+            osu_downloader.official_download_url(123, no_video=False),
+            "https://osu.ppy.sh/beatmapsets/123/download",
+        )
+        self.assertEqual(
+            osu_downloader.extract_beatmapset_id("https://osu.ppy.sh/beatmapsets/456#osu/789"),
+            456,
+        )
+        self.assertEqual(osu_downloader.extract_beatmapset_id("456"), 456)
+        self.assertIsNone(osu_downloader.extract_beatmapset_id("artist title"))
 
 
 class OsuStorageTests(unittest.TestCase):
@@ -200,6 +229,62 @@ class FailingAsyncClient(FakeAsyncClient):
         raise httpx.ConnectError("boom", request=request)
 
 
+class FailingOAuthAsyncClient(FakeAsyncClient):
+    async def post(self, *args, **kwargs):
+        request = httpx.Request("POST", "https://osu.ppy.sh/oauth/token")
+        raise httpx.ConnectError("boom", request=request)
+
+
+class FakeDownloadResponse:
+    def __init__(
+        self,
+        *,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+        url: str = "https://osu.ppy.sh/beatmapsets/1/download",
+        chunks: list[bytes] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.headers = headers or {}
+        self.url = httpx.URL(url)
+        self.request = httpx.Request("GET", url)
+        self._chunks = chunks or []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            response = httpx.Response(self.status_code, request=self.request)
+            raise httpx.HTTPStatusError("download failed", request=self.request, response=response)
+
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
+
+
+class FakeDownloadAsyncClient:
+    next_response: FakeDownloadResponse
+    last_kwargs: dict[str, object] = {}
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+        FakeDownloadAsyncClient.last_kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def stream(self, *args, **kwargs):
+        return FakeDownloadAsyncClient.next_response
+
+
 class OsuApiClientTests(unittest.IsolatedAsyncioTestCase):
     def configured_client(self) -> osu_api.OsuApiClient:
         cfg = get_osu_config()
@@ -212,6 +297,12 @@ class OsuApiClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(osu_api.OsuAuthError):
             await client._ensure_token()
 
+    async def test_oauth_request_errors_are_wrapped(self) -> None:
+        client = self.configured_client()
+        with patch.object(osu_api.httpx, "AsyncClient", FailingOAuthAsyncClient):
+            with self.assertRaisesRegex(osu_api.OsuAuthError, "OAuth 连接失败"):
+                await client._ensure_token()
+
     async def test_request_errors_are_wrapped(self) -> None:
         client = self.configured_client()
         client._token = "token"
@@ -219,6 +310,38 @@ class OsuApiClientTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(osu_api.httpx, "AsyncClient", FailingAsyncClient):
             with self.assertRaisesRegex(osu_api.OsuApiError, "连接失败"):
                 await client.request("GET", "/users/1/osu")
+
+
+class OsuDownloaderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_download_beatmapset_from_official_writes_osz(self) -> None:
+        FakeDownloadAsyncClient.next_response = FakeDownloadResponse(
+            headers={"content-disposition": 'attachment; filename="sample.osz"'},
+            chunks=[b"osz", b"-data"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(osu_downloader.httpx, "AsyncClient", FakeDownloadAsyncClient):
+                downloaded = await osu_downloader.download_beatmapset_from_official(
+                    1,
+                    cache_dir=Path(tmp),
+                    session_cookie="osu_session=sample",
+                )
+
+            self.assertEqual(downloaded.beatmapset_id, 1)
+            self.assertEqual(downloaded.path.read_bytes(), b"osz-data")
+            self.assertIn("Cookie", FakeDownloadAsyncClient.last_kwargs["headers"])
+
+    async def test_download_beatmapset_from_official_detects_login_page(self) -> None:
+        FakeDownloadAsyncClient.next_response = FakeDownloadResponse(
+            headers={"content-type": "text/html"},
+            url="https://osu.ppy.sh/beatmapsets/1",
+            chunks=[b"<html></html>"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(osu_downloader.httpx, "AsyncClient", FakeDownloadAsyncClient):
+                with self.assertRaises(osu_downloader.OsuDownloadNeedsLogin):
+                    await osu_downloader.download_beatmapset_from_official(1, cache_dir=Path(tmp))
+
+            self.assertFalse(list((Path(tmp) / "downloads").glob("*.part")))
 
 
 class OsuRenderTests(unittest.IsolatedAsyncioTestCase):
@@ -232,10 +355,21 @@ class OsuRenderTests(unittest.IsolatedAsyncioTestCase):
             ):
                 paths = [
                     await osu_render.render_notice("标题", ["第一行", "第二行"], cache_dir),
-                    await osu_render.render_user_card(client.user, "mania", cache_dir),
+                    await osu_render.render_user_card(
+                        client.user,
+                        "mania",
+                        cache_dir,
+                        recent_scores=[client.score],
+                    ),
                     await osu_render.render_dashboard(client.user, [client.score] * 5, "mania", cache_dir),
                     await osu_render.render_scores(client.user, [client.score], "mania", "best", cache_dir),
-                    await osu_render.render_ranking({"ranking": [client.user]}, "mania", cache_dir, limit=1),
+                    await osu_render.render_ranking(
+                        await client.get_ranking("mania", country="CN"),
+                        "mania",
+                        cache_dir,
+                        country="CN",
+                        limit=1,
+                    ),
                     await osu_render.render_beatmap(client.beatmap, cache_dir),
                     await osu_render.render_beatmap_search(
                         {
@@ -272,6 +406,9 @@ class OsuCommandTests(unittest.IsolatedAsyncioTestCase):
             "score_limit": 5,
             "ranking_limit": 10,
             "beatmap_search_limit": 5,
+            "download_no_video": True,
+            "download_max_file_mb": 80,
+            "session_cookie": "",
             "proxy": "",
         }
 
@@ -320,8 +457,13 @@ class OsuCommandTests(unittest.IsolatedAsyncioTestCase):
                 "_get_bound_or_named_user",
                 AsyncMock(return_value=(self.client.user, "mania")),
             ):
-                with patch.object(osu_plugin, "render_user_card", AsyncMock(return_value=Path(__file__))):
+                with patch.object(
+                    osu_plugin,
+                    "render_user_card",
+                    AsyncMock(return_value=Path(__file__)),
+                ) as render_user_card:
                     await osu_plugin.handle_osu_user(FakeContext(""))
+                    self.assertIn("recent_scores", render_user_card.await_args.kwargs)
                 with patch.object(osu_plugin, "render_dashboard", AsyncMock(return_value=Path(__file__))):
                     await osu_plugin.handle_osu_dashboard(FakeContext("mania SampleUser"))
                 with patch.object(osu_plugin, "render_scores", AsyncMock(return_value=Path(__file__))):
@@ -348,6 +490,54 @@ class OsuCommandTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(osu_plugin, "_send_notice", AsyncMock()) as notice:
             await osu_plugin.handle_osu_beatmap(FakeContext(""))
             notice.assert_awaited_once()
+
+    async def test_resolve_download_beatmapset_id_from_direct_beatmap_and_search(self) -> None:
+        with self.patch_common():
+            self.assertEqual(
+                await osu_plugin._resolve_download_beatmapset_id("https://osu.ppy.sh/beatmapsets/99#osu/11", "osu"),
+                (99, "direct"),
+            )
+            self.assertEqual(
+                await osu_plugin._resolve_download_beatmapset_id("https://osu.ppy.sh/beatmaps/11", "osu"),
+                (1, "beatmap"),
+            )
+            self.assertEqual(
+                await osu_plugin._resolve_download_beatmapset_id("artist title", "mania"),
+                (1, "search"),
+            )
+
+        self.assertIn(("get_beatmap", (11,), {}), self.client.calls)
+        self.assertIn(("search_beatmapsets", ("artist title",), {"mode": "mania"}), self.client.calls)
+
+    async def test_download_command_downloads_from_official_and_uploads_file(self) -> None:
+        downloaded = SimpleNamespace(path=Path(__file__))
+        ctx = FakeContext("https://osu.ppy.sh/beatmapsets/1#osu/11")
+        with self.patch_common():
+            with (
+                patch.object(osu_plugin, "download_beatmapset_from_official", AsyncMock(return_value=downloaded)) as download,
+                patch.object(osu_plugin, "_upload_file", AsyncMock()) as upload,
+            ):
+                await osu_plugin.handle_osu_download(ctx)
+
+        download.assert_awaited_once()
+        self.assertEqual(download.await_args.args[0], 1)
+        self.assertEqual(download.await_args.kwargs["session_cookie"], "")
+        upload.assert_awaited_once_with(ctx, Path(__file__), "osu_1.osz")
+
+    async def test_download_command_falls_back_to_official_link_when_login_needed(self) -> None:
+        ctx = FakeContext("1")
+        with self.patch_common():
+            with (
+                patch.object(
+                    osu_plugin,
+                    "download_beatmapset_from_official",
+                    AsyncMock(side_effect=osu_downloader.OsuDownloadNeedsLogin("官方源需要登录")),
+                ),
+                patch.object(osu_plugin, "_send_download_link", AsyncMock()) as send_link,
+            ):
+                await osu_plugin.handle_osu_download(ctx)
+
+        send_link.assert_awaited_once_with(ctx, 1, "官方源需要登录")
 
 
 if __name__ == "__main__":
