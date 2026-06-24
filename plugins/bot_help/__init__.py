@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from nonebot.adapters.onebot.v11 import Message
 
+from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, CommandSpec, command, iter_commands
 
 
@@ -139,7 +140,7 @@ async def handle_help(ctx: CommandContext) -> None:
 
     spec = _find_command(arg)
     if spec is None:
-        await ctx.send(Message(f"没有找到命令：{arg}\n发送「帮助 命令」查看命令列表。"))
+        await ctx.send(Message(msg("bot_help.not_found", command=arg)))
         return
 
     await ctx.send(Message(_format_command_detail(spec)))

@@ -28,6 +28,10 @@ dotenv*
 BotData/config.json
 BotData/plugin_configs/*.json
 !BotData/plugin_configs/*.example.json
+BotData/resources/*.json
+!BotData/resources/*.example.json
+BotData/fonts/*
+!BotData/fonts/.gitkeep
 
 # Gifs: keep directory structure, ignore actual media
 BotData/Gifs/*/**

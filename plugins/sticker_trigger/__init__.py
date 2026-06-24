@@ -20,8 +20,10 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
+from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled
 from core.error_notifier import notify_error_to_superuser
+from core.rendering import load_font
 from core.stats_tracker import increment as stats_increment, format_stats
 from plugins import sticker_library
 
@@ -193,37 +195,6 @@ async def _make_collage(files: list[Path], folder_name: str) -> Path:
     return await asyncio.to_thread(_do_collage)
 
 
-def _font_candidates(bold: bool = False) -> list[str]:
-    if bold:
-        return [
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
-            "C:/Windows/Fonts/NotoSansSC-VF.ttf",
-            "C:/Windows/Fonts/msyhbd.ttc",
-            "C:/Windows/Fonts/simhei.ttf",
-        ]
-    return [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "C:/Windows/Fonts/NotoSansSC-VF.ttf",
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simsun.ttc",
-    ]
-
-
-def _load_font(size: int, *, bold: bool = False):
-    from PIL import ImageFont
-
-    for candidate in _font_candidates(bold):
-        path = Path(candidate)
-        if path.exists():
-            try:
-                return ImageFont.truetype(str(path), size=size)
-            except Exception:
-                continue
-    return ImageFont.load_default()
-
-
 def _text_width(draw, text: str, font) -> int:
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0]
@@ -301,11 +272,11 @@ async def _make_pack_preview_image() -> Path:
         card_padding = 22
         thumb_size = 132
         thumb_gap = 12
-        title_font = _load_font(34, bold=True)
-        subtitle_font = _load_font(22)
-        name_font = _load_font(28, bold=True)
-        meta_font = _load_font(18)
-        keyword_font = _load_font(20)
+        title_font = load_font(34, bold=True)
+        subtitle_font = load_font(22)
+        name_font = load_font(28, bold=True)
+        meta_font = load_font(18)
+        keyword_font = load_font(20)
         scratch = Image.new("RGB", (width, 400), (255, 255, 255))
         draw = ImageDraw.Draw(scratch)
 
@@ -565,18 +536,18 @@ async def _send_pack_list(bot: Bot, event: MessageEvent, arg: str) -> None:
             await _send_text_forward(bot, event, pages)
         except Exception as e:
             logger.exception("[Sticker] 合并转发贴纸包列表失败: %s", e)
-            await bot.send(event, Message("完整列表发送失败，请使用「贴纸包列表 <页码>」分页查看。"))
+            await bot.send(event, Message(msg("sticker.pack_list_forward_failed")))
         return
 
     page = 1
     if arg:
         if not arg.isdigit():
-            await bot.send(event, Message("用法：贴纸包列表、贴纸包列表 <页码>、贴纸包列表 全部"))
+            await bot.send(event, Message(msg("sticker.pack_list_usage")))
             return
         page = int(arg)
 
     if page < 1 or page > total_pages:
-        await bot.send(event, Message(f"页码超出范围，目前共有 {total_pages} 页。"))
+        await bot.send(event, Message(msg("sticker.pack_list_page_out_of_range", total_pages=total_pages)))
         return
 
     await bot.send(event, Message(_format_pack_list_page(state, page)))
@@ -594,7 +565,7 @@ def _is_reserved_command_text(text: str) -> bool:
 async def cmd_random_sticker(ctx: CommandContext) -> None:
     all_files = sticker_library.get_all_files()
     if not all_files:
-        await ctx.send(Message("贴纸包都是空的，请先添加一些表情包。"))
+        await ctx.send(Message(msg("sticker.empty_library")))
         return
     picked = random.choice(all_files)
     logger.info(f"[Sticker] 随机表情包 → {picked.name}")
@@ -606,7 +577,7 @@ async def cmd_random_sticker(ctx: CommandContext) -> None:
 async def cmd_sticker_collage(ctx: CommandContext) -> None:
     keyword = ctx.args.strip()
     if not keyword:
-        await ctx.send(Message("用法：拼图 <关键词>"))
+        await ctx.send(Message(msg("sticker.collage_usage")))
         return
 
     folder_names, all_in_folders = sticker_library.get_files_for_keyword(keyword)
@@ -615,16 +586,21 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
 
     folder_label = _format_folder_label(folder_names)
     if not all_in_folders:
-        await ctx.send(Message(f"贴纸包 {folder_label} 是空的。"))
+        await ctx.send(Message(msg("sticker.empty_pack", pack=folder_label)))
         return
 
-    await _try_send_text(ctx.bot, ctx.event, f"正在拼图 {folder_label}（{len(all_in_folders)} 张）...", "拼图进度")
+    await _try_send_text(
+        ctx.bot,
+        ctx.event,
+        msg("sticker.collage_progress", pack=folder_label, count=len(all_in_folders)),
+        "拼图进度",
+    )
     try:
         jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
     except Exception as e:
         logger.exception("[Sticker] 拼图生成失败: %s", e)
         await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerCollage")
-        await _try_send_text(ctx.bot, ctx.event, "拼图失败，请稍后再试。", "拼图失败提示")
+        await _try_send_text(ctx.bot, ctx.event, msg("sticker.collage_failed"), "拼图失败提示")
         return
 
     try:
@@ -636,7 +612,7 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         await _try_send_text(
             ctx.bot,
             ctx.event,
-            "拼图已经生成，但发送图片超时了。可以稍后重试，或检查 NapCat/QQ 是否卡住。",
+            msg("sticker.collage_send_failed"),
             "拼图失败提示",
         )
 
@@ -660,17 +636,17 @@ async def cmd_sticker_pack_list(ctx: CommandContext) -> None:
 async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
     state = sticker_library.get_state()
     if not state.get("packs"):
-        await ctx.send(Message("暂无贴纸包。"))
+        await ctx.send(Message(msg("sticker.no_packs")))
         return
 
-    await _try_send_text(ctx.bot, ctx.event, "正在生成贴纸包预览图...", "贴纸包预览进度")
+    await _try_send_text(ctx.bot, ctx.event, msg("sticker.pack_preview_progress"), "贴纸包预览进度")
     try:
         preview_path = await _make_pack_preview_image()
         await _send_image(ctx.bot, ctx.event, preview_path, "贴纸包预览")
     except Exception as e:
         logger.exception("[Sticker] 贴纸包预览生成或发送失败: %s", e)
         await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerPackPreview")
-        await _try_send_text(ctx.bot, ctx.event, "贴纸包预览生成失败，请稍后再试。", "贴纸包预览失败提示")
+        await _try_send_text(ctx.bot, ctx.event, msg("sticker.pack_preview_failed"), "贴纸包预览失败提示")
 
 
 @sticker_matcher.handle()
@@ -705,7 +681,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
         return
 
     if count <= 0:
-        await _try_send_text(bot, event, "数量至少为 1。", "贴纸数量提示")
+        await _try_send_text(bot, event, msg("sticker.count_min"), "贴纸数量提示")
         return
 
     picked = random.sample(all_in_folders, min(count, len(all_in_folders)))

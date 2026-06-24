@@ -29,6 +29,20 @@ function Run-Remote {
     ssh "${ServerUser}@${ServerIP}" $Command
 }
 
+function Copy-ResourceDirectory {
+    param(
+        [string]$LocalPath,
+        [string]$RemotePath
+    )
+
+    if (-not (Test-Path $LocalPath)) {
+        return
+    }
+
+    Run-Remote "mkdir -p $(Quote-RemoteSingle $RemotePath)"
+    scp -r "$LocalPath" "${ServerUser}@${ServerIP}:${RemotePath}/"
+}
+
 if (-not (Test-Path $ServerCompose)) {
     throw "Missing server compose template: $ServerCompose"
 }
@@ -63,6 +77,10 @@ if ($Push) {
 Write-Host "[3/6] 准备服务器部署目录..." -ForegroundColor Yellow
 $quotedDeployPath = Quote-RemoteSingle $DeployPath
 Run-Remote "mkdir -p $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedDeployPath/sharedFolder $quotedDeployPath/tmp/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
+
+Write-Host "上传可热改资源文件..." -ForegroundColor Yellow
+Copy-ResourceDirectory (Join-Path $ProjectRoot "BotData\resources") "$DeployPath/BotData"
+Copy-ResourceDirectory (Join-Path $ProjectRoot "BotData\fonts") "$DeployPath/BotData"
 
 Write-Host "[4/6] 上传 Docker Compose 文件..." -ForegroundColor Yellow
 scp $ServerCompose "${ServerUser}@${ServerIP}:${DeployPath}/docker-compose.yml"

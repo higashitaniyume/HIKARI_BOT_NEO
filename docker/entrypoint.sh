@@ -3,7 +3,7 @@ set -eu
 
 DEFAULT_BOT_DATA="/opt/hikaribot-defaults/BotData"
 
-mkdir -p /app/BotData/plugin_configs /app/BotData/Gifs /app/UserData /app/sharedFolder /tmp/hikari_bot
+mkdir -p /app/BotData/plugin_configs /app/BotData/resources /app/BotData/fonts /app/BotData/Gifs /app/UserData /app/sharedFolder /tmp/hikari_bot
 
 if [ ! -f /app/BotData/config.json ] && [ -f "$DEFAULT_BOT_DATA/config.example.json" ]; then
   cp "$DEFAULT_BOT_DATA/config.example.json" /app/BotData/config.json
@@ -14,6 +14,16 @@ for example in "$DEFAULT_BOT_DATA"/plugin_configs/*.example.json; do
   [ -f "$example" ] || continue
   name="$(basename "$example" .example.json)"
   target="/app/BotData/plugin_configs/${name}.json"
+  if [ ! -f "$target" ]; then
+    cp "$example" "$target"
+    echo "Created $target from image defaults."
+  fi
+done
+
+for example in "$DEFAULT_BOT_DATA"/resources/*.example.json; do
+  [ -f "$example" ] || continue
+  name="$(basename "$example" .example.json)"
+  target="/app/BotData/resources/${name}.json"
   if [ ! -f "$target" ]; then
     cp "$example" "$target"
     echo "Created $target from image defaults."

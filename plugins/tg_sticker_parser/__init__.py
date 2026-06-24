@@ -10,6 +10,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
+from core.bot_messages import get_message as msg
 from core.message_pipeline import register_handler
 from core.stats_tracker import increment as stats_increment
 from plugins import sticker_library
@@ -103,7 +104,7 @@ class AutoTgStickerHandler:
         failed_count = result.get("failed_count", 0)
 
         if not gif_paths:
-            await bot.send(event, "没有成功转换出可发送的 GIF。")
+            await bot.send(event, msg("tg_sticker.no_gif"))
             return
 
         if options.save_pack:
@@ -230,7 +231,7 @@ async def parse_sticker_set_to_gifs(
 
         if not stickers:
             if bot is not None and event is not None:
-                await bot.send(event, "这个贴纸包里没有可处理的贴纸。")
+                await bot.send(event, msg("tg_sticker.empty_pack"))
             return {
                 "gif_paths": [],
                 "output_root": output_root,
@@ -241,7 +242,7 @@ async def parse_sticker_set_to_gifs(
             }
 
         if bot is not None and event is not None:
-            await bot.send(event, f"检测到 Telegram 贴纸包：{title}\n共 {len(stickers)} 个贴纸，开始处理……")
+            await bot.send(event, msg("tg_sticker.detected", title=title, count=len(stickers)))
         if progress_callback is not None:
             maybe_awaitable = progress_callback({
                 "title": title,

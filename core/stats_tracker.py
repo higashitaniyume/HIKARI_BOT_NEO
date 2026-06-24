@@ -17,6 +17,8 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Event, GroupMessageEvent, MessageEvent
 
+from core.bot_messages import get_message as msg
+
 logger = logging.getLogger("HikariBot.StatsTracker")
 
 STATS_DIR = Path("UserData/stats")
@@ -71,7 +73,7 @@ def format_stats(event: MessageEvent) -> str:
     """格式化统计信息为可发送的文本。"""
     data = get_stats(event)
     if not data:
-        return "暂无统计数据。"
+        return msg("common.none_stats")
 
     labels = {
         "stickers_sent": "发送表情包",

@@ -16,6 +16,8 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
+from core.bot_messages import get_message as msg
+
 from .downloader import download_media, file_as_uri
 from .parser import CobaltResult, call_cobalt_api
 
@@ -87,7 +89,7 @@ async def send_cobalt_result(
 
     if not media_paths:
         logger.error(f"[Cobalt] 所有媒体下载失败")
-        await bot.send(event, Message("媒体下载失败，请稍后再试。"))
+        await bot.send(event, Message(msg("cobalt.download_failed")))
         return
 
     # —— 构建来源信息 ——

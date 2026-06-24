@@ -13,6 +13,7 @@ from nonebot.adapters.onebot.v11 import (
     PrivateMessageEvent,
 )
 
+from core.bot_messages import get_message as msg
 from core.error_notifier import notify_error_to_superuser, send_user_error
 
 logger = logging.getLogger("HikariBot.TgStickerSender")
@@ -171,7 +172,7 @@ async def send_sticker_outputs(
     total = len(gif_paths)
 
     if total <= 0:
-        await bot.send(event, "没有成功转换出可发送的 GIF。")
+        await bot.send(event, msg("tg_sticker.no_gif"))
         return
 
     direct_send_limit = int(direct_send_limit)

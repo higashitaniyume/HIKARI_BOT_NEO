@@ -16,6 +16,8 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
+from core.bot_messages import get_message as msg
+
 from .downloader import download_with_fallback, file_as_uri
 from .parser import PixivArtwork, PixivPage, fetch_artwork
 
@@ -102,7 +104,7 @@ async def send_artwork(
         logger.info(f"[Pixiv] R-18 作品被拦截 → pid={illust_id} x_restrict={artwork.x_restrict}")
         await bot.send(
             event,
-            Message(f"Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。"),
+            Message(msg("pixiv.r18_blocked", illust_id=illust_id)),
         )
         return
 
@@ -113,7 +115,7 @@ async def send_artwork(
     selected_pages = select_pages(artwork, max_send)
 
     if not selected_pages:
-        await bot.send(event, Message(f"Pixiv 作品 {illust_id} 没有可发送的图片。"))
+        await bot.send(event, Message(msg("pixiv.no_images", illust_id=illust_id)))
         return
 
     logger.info(
@@ -141,7 +143,7 @@ async def send_artwork(
 
     if not image_paths:
         logger.error(f"[Pixiv] 所有图片下载失败 → pid={illust_id}")
-        await bot.send(event, Message(f"Pixiv 作品 {illust_id} 下载失败，没有可发送图片。"))
+        await bot.send(event, Message(msg("pixiv.download_failed", illust_id=illust_id)))
         return
 
     # —— 构建作品信息 ——

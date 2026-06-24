@@ -26,11 +26,12 @@ RUN pip install --no-cache-dir uv \
 
 COPY BotData/config.example.json /opt/hikaribot-defaults/BotData/config.example.json
 COPY BotData/plugin_configs/*.example.json /opt/hikaribot-defaults/BotData/plugin_configs/
+COPY BotData/resources/*.example.json /opt/hikaribot-defaults/BotData/resources/
 COPY docker/entrypoint.sh /usr/local/bin/hikaribot-entrypoint
 COPY . .
 
 RUN chmod +x /usr/local/bin/hikaribot-entrypoint \
-    && mkdir -p BotData/plugin_configs BotData/Gifs UserData sharedFolder /tmp/hikari_bot
+    && mkdir -p BotData/plugin_configs BotData/resources BotData/fonts BotData/Gifs UserData sharedFolder /tmp/hikari_bot
 
 ENTRYPOINT ["hikaribot-entrypoint"]
 CMD ["python", "bot.py"]

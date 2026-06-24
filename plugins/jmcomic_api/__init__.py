@@ -13,6 +13,8 @@ from nonebot import on_regex
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, PrivateMessageEvent
 from nonebot.params import RegexGroup
 
+from core.bot_messages import get_message as msg
+
 from .config import get_config
 
 try:
@@ -213,9 +215,9 @@ async def _download_and_send_pdf(
 ) -> None:
     logger.info(f"收到 JM 下载请求: user={event.user_id}, raw={raw!r}, jm_id={jm_id}")
 
-    await bot.send(event, f"开始下载并转换 PDF：JM{jm_id}")
+    await bot.send(event, msg("jmcomic.start", jm_id=jm_id))
 
-    msg = ""
+    result_message = ""
 
     async with _download_sem:
         try:
@@ -258,17 +260,17 @@ async def _download_and_send_pdf(
                 logger.exception(f"PDF 上传失败: {pdf_path.resolve()}")
 
             if upload_ok:
-                msg = f"完成：JM{album_id}"
+                result_message = msg("jmcomic.done", album_id=album_id)
             else:
-                msg = "JM解析完成，但 PDF 上传失败，请稍后再试。"
+                result_message = msg("jmcomic.upload_failed")
 
                 if upload_error is not None:
                     logger.error(f"上传错误：{type(upload_error).__name__}: {upload_error}")
 
         except Exception as e:
             logger.exception(f"下载/转换 PDF 失败：JM{jm_id}")
-            msg = "下载/转换 PDF 失败，请稍后再试。"
+            result_message = msg("jmcomic.failed")
 
     # 不在 try 里面调用 finish，避免 NoneBot 的 FinishedException 被误判成下载失败。
-    await bot.send(event, msg)
+    await bot.send(event, result_message)
     return

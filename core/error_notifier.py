@@ -15,9 +15,9 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, MessageEvent
 
-logger = logging.getLogger("HikariBot.ErrorNotifier")
+from core.bot_messages import get_message as msg
 
-USER_ERROR_MESSAGE = "处理失败，请稍后再试。"
+logger = logging.getLogger("HikariBot.ErrorNotifier")
 
 _KEY_VALUE_SECRET_RE = re.compile(
     r"(?i)\b(cookie|token|api[_-]?key|password|passwd|secret)\b\s*[:=]\s*([^\s,;]+)"
@@ -57,7 +57,7 @@ async def send_user_error(bot: Bot, event: Event) -> None:
     """
     try:
         from nonebot.adapters.onebot.v11 import Message
-        await bot.send(event, Message(USER_ERROR_MESSAGE))
+        await bot.send(event, Message(msg("error.user")))
     except Exception as e:
         logger.warning(f"发送用户错误提示失败: {_redact_text(e)}")
 

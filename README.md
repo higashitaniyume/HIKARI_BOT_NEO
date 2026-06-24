@@ -463,6 +463,46 @@ BotData/Gifs/_library/
 
 本地贴纸包最终只识别 `.gif`。如果素材是 `.jpg`、`.png`、`.webp`、`.mp4` 等，请通过贴纸上传页面或 `media_transcoder` 先转换为 GIF。
 
+### 可热改资源
+
+资源目录：`BotData/resources/`
+
+首次启动时会从 `.example.json` 自动生成真实资源文件。修改真实 `.json` 后不需要重新构建镜像；机器人运行中会按文件修改时间重新读取。
+
+`deploy.ps1` 会同步 `BotData/resources/` 和 `BotData/fonts/` 到服务器数据目录。
+
+#### 生成图片字体
+
+配置文件：`BotData/resources/rendering.json`
+
+推荐准备两个字体文件：
+
+- 常规字重：例如 `BotData/fonts/MyFont-Regular.ttf`
+- 粗体字重：例如 `BotData/fonts/MyFont-Bold.ttf`
+
+示例：
+
+```json
+{
+  "font_regular": "BotData/fonts/MyFont-Regular.ttf",
+  "font_bold": "BotData/fonts/MyFont-Bold.ttf",
+  "fallback_fonts_regular": [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+  ],
+  "fallback_fonts_bold": [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+  ]
+}
+```
+
+如果没有放自定义字体，会按 `fallback_fonts_*` 查找。Docker 镜像默认安装 `fonts-noto-cjk`，通常会 fallback 到 Noto Sans CJK；如果所有字体都找不到，则退回 Pillow 默认字体，中文可能显示为方块。
+
+#### 机器人固定回复
+
+配置文件：`BotData/resources/bot_messages.json`
+
+常见固定回复已经抽到这个 JSON，例如错误提示、JMComic、Pixiv/Cobalt 部分错误、贴纸命令提示等。修改后不需要重新构建镜像；下一次发送对应消息时会读取新内容。
+
 ### 贴纸上传页面
 
 配置文件：`BotData/plugin_configs/sticker_web.json`
