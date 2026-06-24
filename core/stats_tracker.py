@@ -129,6 +129,7 @@ def format_stats(event: MessageEvent) -> str:
         "stickers_sent": "发送表情包",
         "pixiv_parsed": "Pixiv 解析",
         "cobalt_parsed": "媒体链接解析",
+        "osu_queries": "osu! 查询",
         "collage_made": "拼图",
     }
 

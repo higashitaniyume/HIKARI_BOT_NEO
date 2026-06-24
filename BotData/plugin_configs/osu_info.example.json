@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "client_id": "你的 osu! OAuth Client ID",
+  "client_secret": "你的 osu! OAuth Client Secret",
+  "api_base": "https://osu.ppy.sh/api/v2",
+  "oauth_url": "https://osu.ppy.sh/oauth/token",
+  "default_mode": "osu",
+  "timeout": 20,
+  "proxy": "",
+  "cache_dir": "/tmp/hikari_bot/osu_info",
+  "ranking_limit": 10,
+  "score_limit": 5,
+  "beatmap_search_limit": 5
+}
