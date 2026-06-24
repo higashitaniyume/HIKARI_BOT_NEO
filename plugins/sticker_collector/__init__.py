@@ -82,12 +82,36 @@ def _guess_suffix(image_data: dict[str, Any], url: str, content_type: str = "") 
     return ".jpg"
 
 
-async def _download_image(url: str, dest: Path, timeout_seconds: float) -> str:
+async def _download_image(url: str, dest: Path, timeout_seconds: float, max_bytes: int) -> str:
     async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        dest.write_bytes(response.content)
-        return response.headers.get("content-type", "")
+        tmp_path = dest.with_suffix(dest.suffix + ".part")
+        tmp_path.unlink(missing_ok=True)
+        try:
+            async with client.stream("GET", url) as response:
+                response.raise_for_status()
+                content_length = response.headers.get("content-length")
+                content_length_bytes = int(content_length) if content_length and content_length.isdigit() else 0
+                if content_length_bytes > max_bytes:
+                    raise RuntimeError(
+                        f"图片超过大小限制：{content_length_bytes / 1024 / 1024:.1f}MB"
+                    )
+
+                written = 0
+                with tmp_path.open("wb") as f:
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
+                            continue
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise RuntimeError(
+                                f"图片超过大小限制：{written / 1024 / 1024:.1f}MB"
+                            )
+                        f.write(chunk)
+            tmp_path.replace(dest)
+            return response.headers.get("content-type", "")
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
 
 def _event_metadata(event: MessageEvent, image_data: dict[str, Any]) -> dict[str, Any]:
@@ -108,6 +132,8 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
         temp_root = Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_collector")))
         temp_root.mkdir(parents=True, exist_ok=True)
         timeout_seconds = float(cfg.get("download_timeout_seconds", 30))
+        max_download_mb = int(cfg.get("max_download_mb", 30))
+        max_bytes = max(max_download_mb, 1) * 1024 * 1024
         max_pending = int(cfg.get("max_pending", 1000))
         url = str(image_data.get("url") or "")
         if not url:
@@ -117,7 +143,7 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
         gif_path: Path | None = None
         try:
             raw_path = temp_root / f"raw_{uuid.uuid4().hex}.bin"
-            content_type = await _download_image(url, raw_path, timeout_seconds)
+            content_type = await _download_image(url, raw_path, timeout_seconds, max_bytes)
             suffix = _guess_suffix(image_data, url, content_type)
             typed_path = raw_path.with_suffix(suffix)
             raw_path.replace(typed_path)

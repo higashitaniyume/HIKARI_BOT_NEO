@@ -12,6 +12,10 @@
 
 import json
 import logging
+import atexit
+import os
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +27,12 @@ logger = logging.getLogger("HikariBot.StatsTracker")
 
 STATS_DIR = Path("UserData/stats")
 STATS_DIR.mkdir(parents=True, exist_ok=True)
+FLUSH_INTERVAL_SECONDS = 30.0
+
+_stats_lock = threading.RLock()
+_stats_cache: dict[Path, dict[str, int]] = {}
+_dirty_paths: set[Path] = set()
+_last_flush_at = time.monotonic()
 
 
 def _get_stats_path(event: MessageEvent) -> Path:
@@ -46,7 +56,43 @@ def _read_stats(path: Path) -> dict[str, int]:
 def _write_stats(path: Path, data: dict[str, int]) -> None:
     """写入统计 JSON。"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
+
+
+def _get_cached_stats(path: Path) -> dict[str, int]:
+    with _stats_lock:
+        cached = _stats_cache.get(path)
+        if cached is None:
+            cached = _read_stats(path)
+            _stats_cache[path] = cached
+        return cached
+
+
+def flush_stats(force: bool = False) -> None:
+    """把内存中的统计变更批量写回磁盘。"""
+    global _last_flush_at
+    now = time.monotonic()
+    with _stats_lock:
+        if not force and now - _last_flush_at < FLUSH_INTERVAL_SECONDS:
+            return
+        paths = list(_dirty_paths)
+        if not paths:
+            _last_flush_at = now
+            return
+
+        for path in paths:
+            data = _stats_cache.get(path)
+            if data is None:
+                _dirty_paths.discard(path)
+                continue
+            try:
+                _write_stats(path, data)
+                _dirty_paths.discard(path)
+            except Exception as e:
+                logger.warning("[Stats] 写入统计失败: %s -> %s", path, e)
+        _last_flush_at = now
 
 
 def increment(event: MessageEvent, key: str, amount: int = 1) -> None:
@@ -58,15 +104,19 @@ def increment(event: MessageEvent, key: str, amount: int = 1) -> None:
         amount: 增加值
     """
     path = _get_stats_path(event)
-    data = _read_stats(path)
-    data[key] = data.get(key, 0) + amount
-    _write_stats(path, data)
-    logger.debug(f"[Stats] {_chat_label(event)} {key} += {amount} → {data[key]}")
+    with _stats_lock:
+        data = _get_cached_stats(path)
+        data[key] = data.get(key, 0) + amount
+        _dirty_paths.add(path)
+        current_value = data[key]
+    flush_stats(force=False)
+    logger.debug(f"[Stats] {_chat_label(event)} {key} += {amount} → {current_value}")
 
 
 def get_stats(event: MessageEvent) -> dict[str, int]:
     """获取当前会话的统计数据。"""
-    return _read_stats(_get_stats_path(event))
+    with _stats_lock:
+        return dict(_get_cached_stats(_get_stats_path(event)))
 
 
 def format_stats(event: MessageEvent) -> str:
@@ -95,3 +145,6 @@ def _chat_label(event: MessageEvent) -> str:
     if isinstance(event, GroupMessageEvent):
         return f"[群:{event.group_id}]"
     return f"[私聊:{event.get_user_id()}]"
+
+
+atexit.register(lambda: flush_stats(force=True))

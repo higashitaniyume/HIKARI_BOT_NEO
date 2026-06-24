@@ -67,6 +67,7 @@ async def send_cobalt_result(
 
     cache_dir = config.get("cache_dir", "/tmp/hikari_bot")
     api_timeout = config.get("api_timeout", 90)
+    max_file_mb = config.get("max_file_mb", 200)
     max_send = config.get("max_send", 6)
     send_strategy = config.get("send_strategy", {})
 
@@ -79,7 +80,7 @@ async def send_cobalt_result(
 
     for item in items:
         try:
-            path = await download_media(item.url, "", cache_dir, api_timeout)
+            path = await download_media(item.url, "", cache_dir, api_timeout, max_file_mb)
             media_paths.append(path)
             media_types.append(item.media_type)
             await asyncio.sleep(0.3)

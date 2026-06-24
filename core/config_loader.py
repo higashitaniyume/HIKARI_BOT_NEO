@@ -9,12 +9,16 @@
 5. 提供统一配置访问
 """
 
+import copy
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("HikariBot.ConfigLoader")
+_config_cache_lock = threading.RLock()
+_plugin_config_cache: dict[Path, tuple[int, int, dict[str, Any]]] = {}
 
 # =========================
 # 默认配置
@@ -68,6 +72,7 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     "cobalt_api": "http://192.168.31.2:54257/",
     "api_timeout": 90,
     "max_send": 6,
+    "max_file_mb": 200,
     "cache_dir": "/tmp/hikari_bot",
     "api_key": "",
     "send_strategy": {
@@ -165,19 +170,35 @@ def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, 
     if not config_path.exists():
         logger.warning(f"插件配置不存在，正在创建默认配置: {config_path}")
         _write_json(config_path, defaults)
-        return dict(defaults)
+        stat = config_path.stat()
+        cached = copy.deepcopy(defaults)
+        with _config_cache_lock:
+            _plugin_config_cache[config_path] = (stat.st_mtime_ns, stat.st_size, cached)
+        return copy.deepcopy(cached)
+
+    try:
+        stat = config_path.stat()
+    except OSError:
+        return copy.deepcopy(defaults)
+
+    with _config_cache_lock:
+        cached = _plugin_config_cache.get(config_path)
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            return copy.deepcopy(cached[2])
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             user_config = json.load(f)
     except json.JSONDecodeError as e:
         logger.error(f"插件配置文件 JSON 格式错误: {config_path} — {e}，将使用默认配置")
-        return dict(defaults)
+        return copy.deepcopy(defaults)
 
     # 深层合并用户配置到默认配置
-    merged = _deep_merge(dict(defaults), user_config)
+    merged = _deep_merge(copy.deepcopy(defaults), user_config)
+    with _config_cache_lock:
+        _plugin_config_cache[config_path] = (stat.st_mtime_ns, stat.st_size, merged)
     logger.debug(f"插件配置加载完成: {config_path}")
-    return merged
+    return copy.deepcopy(merged)
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

@@ -48,6 +48,7 @@ async def download_media(
     filename: str,
     cache_dir: str = "/tmp/hikari_bot",
     timeout: int = 90,
+    max_file_mb: int = 200,
 ) -> Path:
     """
     下载媒体文件到本地缓存。
@@ -61,9 +62,12 @@ async def download_media(
         本地文件路径
     """
     path = _cache_path(url, cache_dir)
+    max_bytes = max(int(max_file_mb), 1) * 1024 * 1024
 
     # 缓存命中
     if path.exists() and path.stat().st_size > 0:
+        if path.stat().st_size > max_bytes:
+            raise RuntimeError(f"缓存媒体超过大小限制：{path.stat().st_size / 1024 / 1024:.1f}MB")
         size_kb = path.stat().st_size / 1024
         logger.debug(f"[Cobalt] 缓存命中 → {path.name} ({size_kb:.1f} KB)")
         return path
@@ -82,9 +86,21 @@ async def download_media(
         try:
             async with client.stream("GET", url, headers=headers) as resp:
                 resp.raise_for_status()
+                content_length = resp.headers.get("content-length")
+                content_length_bytes = int(content_length) if content_length and content_length.isdigit() else 0
+                if content_length_bytes > max_bytes:
+                    raise RuntimeError(
+                        f"媒体超过大小限制：{content_length_bytes / 1024 / 1024:.1f}MB"
+                    )
+                written = 0
                 with tmp_path.open("wb") as f:
                     async for chunk in resp.aiter_bytes():
                         if chunk:
+                            written += len(chunk)
+                            if written > max_bytes:
+                                raise RuntimeError(
+                                    f"媒体超过大小限制：{written / 1024 / 1024:.1f}MB"
+                                )
                             f.write(chunk)
             tmp_path.replace(path)
         except Exception:

@@ -16,6 +16,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "allowed_groups": [],
     "ignored_users": [],
     "max_pending": 1000,
+    "max_download_mb": 30,
     "temp_root": "/tmp/hikari_bot/sticker_collector",
     "download_timeout_seconds": 30,
 }

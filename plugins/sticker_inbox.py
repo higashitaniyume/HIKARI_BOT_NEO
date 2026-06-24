@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,8 @@ INBOX_ROOT = Path("BotData/Gifs/_inbox")
 MEDIA_EXTS = {".gif"}
 
 _lock = threading.RLock()
+_index_cache: dict[str, Any] | None = None
+_index_cache_mtime_ns: int | None = None
 
 
 def _empty_index() -> dict[str, Any]:
@@ -90,18 +93,28 @@ def _normalize_index(index: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_index() -> dict[str, Any]:
+    global _index_cache, _index_cache_mtime_ns
     with _lock:
         if INBOX_CONFIG_PATH.exists():
-            return _normalize_index(_read_json(INBOX_CONFIG_PATH))
+            mtime_ns = INBOX_CONFIG_PATH.stat().st_mtime_ns
+            if _index_cache is not None and _index_cache_mtime_ns == mtime_ns:
+                return copy.deepcopy(_index_cache)
+            index = _normalize_index(_read_json(INBOX_CONFIG_PATH))
+            _index_cache = index
+            _index_cache_mtime_ns = mtime_ns
+            return copy.deepcopy(index)
         index = _empty_index()
         save_index(index)
-        return index
+        return copy.deepcopy(index)
 
 
 def save_index(index: dict[str, Any]) -> None:
+    global _index_cache, _index_cache_mtime_ns
     with _lock:
         normalized = _normalize_index(index)
         _atomic_write_json(INBOX_CONFIG_PATH, normalized)
+        _index_cache = normalized
+        _index_cache_mtime_ns = INBOX_CONFIG_PATH.stat().st_mtime_ns
 
 
 def _formal_library_has_hash(content_hash: str) -> bool:

@@ -20,6 +20,10 @@ from .parser import _get_http_client
 logger = logging.getLogger("HikariBot.PixivDownloader")
 
 
+class DownloadTooLargeError(RuntimeError):
+    """下载内容超过允许大小。"""
+
+
 def get_suffix_from_url(url: str) -> str:
     """从 URL 推断文件后缀。"""
     path = url.split("?", 1)[0]
@@ -47,6 +51,7 @@ async def download_image(
     cookie: str,
     proxy: str = "",
     cache_dir: str = "/tmp/hikari_bot",
+    max_bytes: int | None = None,
 ) -> Path:
     """
     下载单张图片到本地缓存。
@@ -69,19 +74,43 @@ async def download_image(
     t_start = time.time()
 
     async with _get_http_client(illust_id, cookie, proxy) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-
-        content_type = resp.headers.get("content-type", "")
-        if not content_type.startswith("image/"):
-            logger.error(
-                f"[Pixiv] 非图片响应 pid={illust_id} → "
-                f"content-type={content_type}, url={url[:100]}..."
-            )
-            raise RuntimeError(f"下载到的不是图片：{content_type}")
-
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(resp.content)
+        tmp_path = path.with_suffix(path.suffix + ".part")
+        tmp_path.unlink(missing_ok=True)
+        written = 0
+        try:
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+
+                content_type = resp.headers.get("content-type", "")
+                if not content_type.startswith("image/"):
+                    logger.error(
+                        f"[Pixiv] 非图片响应 pid={illust_id} → "
+                        f"content-type={content_type}, url={url[:100]}..."
+                    )
+                    raise RuntimeError(f"下载到的不是图片：{content_type}")
+
+                content_length = resp.headers.get("content-length")
+                content_length_bytes = int(content_length) if content_length and content_length.isdigit() else 0
+                if max_bytes is not None and content_length_bytes > max_bytes:
+                    raise DownloadTooLargeError(
+                        f"图片超过大小限制：{content_length_bytes / 1024 / 1024:.1f}MB"
+                    )
+
+                with tmp_path.open("wb") as f:
+                    async for chunk in resp.aiter_bytes():
+                        if not chunk:
+                            continue
+                        written += len(chunk)
+                        if max_bytes is not None and written > max_bytes:
+                            raise DownloadTooLargeError(
+                                f"图片超过大小限制：{written / 1024 / 1024:.1f}MB"
+                            )
+                        f.write(chunk)
+            tmp_path.replace(path)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     elapsed = time.time() - t_start
     file_size_kb = path.stat().st_size / 1024
@@ -116,20 +145,45 @@ async def download_with_fallback(
     )
 
     # 尝试 original
-    original_path = await download_image(page.original_url, illust_id, cookie, proxy, cache_dir)
-    original_size_mb = original_path.stat().st_size / 1024 / 1024
+    original_path: Path | None = None
+    original_size_mb = 0.0
+    try:
+        original_path = await download_image(
+            page.original_url,
+            illust_id,
+            cookie,
+            proxy,
+            cache_dir,
+            max_bytes=max_bytes,
+        )
+        original_size_mb = original_path.stat().st_size / 1024 / 1024
+    except DownloadTooLargeError as e:
+        logger.warning(
+            f"[Pixiv] 原图下载超限，尝试 regular → pid={illust_id} p={page.index}: {e}"
+        )
 
-    if original_path.stat().st_size <= max_bytes:
+    if original_path is not None and original_path.stat().st_size <= max_bytes:
         logger.debug(f"[Pixiv] 使用原图 pid={illust_id} p={page.index} → {original_size_mb:.2f}MB")
         return original_path, True
 
     # original 过大，尝试 regular
-    logger.warning(
-        f"[Pixiv] 原图过大，尝试 regular → pid={illust_id} p={page.index} "
-        f"original={original_size_mb:.2f}MB > {max_file_mb}MB"
-    )
+    if original_path is not None:
+        logger.warning(
+            f"[Pixiv] 原图过大，尝试 regular → pid={illust_id} p={page.index} "
+            f"original={original_size_mb:.2f}MB > {max_file_mb}MB"
+        )
 
-    regular_path = await download_image(page.regular_url, illust_id, cookie, proxy, cache_dir)
+    try:
+        regular_path = await download_image(
+            page.regular_url,
+            illust_id,
+            cookie,
+            proxy,
+            cache_dir,
+            max_bytes=max_bytes,
+        )
+    except DownloadTooLargeError as e:
+        raise RuntimeError(f"图片过大，regular 超过 {max_file_mb}MB") from e
     regular_size_mb = regular_path.stat().st_size / 1024 / 1024
 
     if regular_path.stat().st_size <= max_bytes:
