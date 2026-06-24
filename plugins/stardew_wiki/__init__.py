@@ -33,14 +33,12 @@ def _format_result(title: str, summary: str, url: str) -> str:
         "星露谷物语wiki",
         "星露谷维基",
         "星露谷",
-        "/svwiki",
         "svwiki",
         "sdvwiki",
         "stardewwiki",
     ),
     description="搜索星露谷物语中文 Wiki",
     usage="星露谷wiki <关键词>",
-    require_tome=True,
 )
 async def handle_stardew_wiki(ctx: CommandContext) -> None:
     if not _enabled():
