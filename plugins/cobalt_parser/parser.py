@@ -12,6 +12,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -43,6 +44,7 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/136.0.7103.48 Safari/537.36"
 )
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # =========================
 # 数据结构
@@ -121,6 +123,7 @@ async def call_cobalt_api(
     """
     if not api_endpoint.endswith("/"):
         api_endpoint += "/"
+    api_origin = _origin_for_url(api_endpoint)
 
     headers = {
         "Accept": "application/json",
@@ -142,12 +145,15 @@ async def call_cobalt_api(
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=20.0)) as client:
         resp = await client.post(api_endpoint, json=body, headers=headers)
-        resp.raise_for_status()
 
         try:
             data = resp.json()
         except Exception as e:
+            resp.raise_for_status()
             raise RuntimeError(f"Cobalt API JSON 解析失败：{e} body={resp.text[:300]!r}") from e
+
+        if resp.is_error and data.get("status") != "error":
+            resp.raise_for_status()
 
     elapsed = time.time() - t_start
     status = data.get("status", "error")
@@ -155,7 +161,7 @@ async def call_cobalt_api(
     if status == "error":
         error_obj = data.get("error", {})
         error_code = error_obj.get("code", "unknown")
-        logger.error(
+        logger.warning(
             f"[Cobalt] API 返回错误 → {source_url[:60]}... code={error_code} ({elapsed:.2f}s)"
         )
         return CobaltResult(
@@ -172,11 +178,12 @@ async def call_cobalt_api(
         items: list[CobaltMediaItem] = []
 
         for i, item in enumerate(picker_items):
+            item_url = _normalize_cobalt_media_url(item.get("url", ""), api_origin)
             items.append(CobaltMediaItem(
                 index=i,
-                url=item.get("url", ""),
+                url=item_url,
                 media_type=item.get("type", "photo"),
-                thumb_url=item.get("thumb", ""),
+                thumb_url=_normalize_cobalt_media_url(item.get("thumb", ""), api_origin),
             ))
 
         logger.info(
@@ -193,7 +200,7 @@ async def call_cobalt_api(
         )
 
     # tunnel / redirect / local-processing: 单个媒体
-    download_url = data.get("url", "")
+    download_url = _normalize_cobalt_media_url(data.get("url", ""), api_origin)
     filename = data.get("filename", "media")
     service = data.get("service", "")
 
@@ -229,3 +236,25 @@ def _guess_media_type(filename: str, url: str, service: str) -> str:
     if service == "instagram":
         return "photo"
     return "video"
+
+
+def _origin_for_url(url: str) -> tuple[str, str]:
+    parsed = urlparse(url)
+    return parsed.scheme, parsed.netloc
+
+
+def _normalize_cobalt_media_url(url: str, api_origin: tuple[str, str]) -> str:
+    """把 cobalt 返回的 loopback tunnel URL 改成机器人可访问的 API origin。"""
+    if not url:
+        return ""
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOOPBACK_HOSTS:
+        return url
+
+    api_scheme, api_netloc = api_origin
+    if not api_scheme or not api_netloc:
+        return url
+
+    normalized = parsed._replace(scheme=api_scheme, netloc=api_netloc)
+    return urlunparse(normalized)

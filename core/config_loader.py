@@ -73,6 +73,8 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     "api_timeout": 90,
     "max_send": 6,
     "max_file_mb": 200,
+    "parse_retry_count": 2,
+    "parse_retry_delay_seconds": 2.0,
     "cache_dir": "/tmp/hikari_bot",
     "api_key": "",
     "send_strategy": {

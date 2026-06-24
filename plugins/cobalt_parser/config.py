@@ -37,6 +37,8 @@ def _log_config_summary(cfg: dict[str, Any]) -> None:
         f"auto_parse={cfg.get('auto_parse')}, "
         f"cobalt_api={cfg.get('cobalt_api')}, "
         f"max_send={cfg.get('max_send')}, "
+        f"parse_retry_count={cfg.get('parse_retry_count')}, "
+        f"parse_retry_delay_seconds={cfg.get('parse_retry_delay_seconds')}, "
         f"api_key={'已配置' if cfg.get('api_key') else '未配置'}, "
         f"prefer_forward={send_strategy.get('prefer_forward_message')}, "
         f"fallback_separate={send_strategy.get('fallback_to_separate_media')}"
