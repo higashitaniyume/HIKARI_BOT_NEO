@@ -4,8 +4,11 @@ const state = {
   inbox: [],
   totalStickers: 0,
   draggingInboxIds: [],
+  pickerInboxIds: [],
 };
 const MAX_UPLOAD_FILES = 99;
+const RECENT_PACKS_KEY = "hikariStickerRecentPacks";
+const RECENT_PACKS_LIMIT = 6;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -40,6 +43,31 @@ function option(value, text) {
   return node;
 }
 
+function packLabel(pack) {
+  return `${pack.name} (${pack.count} 个)`;
+}
+
+function loadRecentPackNames() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(RECENT_PACKS_KEY) || "[]");
+    return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentPackName(packName) {
+  const next = [
+    packName,
+    ...loadRecentPackNames().filter((name) => name !== packName),
+  ].slice(0, RECENT_PACKS_LIMIT);
+  try {
+    window.localStorage.setItem(RECENT_PACKS_KEY, JSON.stringify(next));
+  } catch {
+    // 最近使用只是提效信息，浏览器禁用本地存储时不影响移动贴纸。
+  }
+}
+
 async function fetchState() {
   const res = await fetch("/api/state", { cache: "no-store" });
   const data = await readJsonResponse(res, "读取贴纸数据失败");
@@ -68,9 +96,9 @@ function renderSelects() {
   inboxSelect.replaceChildren(option("", "选择已有贴纸包"));
 
   for (const pack of state.packs) {
-    uploadSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
-    keywordSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
-    inboxSelect.append(option(pack.name, `${pack.name} (${pack.count} 个)`));
+    uploadSelect.append(option(pack.name, packLabel(pack)));
+    keywordSelect.append(option(pack.name, packLabel(pack)));
+    inboxSelect.append(option(pack.name, packLabel(pack)));
   }
 
   if (!state.packs.length) {
@@ -250,6 +278,90 @@ function inboxDragIds(itemId) {
   return selected.includes(itemId) ? selected : [itemId];
 }
 
+function pickerPackButton(pack) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "pack-picker-item";
+  button.addEventListener("click", () => movePickerItemsToPack(pack.name));
+
+  const title = document.createElement("span");
+  title.className = "pack-picker-item-title";
+  title.textContent = pack.name;
+  const count = document.createElement("span");
+  count.className = "badge";
+  count.textContent = `${pack.count} 张`;
+  button.append(title, count);
+  return button;
+}
+
+function renderPackPicker() {
+  const search = $("#packPickerSearch").value.trim().toLowerCase();
+  const allList = $("#packPickerList");
+  const recentSection = $("#packPickerRecent");
+  const recentList = $("#packPickerRecentList");
+  const recentNames = new Set(loadRecentPackNames());
+  const matchesSearch = (pack) => !search || pack.name.toLowerCase().includes(search);
+  const matchingPacks = state.packs.filter(matchesSearch);
+  const recentPacks = state.packs.filter((pack) => recentNames.has(pack.name) && matchesSearch(pack));
+
+  allList.replaceChildren();
+  recentList.replaceChildren();
+  recentSection.hidden = !recentPacks.length;
+
+  for (const pack of recentPacks) {
+    recentList.append(pickerPackButton(pack));
+  }
+
+  if (!matchingPacks.length) {
+    const empty = document.createElement("div");
+    empty.className = "pack-picker-empty";
+    empty.textContent = state.packs.length ? "没有匹配的贴纸包" : "暂无可选择的贴纸包";
+    allList.append(empty);
+    return;
+  }
+
+  for (const pack of matchingPacks) {
+    allList.append(pickerPackButton(pack));
+  }
+}
+
+function openPackPicker(ids) {
+  const itemIds = Array.from(new Set((ids || []).map(String).filter(Boolean)));
+  if (!itemIds.length) {
+    showToast("请选择要整理的表情。", true);
+    return;
+  }
+  if (!state.packs.length) {
+    showToast("还没有贴纸包，请先新建一个。", true);
+    return;
+  }
+
+  state.pickerInboxIds = itemIds;
+  $("#packPickerTitle").textContent = `移动 ${itemIds.length} 个待整理表情`;
+  $("#packPickerSummary").textContent = "选择目标贴纸包后会立即加入，关键词沿用上方输入框。";
+  $("#packPickerSearch").value = "";
+  renderPackPicker();
+
+  const dialog = $("#packPickerDialog");
+  dialog.showModal();
+  window.setTimeout(() => $("#packPickerSearch").focus(), 0);
+}
+
+function closePackPicker() {
+  const dialog = $("#packPickerDialog");
+  if (dialog.open) {
+    dialog.close();
+  }
+  state.pickerInboxIds = [];
+}
+
+async function movePickerItemsToPack(packName) {
+  const ids = state.pickerInboxIds;
+  closePackPicker();
+  saveRecentPackName(packName);
+  await assignInboxIdsToPack(ids, packName, $("#inboxKeyword").value.trim());
+}
+
 function hasInboxDrag(event) {
   return Array.from(event.dataTransfer?.types || []).includes("application/x-hikari-inbox");
 }
@@ -352,7 +464,13 @@ function renderInbox() {
     const source = item.group_id ? `群 ${item.group_id}` : "私聊";
     meta.textContent = `${source} / 用户 ${item.sender_id || "未知"} / ${formatTime(item.created_at)}`;
 
-    card.append(checkbox, image, meta);
+    const moveButton = document.createElement("button");
+    moveButton.type = "button";
+    moveButton.className = "inbox-move-button";
+    moveButton.textContent = "移动到...";
+    moveButton.addEventListener("click", () => openPackPicker(inboxDragIds(item.id)));
+
+    card.append(checkbox, image, meta, moveButton);
     list.append(card);
   }
 
@@ -657,6 +775,16 @@ $("#tgForm").addEventListener("submit", importTelegramStickers);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
 $("#inboxDeleteBtn").addEventListener("click", deleteInboxItems);
 $("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
+$("#packPickerClose").addEventListener("click", closePackPicker);
+$("#packPickerSearch").addEventListener("input", renderPackPicker);
+$("#packPickerDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) {
+    closePackPicker();
+  }
+});
+$("#packPickerDialog").addEventListener("close", () => {
+  state.pickerInboxIds = [];
+});
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
 $("#file").addEventListener("change", updateFileHint);
 
