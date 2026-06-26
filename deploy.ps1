@@ -100,7 +100,7 @@ try {
 
     Write-Host "同步源码目录..." -ForegroundColor Yellow
     $quotedRemoteArchivePath = Quote-RemoteSingle $remoteArchivePath
-    Run-Remote "test -d $quotedAppPath && mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -xzf $quotedRemoteArchivePath -C $quotedStagingPath && rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && rm -f $quotedRemoteArchivePath"
+    Run-Remote "test -d $quotedAppPath && mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -xzf $quotedRemoteArchivePath -C $quotedStagingPath && rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && chmod +x $quotedAppPath/install.sh && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && rm -f $quotedRemoteArchivePath"
 } finally {
     Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
 }

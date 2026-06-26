@@ -58,6 +58,24 @@ Compose 默认启动 4 个服务：
 
 机器人不再构建或分发项目 Docker 镜像。Compose 直接拉取官方 Python 基础镜像，把项目源码目录只读挂载进容器；依赖安装在名为 `hikaribot_venv` 的 Docker volume 中。更新代码时仅同步源码并重启 `hikaribot`，启动过程会按 `uv.lock` 自动同步 Python 依赖。
 
+服务器需要预先安装 Docker Engine、Docker Compose v2 和 Git。新用户只需运行下面一条命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.sh | sudo sh
+```
+
+该脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部服务。
+
+如果需要使用镜像站、私有仓库或其他目录，可以在执行时覆盖环境变量：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.sh | sudo env HIKARI_REPOSITORY_URL=https://example.com/HIKARI_BOT_NEO.git HIKARI_DEPLOY_DIR=/opt/hikari sh
+```
+
+脚本会保护 `app/` 中的本地源码改动；发现未提交或未跟踪文件时会停止，而不是强制覆盖。
+
+也可以手动完成同样的步骤：
+
 ```bash
 git clone <本仓库地址> /opt/hikaribot-docker/app
 cd /opt/hikaribot-docker
