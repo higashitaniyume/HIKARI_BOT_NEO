@@ -125,20 +125,6 @@ docker compose restart hikaribot
 NAPCAT_ACCOUNT=你的QQ号
 ```
 
-Linux / macOS：
-
-```bash
-./docker-deploy.sh
-```
-
-Windows PowerShell：
-
-```powershell
-.\docker-deploy.ps1
-```
-
-脚本会从当前源码目录启动容器，不执行 `docker build`。首次启动后编辑 `BotData/config.json` 和 `BotData/plugin_configs/*.json`，重启机器人即可。
-
 ### 部署到服务器
 
 仓库内的 `deploy.ps1` 会通过 SSH 将受 Git 管理的源码同步到服务器的 `app/` 目录，默认部署到 `root@192.168.31.2:/opt/hikaribot-docker`。其他服务器可以改参数：
@@ -688,8 +674,7 @@ HIKARI_BOT_NEO/
   UserData/
     stats/                       # 会话统计数据
   pyproject.toml                 # Python 依赖和 NoneBot 配置
-  Dockerfile                     # 旧版镜像构建文件（源码挂载部署不使用）
-  docker-compose.yml             # 本地 Docker 全服务编排
+  docker-compose.yml             # 源码挂载 Docker 编排
   deploy/
     docker-compose.server.yml    # 服务器源码挂载部署编排
   docker/
