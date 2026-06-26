@@ -64,6 +64,12 @@ Compose 默认启动 4 个服务：
 curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.sh | sudo sh
 ```
 
+PowerShell（Windows 或已安装 PowerShell 的 Linux）可使用：
+
+```powershell
+irm https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.ps1 | iex
+```
+
 该脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部服务。
 
 如果需要使用镜像站、私有仓库或其他目录，可以在执行时覆盖环境变量：
