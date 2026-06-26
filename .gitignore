@@ -49,6 +49,7 @@ BotData/logs/*.log
 UserData/private/*.jsonl
 UserData/group/*.jsonl
 UserData/stats/
+!UserData/.gitkeep
 
 # Local deployment legal documents
 USER_AGREEMENT.local.md
@@ -70,5 +71,7 @@ Thumbs.db
 astrbot/
 napcat/
 sharedFolder/
+!sharedFolder/
+!sharedFolder/.gitkeep
 tmp/
 legacy/

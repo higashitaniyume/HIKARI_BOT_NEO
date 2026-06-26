@@ -31,7 +31,7 @@ if not exist "docker-compose.yml" (
   exit /b 1
 )
 
-docker compose up -d --build --remove-orphans
+docker compose up -d --remove-orphans
 if errorlevel 1 exit /b 1
 
 echo Docker compose deployment finished.

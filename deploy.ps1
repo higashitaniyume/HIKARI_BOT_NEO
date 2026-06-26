@@ -1,19 +1,15 @@
-# HIKARI_BOT_NEO Docker server deploy script.
+# HIKARI_BOT_NEO source-mounted deployment script.
 # Usage:
-#   .\deploy.ps1        # build and deploy hikaribot to the server
-#   .\deploy.ps1 -l     # build and run only hikaribot locally, without starting NapCat/cobalt/astrbot
-# Default target: root@192.168.31.2:/opt/hikaribot-dockcer
+#   .\deploy.ps1        # sync source and restart hikaribot on the server
+#   .\deploy.ps1 -l     # start only local hikaribot from the current source tree
 
 param(
     [string]$ServerIP = "192.168.31.2",
     [string]$ServerUser = "root",
-    [string]$DeployPath = "/opt/hikaribot-dockcer",
-    [string]$Image = "hyumerin/hikaribot:latest",
+    [string]$DeployPath = "/opt/hikaribot-docker",
     [string]$NapcatAccount = "",
     [Alias("l")]
     [switch]$Local,
-    [switch]$Push,
-    [switch]$SkipBuild,
     [switch]$AllServices
 )
 
@@ -23,6 +19,7 @@ $ProgressPreference = "SilentlyContinue"
 $ProjectRoot = $PSScriptRoot
 $ServerCompose = Join-Path $ProjectRoot "deploy\docker-compose.server.yml"
 $LocalCompose = Join-Path $ProjectRoot "docker-compose.yml"
+$LegacyDeployPath = "/opt/hikaribot-dockcer"
 
 function Quote-RemoteSingle {
     param([string]$Value)
@@ -34,129 +31,99 @@ function Run-Remote {
     ssh "${ServerUser}@${ServerIP}" $Command
 }
 
-function Copy-ResourceDirectory {
-    param(
-        [string]$LocalPath,
-        [string]$RemotePath
-    )
+function New-SourceArchive {
+    param([string]$ArchivePath)
 
-    if (-not (Test-Path $LocalPath)) {
-        return
+    $fileListPath = Join-Path $env:TEMP "hikaribot-source-$PID.txt"
+    try {
+        $files = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
+        if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
+            throw "无法读取要部署的项目文件。"
+        }
+        [System.IO.File]::WriteAllLines($fileListPath, $files, [System.Text.UTF8Encoding]::new($false))
+        & tar.exe -czf $ArchivePath -C $ProjectRoot -T $fileListPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "创建源码归档失败。"
+        }
+    } finally {
+        Remove-Item -LiteralPath $fileListPath -Force -ErrorAction SilentlyContinue
     }
-
-    Run-Remote "mkdir -p $(Quote-RemoteSingle $RemotePath)"
-    scp -r "$LocalPath" "${ServerUser}@${ServerIP}:${RemotePath}/"
-}
-
-if (-not $Local -and -not (Test-Path $ServerCompose)) {
-    throw "Missing server compose template: $ServerCompose"
 }
 
 if (-not (Test-Path $LocalCompose)) {
     throw "Missing local compose file: $LocalCompose"
 }
 
+if (-not $Local -and -not (Test-Path $ServerCompose)) {
+    throw "Missing server compose template: $ServerCompose"
+}
+
 Set-Location $ProjectRoot
 
 Write-Host "========================================" -ForegroundColor Cyan
-if ($Local) {
-    Write-Host "  HIKARI BOT NEO - 本地 Docker 运行" -ForegroundColor Cyan
-} else {
-    Write-Host "  HIKARI BOT NEO - Docker 部署" -ForegroundColor Cyan
-}
+Write-Host "  HIKARI BOT NEO - 源码挂载部署" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-if ($Local -and $Push) {
-    throw "-Push 只用于服务器部署，不能和 -l/-Local 一起使用。"
-}
-
-if ($Local -and $AllServices) {
-    throw "-AllServices 会启动依赖服务，不能和只运行 bot 的 -l/-Local 一起使用。"
-}
-
-if (-not $SkipBuild) {
-    if ($Local) {
-        Write-Host "[1/3] 构建本地镜像 $Image ..." -ForegroundColor Yellow
-    } else {
-        Write-Host "[1/6] 构建镜像 $Image ..." -ForegroundColor Yellow
-    }
-    docker build -t $Image .
-} else {
-    if ($Local) {
-        Write-Host "[1/3] 跳过本地构建，使用已有镜像 $Image" -ForegroundColor Yellow
-    } else {
-        Write-Host "[1/6] 跳过本地构建，使用已有镜像 $Image" -ForegroundColor Yellow
-    }
-}
-
 if ($Local) {
-    Write-Host "[2/3] 准备本地挂载目录..." -ForegroundColor Yellow
-    $localDirs = @(
-        "BotData",
-        "UserData",
-        "sharedFolder",
-        "tmp\hikari_bot"
-    )
+    $localDirs = @("BotData", "UserData", "sharedFolder", "tmp\hikari_bot")
     foreach ($dir in $localDirs) {
         New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot $dir) | Out-Null
     }
 
-    Write-Host "[3/3] 启动本机 hikaribot 服务（不启动 NapCat/cobalt/astrbot）..." -ForegroundColor Yellow
-    $env:HIKARI_IMAGE = $Image
-    docker compose -f $LocalCompose up -d --no-deps --force-recreate hikaribot
+    Write-Host "从当前源码目录启动本机 hikaribot（不构建镜像）..." -ForegroundColor Yellow
+    docker compose -f $LocalCompose up -d --no-deps hikaribot
+    docker compose -f $LocalCompose restart hikaribot
 
-    Write-Host ""
     Write-Host "本地 hikaribot 已启动。" -ForegroundColor Green
-    Write-Host "查看状态: docker compose -f `"$LocalCompose`" ps hikaribot" -ForegroundColor Gray
-    Write-Host "查看日志: docker compose -f `"$LocalCompose`" logs -f hikaribot" -ForegroundColor Gray
-    Write-Host "停止本地 bot: docker compose -f `"$LocalCompose`" stop hikaribot" -ForegroundColor Gray
+    Write-Host "日志: docker compose -f `"$LocalCompose`" logs -f hikaribot" -ForegroundColor Gray
     return
 }
 
-if ($Push) {
-    Write-Host "[2/6] 推送镜像到镜像仓库..." -ForegroundColor Yellow
-    docker push $Image
-} else {
-    Write-Host "[2/6] 通过 SSH 传输镜像到服务器..." -ForegroundColor Yellow
-    $safeImageName = ($Image -replace '[^A-Za-z0-9_.-]', '_')
-    $TarPath = Join-Path $env:TEMP "$safeImageName.tar"
-    docker save $Image -o $TarPath
-    scp $TarPath "${ServerUser}@${ServerIP}:/tmp/$safeImageName.tar"
-    Remove-Item -LiteralPath $TarPath -Force
-    Run-Remote "docker load -i /tmp/$safeImageName.tar && rm -f /tmp/$safeImageName.tar"
+$quotedDeployPath = Quote-RemoteSingle $DeployPath
+$quotedLegacyPath = Quote-RemoteSingle $LegacyDeployPath
+$quotedAppPath = Quote-RemoteSingle "$DeployPath/app"
+$quotedStagingPath = Quote-RemoteSingle "$DeployPath/.source-staging"
+
+Write-Host "准备服务器目录..." -ForegroundColor Yellow
+if ($DeployPath -eq "/opt/hikaribot-docker") {
+    Run-Remote "if [ ! -d $quotedDeployPath ] && [ -d $quotedLegacyPath ]; then cd $quotedLegacyPath && docker compose stop hikaribot || true; mv $quotedLegacyPath $quotedDeployPath; fi"
+}
+Run-Remote "mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedDeployPath/sharedFolder $quotedDeployPath/tmp/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
+
+$archivePath = Join-Path $env:TEMP "hikaribot-source-$PID.tar.gz"
+$remoteArchivePath = "/tmp/hikaribot-source-$PID.tar.gz"
+try {
+    Write-Host "打包并上传源码..." -ForegroundColor Yellow
+    New-SourceArchive $archivePath
+    scp $archivePath "${ServerUser}@${ServerIP}:$remoteArchivePath"
+
+    Write-Host "同步源码目录..." -ForegroundColor Yellow
+    $quotedRemoteArchivePath = Quote-RemoteSingle $remoteArchivePath
+    Run-Remote "test -d $quotedAppPath && mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -xzf $quotedRemoteArchivePath -C $quotedStagingPath && rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && rm -f $quotedRemoteArchivePath"
+} finally {
+    Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host "[3/6] 准备服务器部署目录..." -ForegroundColor Yellow
-$quotedDeployPath = Quote-RemoteSingle $DeployPath
-Run-Remote "mkdir -p $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedDeployPath/sharedFolder $quotedDeployPath/tmp/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
-
-Write-Host "上传可热改资源文件..." -ForegroundColor Yellow
-Copy-ResourceDirectory (Join-Path $ProjectRoot "BotData\resources") "$DeployPath/BotData"
-Copy-ResourceDirectory (Join-Path $ProjectRoot "BotData\fonts") "$DeployPath/BotData"
-
-Write-Host "[4/6] 上传 Docker Compose 文件..." -ForegroundColor Yellow
+Write-Host "上传 Docker Compose 配置..." -ForegroundColor Yellow
 scp $ServerCompose "${ServerUser}@${ServerIP}:${DeployPath}/docker-compose.yml"
 
-Write-Host "[5/6] 写入部署环境变量..." -ForegroundColor Yellow
-$envFile = "$quotedDeployPath/.env"
-$imageLine = Quote-RemoteSingle "HIKARI_IMAGE=$Image"
-Run-Remote "touch $envFile && grep -v '^HIKARI_IMAGE=' $envFile > $envFile.tmp || true && mv $envFile.tmp $envFile && printf '%s\n' $imageLine >> $envFile"
-
 if ($NapcatAccount -ne "") {
-    $accountLine = Quote-RemoteSingle "NAPCAT_ACCOUNT=$NapcatAccount"
-    Run-Remote "grep -v '^NAPCAT_ACCOUNT=' $envFile > $envFile.tmp || true && mv $envFile.tmp $envFile && printf '%s\n' $accountLine >> $envFile"
+    Write-Host "更新 NapCat 账号配置..." -ForegroundColor Yellow
+    $quotedEnvPath = Quote-RemoteSingle "$DeployPath/.env"
+    $quotedAccountLine = Quote-RemoteSingle "NAPCAT_ACCOUNT=$NapcatAccount"
+    Run-Remote "touch $quotedEnvPath && grep -v '^NAPCAT_ACCOUNT=' $quotedEnvPath > $quotedEnvPath.tmp || true; mv $quotedEnvPath.tmp $quotedEnvPath; printf '%s\n' $quotedAccountLine >> $quotedEnvPath"
 }
 
-Write-Host "[6/6] 启动 Docker 服务..." -ForegroundColor Yellow
+Write-Host "检查 Compose 配置..." -ForegroundColor Yellow
+Run-Remote "cd $quotedDeployPath && docker compose config -q"
+
+Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -ForegroundColor Yellow
 if ($AllServices) {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps --force-recreate hikaribot"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot && docker compose restart hikaribot"
 }
-
-Write-Host "清理服务器旧镜像层..." -ForegroundColor Yellow
-Run-Remote "docker image prune -f"
 
 Write-Host ""
 Write-Host "部署完成。" -ForegroundColor Green

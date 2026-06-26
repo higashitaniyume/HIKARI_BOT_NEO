@@ -31,7 +31,7 @@ if (-not (Test-Path "docker-compose.yml")) {
     throw "docker-compose.yml not found."
 }
 
-docker compose up -d --build --remove-orphans
+docker compose up -d --remove-orphans
 
 Write-Host "Docker compose deployment finished."
 Write-Host "Logs: docker compose logs -f hikaribot"

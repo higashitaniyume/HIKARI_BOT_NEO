@@ -33,7 +33,7 @@ if [ ! -f "docker-compose.yml" ]; then
   exit 1
 fi
 
-docker compose up -d --build --remove-orphans
+docker compose up -d --remove-orphans
 
 echo "Docker compose deployment finished."
 echo "Logs: docker compose logs -f hikaribot"
