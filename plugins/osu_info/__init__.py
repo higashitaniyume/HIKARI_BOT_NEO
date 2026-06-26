@@ -7,6 +7,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment, PrivateMessageEvent
 
+from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
 
@@ -76,6 +77,10 @@ async def _send_notice(ctx: CommandContext, title: str, lines: list[str]) -> Non
     await _send_image(ctx, await render_notice(title, lines, _cache_dir()))
 
 
+async def _send_resource_notice(ctx: CommandContext, title_key: str, body_key: str, **kwargs: Any) -> None:
+    await _send_notice(ctx, msg(f"osu.{title_key}"), msg(f"osu.{body_key}", **kwargs).splitlines())
+
+
 def _default_mode() -> str:
     return normalize_mode(str(get_config().get("default_mode") or "osu"))
 
@@ -105,14 +110,7 @@ async def _get_bound_or_named_user(ctx: CommandContext, args: str) -> tuple[dict
     mode, target = split_mode_and_target(args, _default_mode())
     resolved = _bound_target(ctx, mode, target, raw_args=args)
     if resolved is None:
-        await _send_notice(
-            ctx,
-            "需要先绑定 osu! 账号",
-            [
-                "用法：osu绑定 <用户名/ID> [模式]",
-                "也可以直接查询：osu <用户名/ID> 或 osu mania <用户名/ID>",
-            ],
-        )
+        await _send_resource_notice(ctx, "needs_binding_title", "needs_binding")
         return None
     mode, target = resolved
     user = await _get_client().get_user(target, mode)
@@ -213,10 +211,12 @@ async def _upload_file(ctx: CommandContext, path: Path, name: str) -> None:
 async def _send_download_link(ctx: CommandContext, beatmapset_id: int, reason: str) -> None:
     await ctx.send(
         Message(
-            "官方源暂时无法代下 .osz，已提供 osu! 官方下载入口：\n"
-            f"{official_download_url(beatmapset_id, no_video=bool(get_config().get('download_no_video', True)))}\n"
-            f"谱面页：{official_page_url(beatmapset_id)}\n"
-            f"原因：{reason}"
+            msg(
+                "osu.download_link",
+                download_url=official_download_url(beatmapset_id, no_video=bool(get_config().get("download_no_video", True))),
+                page_url=official_page_url(beatmapset_id),
+                reason=reason,
+            )
         )
     )
 
@@ -225,17 +225,8 @@ async def _send_download_link(ctx: CommandContext, beatmapset_id: int, reason: s
 async def handle_osu_help(ctx: CommandContext) -> None:
     await _send_notice(
         ctx,
-        "osu! 信息查询",
-        [
-            "osu [模式] [用户名/ID]：查询用户信息；不填用户时使用绑定账号。",
-            "osu绑定 <用户名/ID> [模式] / osu解绑：绑定或解绑当前 QQ。",
-            "osu看板 [模式] [用户名/ID]：用户信息 + 最近成绩看板。",
-            "osu成绩 [best|recent|firsts] [模式] [用户名/ID]：查询成绩列表。",
-            "osu排名 [模式] [国家代码]：查询全球或国家排行榜前列。",
-            "osu谱面 <谱面ID|关键词>：查询谱面详情或搜索谱面。",
-            "osu下载 <谱面集ID|谱面链接|关键词>：优先从 osu! 官方源下载 .osz。",
-            "模式支持：osu/std、taiko、fruits/ctb、mania。",
-        ],
+        msg("osu.help_title"),
+        msg("osu.help").splitlines(),
     )
 
 
@@ -245,7 +236,7 @@ async def handle_osu_bind(ctx: CommandContext) -> None:
         return
     mode, target = split_mode_and_target(ctx.args, _default_mode())
     if not target:
-        await _send_notice(ctx, "缺少用户名", ["用法：osu绑定 <用户名/ID> [模式]"])
+        await _send_resource_notice(ctx, "missing_username_title", "bind_usage")
         return
     try:
         user = await _get_client().get_user(target, mode)
@@ -259,21 +250,21 @@ async def handle_osu_bind(ctx: CommandContext) -> None:
             user,
             mode,
             _cache_dir(),
-            title="osu! 绑定成功",
+            title=msg("osu.bind_success_title"),
             proxy=_proxy(),
         )
         await _send_image(ctx, path)
         logger.info("[osu] QQ %s 绑定 osu! %s(%s)", binding.qq, binding.username, binding.osu_id)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到用户", [f"目标：{target}"])
+        await _send_resource_notice(ctx, "user_not_found_title", "target", target=target)
 
 
 @command("osu解绑", aliases=("osuunbind", "解绑osu"), description="解绑当前 QQ 的 osu! 账号", usage="osu解绑", require_tome=True)
 async def handle_osu_unbind(ctx: CommandContext) -> None:
     existed = remove_binding(ctx.event.get_user_id())
-    await _send_notice(ctx, "osu! 解绑", ["已解除绑定。" if existed else "当前 QQ 还没有绑定 osu! 账号。"])
+    await _send_notice(ctx, msg("osu.unbind_title"), [msg("osu.unbind_success") if existed else msg("osu.unbind_empty")])
 
 
 @command("osu", aliases=("osu信息", "osu用户", "osuinfo"), description="查询 osu! 用户信息", usage="osu [模式] [用户名/ID]", require_tome=True)
@@ -298,11 +289,11 @@ async def handle_osu_user(ctx: CommandContext) -> None:
         )
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到用户", [ctx.args or "绑定账号"])
+        await _send_notice(ctx, msg("osu.user_not_found_title"), [ctx.args or msg("osu.bound_account")])
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
 @command("osu看板", aliases=("osucard", "osu卡片"), description="查询 osu! 个人看板", usage="osu看板 [模式] [用户名/ID]", require_tome=True)
@@ -326,11 +317,11 @@ async def handle_osu_dashboard(ctx: CommandContext) -> None:
         )
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到用户", [ctx.args or "绑定账号"])
+        await _send_notice(ctx, msg("osu.user_not_found_title"), [ctx.args or msg("osu.bound_account")])
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
 @command("osu成绩", aliases=("osuscore", "osubp", "bp"), description="查询 osu! 最好/最近成绩", usage="osu成绩 [best|recent|firsts] [模式] [用户名/ID]", require_tome=True)
@@ -352,11 +343,11 @@ async def handle_osu_scores(ctx: CommandContext) -> None:
         await _send_image(ctx, await render_scores(user, scores, mode, score_type, _cache_dir()))
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到用户", [rest or "绑定账号"])
+        await _send_notice(ctx, msg("osu.user_not_found_title"), [rest or msg("osu.bound_account")])
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
 @command("osu排名", aliases=("osurank", "osu排行榜"), description="查询 osu! 排行榜", usage="osu排名 [模式] [国家代码]", require_tome=True)
@@ -389,9 +380,9 @@ async def handle_osu_ranking(ctx: CommandContext) -> None:
         )
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
 @command("osu谱面", aliases=("osumap", "osu beatmap"), description="查询或搜索 osu! 谱面", usage="osu谱面 <谱面ID|关键词>", require_tome=True)
@@ -400,7 +391,7 @@ async def handle_osu_beatmap(ctx: CommandContext) -> None:
         return
     text = ctx.args.strip()
     if not text:
-        await _send_notice(ctx, "缺少谱面参数", ["用法：osu谱面 <谱面ID|关键词>"])
+        await _send_resource_notice(ctx, "missing_beatmap_title", "beatmap_usage")
         return
 
     mode, query = split_mode_and_target(text, _default_mode())
@@ -423,11 +414,11 @@ async def handle_osu_beatmap(ctx: CommandContext) -> None:
             )
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到谱面", [text])
+        await _send_notice(ctx, msg("osu.beatmap_not_found_title"), [text])
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
 @command("osu下载", aliases=("osudl", "osu谱面下载", "osu下载谱面"), description="下载 osu! 谱面 .osz", usage="osu下载 <谱面集ID|谱面链接|关键词>", require_tome=True)
@@ -436,7 +427,7 @@ async def handle_osu_download(ctx: CommandContext) -> None:
         return
     text = ctx.args.strip()
     if not text:
-        await _send_notice(ctx, "缺少下载参数", ["用法：osu下载 <谱面集ID|谱面链接|关键词>"])
+        await _send_resource_notice(ctx, "missing_download_title", "download_usage")
         return
 
     mode, query = split_mode_and_target(text, _default_mode())
@@ -460,16 +451,16 @@ async def handle_osu_download(ctx: CommandContext) -> None:
     except OsuDownloadError as e:
         await _send_download_link(ctx, beatmapset_id, str(e))
     except OsuAuthError as e:
-        await _send_notice(ctx, "osu! 配置错误", [str(e), "请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。"])
+        await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
     except OsuNotFoundError:
-        await _send_notice(ctx, "没有找到谱面", [text])
+        await _send_notice(ctx, msg("osu.beatmap_not_found_title"), [text])
     except OsuApiError as e:
-        await _send_notice(ctx, "osu! 查询失败", [str(e)])
+        await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
     except Exception as e:
         if beatmapset_id is None:
-            await _send_notice(ctx, "osu! 下载失败", [f"文件上传失败: {type(e).__name__}"])
+            await _send_resource_notice(ctx, "download_failed_title", "upload_failed", error_type=type(e).__name__)
         else:
-            await _send_download_link(ctx, beatmapset_id, f"文件上传失败: {type(e).__name__}")
+            await _send_download_link(ctx, beatmapset_id, msg("osu.upload_failed", error_type=type(e).__name__))
 
 
 get_config()

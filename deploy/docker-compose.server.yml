@@ -20,8 +20,8 @@ services:
     entrypoint: ["sh", "/app/docker/entrypoint.sh"]
     command: ["python", "bot.py"]
     volumes:
-      - ./app:/app:ro
-      - ./app:/opt/hikaribot-source:ro
+      - ./app:/app
+      - ./app:/opt/hikaribot-source
       - ./BotData:/app/BotData
       - ./UserData:/app/UserData
       - ./runtime/shared:/app/sharedFolder

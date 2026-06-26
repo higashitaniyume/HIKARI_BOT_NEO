@@ -126,18 +126,18 @@ def format_stats(event: MessageEvent) -> str:
         return msg("common.none_stats")
 
     labels = {
-        "stickers_sent": "发送表情包",
-        "pixiv_parsed": "Pixiv 解析",
-        "cobalt_parsed": "媒体链接解析",
-        "osu_queries": "osu! 查询",
-        "collage_made": "拼图",
+        "stickers_sent": msg("common.stats_label_stickers_sent"),
+        "pixiv_parsed": msg("common.stats_label_pixiv_parsed"),
+        "cobalt_parsed": msg("common.stats_label_cobalt_parsed"),
+        "osu_queries": msg("common.stats_label_osu_queries"),
+        "collage_made": msg("common.stats_label_collage_made"),
     }
 
-    lines = ["📊 统计信息：", ""]
+    lines = [msg("common.stats_header"), ""]
     for key, label in labels.items():
         val = data.get(key, 0)
         if val > 0:
-            lines.append(f"  {label}: {val} 次")
+            lines.append(msg("common.stats_line", label=label, count=val))
     return "\n".join(lines)
 
 

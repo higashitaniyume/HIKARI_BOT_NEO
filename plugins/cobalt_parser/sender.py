@@ -29,24 +29,23 @@ def build_info_text(result: CobaltResult) -> str:
     service_name = result.service or "社交媒体"
     service_name = service_name.capitalize()
 
-    lines = [
-        f"媒体解析成功",
-        f"来源：{service_name}",
-    ]
+    audio = msg("cobalt.audio_suffix") if result.audio_url else ""
     if result.items:
         media_types = set(item.media_type for item in result.items)
         types_str = "/".join(sorted(media_types))
-        lines.append(f"数量：{len(result.items)} 个媒体 ({types_str})")
-    if result.audio_url:
-        lines.append("(含背景音频)")
-
-    # 附带原始链接
     short_url = result.source_url[:100]
     if len(result.source_url) > 100:
         short_url += "..."
-    lines.append(f"链接：{short_url}")
-
-    return "\n".join(lines)
+    if result.items:
+        return msg(
+            "cobalt.info",
+            service=service_name,
+            count=len(result.items),
+            types=types_str,
+            audio=audio,
+            url=short_url,
+        )
+    return msg("cobalt.info_without_items", service=service_name, audio=audio, url=short_url)
 
 
 async def send_cobalt_result(

@@ -31,22 +31,23 @@ function Run-Remote {
     ssh "${ServerUser}@${ServerIP}" $Command
 }
 
-function New-SourceArchive {
-    param([string]$ArchivePath)
+function Get-SourceFiles {
+    $files = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
+        throw "无法读取要部署的项目文件。"
+    }
 
-    $fileListPath = Join-Path $env:TEMP "hikaribot-source-$PID.txt"
-    try {
-        $files = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
-        if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
-            throw "无法读取要部署的项目文件。"
+    foreach ($relativePath in $files) {
+        $localPath = Join-Path $ProjectRoot $relativePath
+        if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
+            # 已删除但仍在 Git 索引里的文件无需上传；同步阶段会由 rsync --delete 清理远端副本。
+            Write-Verbose "跳过已删除文件：$relativePath"
+            continue
         }
-        [System.IO.File]::WriteAllLines($fileListPath, $files, [System.Text.UTF8Encoding]::new($false))
-        & tar.exe -czf $ArchivePath -C $ProjectRoot -T $fileListPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "创建源码归档失败。"
+        [PSCustomObject]@{
+            RelativePath = $relativePath.Replace("\", "/")
+            LocalPath = $localPath
         }
-    } finally {
-        Remove-Item -LiteralPath $fileListPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -109,19 +110,30 @@ if ($DeployPath -eq "/opt/hikaribot-docker") {
 }
 Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
 
-$archivePath = Join-Path $env:TEMP "hikaribot-source-$PID.tar.gz"
-$remoteArchivePath = "/tmp/hikaribot-source-$PID.tar.gz"
-try {
-    Write-Host "打包并上传源码..." -ForegroundColor Yellow
-    New-SourceArchive $archivePath
-    scp $archivePath "${ServerUser}@${ServerIP}:$remoteArchivePath"
+Write-Host "逐文件上传源码..." -ForegroundColor Yellow
+$sourceFiles = @(Get-SourceFiles)
+Run-Remote "mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
 
-    Write-Host "同步源码目录..." -ForegroundColor Yellow
-    $quotedRemoteArchivePath = Quote-RemoteSingle $remoteArchivePath
-    Run-Remote "test -d $quotedAppPath && mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -xzf $quotedRemoteArchivePath -C $quotedStagingPath && rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && chmod +x $quotedAppPath/install.sh && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && rm -f $quotedRemoteArchivePath"
-} finally {
-    Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+$createdRemoteDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$uploaded = 0
+foreach ($sourceFile in $sourceFiles) {
+    $remotePath = "$DeployPath/.source-staging/$($sourceFile.RelativePath)"
+    $remoteDirectory = [System.IO.Path]::GetDirectoryName($remotePath).Replace("\", "/")
+    if ($createdRemoteDirs.Add($remoteDirectory)) {
+        Run-Remote ("mkdir -p " + (Quote-RemoteSingle $remoteDirectory))
+    }
+
+    $uploaded++
+    Write-Progress -Activity "上传源码" -Status $sourceFile.RelativePath -PercentComplete (($uploaded / $sourceFiles.Count) * 100)
+    scp -- $sourceFile.LocalPath "${ServerUser}@${ServerIP}:$remotePath"
+    if ($LASTEXITCODE -ne 0) {
+        throw "上传源码文件失败：$($sourceFile.RelativePath)"
+    }
 }
+Write-Progress -Activity "上传源码" -Completed
+
+Write-Host "同步源码目录..." -ForegroundColor Yellow
+Run-Remote "rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && chmod +x $quotedAppPath/install.sh && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
 
 Write-Host "上传 Docker Compose 配置..." -ForegroundColor Yellow
 scp $ServerCompose "${ServerUser}@${ServerIP}:${DeployPath}/docker-compose.yml"

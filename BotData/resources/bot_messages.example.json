@@ -3,7 +3,14 @@
     "user": "处理失败，请稍后再试。"
   },
   "common": {
-    "none_stats": "暂无统计数据。"
+    "none_stats": "暂无统计数据。",
+    "stats_header": "📊 统计信息：",
+    "stats_line": "  {label}: {count} 次",
+    "stats_label_stickers_sent": "发送表情包",
+    "stats_label_pixiv_parsed": "Pixiv 解析",
+    "stats_label_cobalt_parsed": "媒体链接解析",
+    "stats_label_osu_queries": "osu! 查询",
+    "stats_label_collage_made": "拼图"
   },
   "sticker": {
     "empty_library": "贴纸包都是空的，请先添加一些表情包。",
@@ -18,12 +25,31 @@
     "no_packs": "暂无贴纸包。",
     "pack_preview_progress": "正在生成贴纸包预览图...",
     "pack_preview_failed": "贴纸包预览生成失败，请稍后再试。",
-    "count_min": "数量至少为 1。"
+    "count_min": "数量至少为 1。",
+    "library_stats": "贴纸库统计：\n· 唯一贴纸：{total_stickers} 张\n· 贴纸包：{pack_count} 个\n· 关键词：{keyword_count} 个\n· 同一关键词命中多个包时会合并去重",
+    "no_keywords": "暂无关键词",
+    "keyword_more": " 等 {count} 个",
+    "pack_list_header": "贴纸包列表 {page}/{total_pages}：",
+    "pack_list_row": "· {name} ({count}张): {keywords}",
+    "pack_list_next_page": "发送「贴纸包列表 {page}」查看下一页",
+    "pack_list_stats_hint": "发送「贴纸包统计」只看总数",
+    "preview_keyword": "关键词：{keywords}",
+    "preview_title": "贴纸包预览",
+    "preview_summary": "{pack_count} 个贴纸包 / {sticker_count} 张唯一贴纸 / {keyword_count} 个关键词",
+    "preview_pack_count": "{count} 张贴纸",
+    "preview_empty": "暂无预览"
   },
   "tg_sticker": {
     "no_gif": "没有成功转换出可发送的 GIF。",
     "empty_pack": "这个贴纸包里没有可处理的贴纸。",
-    "detected": "检测到 Telegram 贴纸包：{title}\n共 {count} 个贴纸，开始处理……"
+    "detected": "检测到 Telegram 贴纸包：{title}\n共 {count} 个贴纸，开始处理……",
+    "send_title": "贴纸包：{title}",
+    "send_from_cache": "使用本地已保存的贴纸包缓存，共 {count} 个贴纸。",
+    "send_partial": "成功转换：{success_count} 个，失败：{failed_count} 个。",
+    "send_complete": "成功转换全部 {count} 个贴纸。",
+    "send_zip": "已打包为 ZIP 文件发送...",
+    "send_direct": "正在逐个发送...",
+    "send_forward": "正在以合并转发形式发送（分 {count} 组）..."
   },
   "jmcomic": {
     "start": "开始下载并转换 PDF：JM{jm_id}",
@@ -32,15 +58,71 @@
     "failed": "下载/转换 PDF 失败，请稍后再试。"
   },
   "bot_help": {
-    "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。"
+    "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。",
+    "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- Instagram / Facebook 链接：解析并发送媒体\n- Telegram 贴纸包链接：转 GIF 并发送\n  参数：zip / refresh / nosave / name=关键词",
+    "fallback": "自然触发：\n- 贴纸关键词：随机发送一张贴纸\n- 贴纸关键词 10：随机发送 10 张，不重复",
+    "web": "管理页面：\n- https://stickers-hikari.vlnc.top/\n- 可上传贴纸、导入 Telegram 贴纸包、管理关键词",
+    "usage": "帮助用法：\n- 帮助：查看摘要\n- 帮助 命令：查看命令列表\n- 帮助 全部：查看完整说明\n- 帮助 <命令名>：查看单个命令",
+    "scope_private": "仅私聊",
+    "scope_group": "仅群聊",
+    "scope_tome": "群聊需 @机器人",
+    "command_list_empty": "命令：\n- 暂无已注册命令",
+    "command_list_header": "命令：",
+    "command_line": "- {usage}{description}{scope}",
+    "command_description": "：{description}",
+    "command_scope": "（{scope}）",
+    "command_detail_name": "命令：{name}",
+    "command_detail_usage": "用法：{usage}",
+    "command_detail_description": "说明：{description}",
+    "command_detail_aliases": "别名：{aliases}",
+    "command_detail_scope": "限制：{scope}",
+    "summary_title": "HIKARI BOT 帮助",
+    "summary_more": "发送「帮助 全部」查看自动解析和更多说明",
+    "full_title": "HIKARI BOT 完整帮助"
   },
   "pixiv": {
     "r18_blocked": "Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。",
     "no_images": "Pixiv 作品 {illust_id} 没有可发送的图片。",
-    "download_failed": "Pixiv 作品 {illust_id} 下载失败，没有可发送图片。"
+    "download_failed": "Pixiv 作品 {illust_id} 下载失败，没有可发送图片。",
+    "info": "Pixiv 解析成功\n标题：{title}\n作者：{author}\nPID：{illust_id}\n图片数量：{page_count}\n链接：https://www.pixiv.net/artworks/{illust_id}{r18}{ai}{tags}"
   },
   "cobalt": {
-    "download_failed": "媒体下载失败，请稍后再试。"
+    "download_failed": "媒体下载失败，请稍后再试。",
+    "info": "媒体解析成功\n来源：{service}\n数量：{count} 个媒体 ({types}){audio}\n链接：{url}",
+    "info_without_items": "媒体解析成功\n来源：{service}{audio}\n链接：{url}",
+    "audio_suffix": "\n(含背景音频)"
+  },
+  "stardew_wiki": {
+    "result": "标题：{title}\n简介：{summary}\nURL：{url}",
+    "usage": "用法：星露谷wiki <关键词>",
+    "not_found": "没有在星露谷物语 Wiki 找到「{keyword}」。",
+    "failed": "星露谷物语 Wiki 查询失败：{error}"
+  },
+  "osu": {
+    "needs_binding_title": "需要先绑定 osu! 账号",
+    "needs_binding": "用法：osu绑定 <用户名/ID> [模式]\n也可以直接查询：osu <用户名/ID> 或 osu mania <用户名/ID>",
+    "download_link": "官方源暂时无法代下 .osz，已提供 osu! 官方下载入口：\n{download_url}\n谱面页：{page_url}\n原因：{reason}",
+    "help_title": "osu! 信息查询",
+    "help": "osu [模式] [用户名/ID]：查询用户信息；不填用户时使用绑定账号。\nosu绑定 <用户名/ID> [模式] / osu解绑：绑定或解绑当前 QQ。\nosu看板 [模式] [用户名/ID]：用户信息 + 最近成绩看板。\nosu成绩 [best|recent|firsts] [模式] [用户名/ID]：查询成绩列表。\nosu排名 [模式] [国家代码]：查询全球或国家排行榜前列。\nosu谱面 <谱面ID|关键词>：查询谱面详情或搜索谱面。\nosu下载 <谱面集ID|谱面链接|关键词>：优先从 osu! 官方源下载 .osz。\n模式支持：osu/std、taiko、fruits/ctb、mania。",
+    "missing_username_title": "缺少用户名",
+    "bind_usage": "用法：osu绑定 <用户名/ID> [模式]",
+    "bind_success_title": "osu! 绑定成功",
+    "config_error_title": "osu! 配置错误",
+    "config_error": "{error}\n请在 BotData/plugin_configs/osu_info.json 填写客户端 ID 和客户端密钥。",
+    "user_not_found_title": "没有找到用户",
+    "target": "目标：{target}",
+    "unbind_title": "osu! 解绑",
+    "unbind_success": "已解除绑定。",
+    "unbind_empty": "当前 QQ 还没有绑定 osu! 账号。",
+    "bound_account": "绑定账号",
+    "query_failed_title": "osu! 查询失败",
+    "missing_beatmap_title": "缺少谱面参数",
+    "beatmap_usage": "用法：osu谱面 <谱面ID|关键词>",
+    "beatmap_not_found_title": "没有找到谱面",
+    "missing_download_title": "缺少下载参数",
+    "download_usage": "用法：osu下载 <谱面集ID|谱面链接|关键词>",
+    "download_failed_title": "osu! 下载失败",
+    "upload_failed": "文件上传失败: {error_type}"
   },
   "tts": {
     "usage": "用法：说话 <文本>",

@@ -38,15 +38,15 @@ def build_info_text(artwork: PixivArtwork, selected_count: int, original_count: 
     if tags:
         tags = "\n" + tags
 
-    return (
-        f"Pixiv 解析成功\n"
-        f"标题：{artwork.title}\n"
-        f"作者：{artwork.user_name}\n"
-        f"PID：{artwork.illust_id}\n"
-        f"图片数量：{artwork.page_count}\n"
-        f"链接：https://www.pixiv.net/artworks/{artwork.illust_id}"
-        f"{r18_text}{ai_text}"
-        f"{tags}"
+    return msg(
+        "pixiv.info",
+        title=artwork.title,
+        author=artwork.user_name,
+        illust_id=artwork.illust_id,
+        page_count=artwork.page_count,
+        r18=r18_text,
+        ai=ai_text,
+        tags=tags,
     )
 
 

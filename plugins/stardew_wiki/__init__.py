@@ -4,6 +4,7 @@ import logging
 
 from nonebot.adapters.onebot.v11 import Message
 
+from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 
 from .api import StardewWikiClient, StardewWikiError, StardewWikiNotFound
@@ -17,13 +18,7 @@ def _enabled() -> bool:
 
 
 def _format_result(title: str, summary: str, url: str) -> str:
-    return "\n".join(
-        [
-            f"标题：{title}",
-            f"简介：{summary}",
-            f"URL：{url}",
-        ]
-    )
+    return msg("stardew_wiki.result", title=title, summary=summary, url=url)
 
 
 @command(
@@ -46,17 +41,17 @@ async def handle_stardew_wiki(ctx: CommandContext) -> None:
 
     keyword = ctx.args.strip()
     if not keyword:
-        await ctx.send(Message("用法：星露谷wiki <关键词>"))
+        await ctx.send(Message(msg("stardew_wiki.usage")))
         return
 
     try:
         result = await StardewWikiClient(get_config()).search(keyword)
         await ctx.send(Message(_format_result(result.title, result.summary, result.url)))
     except StardewWikiNotFound:
-        await ctx.send(Message(f"没有在星露谷物语 Wiki 找到「{keyword}」。"))
+        await ctx.send(Message(msg("stardew_wiki.not_found", keyword=keyword)))
     except StardewWikiError as e:
         logger.warning("[StardewWiki] 查询失败 keyword=%r error=%s", keyword, e)
-        await ctx.send(Message(f"星露谷物语 Wiki 查询失败：{e}"))
+        await ctx.send(Message(msg("stardew_wiki.failed", error=e)))
 
 
 get_config()

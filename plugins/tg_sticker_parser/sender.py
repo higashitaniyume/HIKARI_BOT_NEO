@@ -178,13 +178,13 @@ async def send_sticker_outputs(
     direct_send_limit = int(direct_send_limit)
     merged_send_limit = int(merged_send_limit)
 
-    msg_lines = [f"贴纸包：{title}"]
+    msg_lines = [msg("tg_sticker.send_title", title=title)]
     if from_cache:
-        msg_lines.append(f"使用本地已保存的贴纸包缓存，共 {total} 个贴纸。")
+        msg_lines.append(msg("tg_sticker.send_from_cache", count=total))
     elif failed_count > 0:
-        msg_lines.append(f"成功转换：{total} 个，失败：{failed_count} 个。")
+        msg_lines.append(msg("tg_sticker.send_partial", success_count=total, failed_count=failed_count))
     else:
-        msg_lines.append(f"成功转换全部 {total} 个贴纸。")
+        msg_lines.append(msg("tg_sticker.send_complete", count=total))
 
     # 1. 如果用户自选了 ZIP，则以 ZIP 发送
     if use_zip:
@@ -197,7 +197,7 @@ async def send_sticker_outputs(
             root_name=f"{set_name}_gifs",
         )
 
-        msg_lines.append("已打包为 ZIP 文件发送...")
+        msg_lines.append(msg("tg_sticker.send_zip"))
         await bot.send(event, "\n".join(msg_lines))
         await upload_zip_file(
             bot=bot,
@@ -209,7 +209,7 @@ async def send_sticker_outputs(
 
     # 2. 如果贴纸数量在直接发送限制内，逐个发送
     if total <= direct_send_limit:
-        msg_lines.append("正在逐个发送...")
+        msg_lines.append(msg("tg_sticker.send_direct"))
         await bot.send(event, "\n".join(msg_lines))
         await send_gif_files(
             bot=bot,
@@ -224,7 +224,7 @@ async def send_sticker_outputs(
     chunk_size = max(1, merged_send_limit)
     gif_chunks = [gif_paths[i : i + chunk_size] for i in range(0, total, chunk_size)]
 
-    msg_lines.append(f"正在以合并转发形式发送（分 {len(gif_chunks)} 组）...")
+    msg_lines.append(msg("tg_sticker.send_forward", count=len(gif_chunks)))
     await bot.send(event, "\n".join(msg_lines))
 
     try:

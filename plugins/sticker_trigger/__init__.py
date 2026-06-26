@@ -285,7 +285,10 @@ async def _make_pack_preview_image() -> Path:
         rows: list[dict] = []
         for pack in packs:
             keywords = pack.get("keywords") or []
-            keyword_text = "关键词：" + ("、".join(str(item) for item in keywords) if keywords else "暂无关键词")
+            keyword_text = msg(
+                "sticker.preview_keyword",
+                keywords="、".join(str(item) for item in keywords) if keywords else msg("sticker.no_keywords"),
+            )
             title_lines = _wrap_text(draw, str(pack.get("name") or ""), name_font, text_width, 2)
             keyword_lines = _wrap_text(draw, keyword_text, keyword_font, text_width, 3)
             text_height = (
@@ -318,9 +321,14 @@ async def _make_pack_preview_image() -> Path:
         draw = ImageDraw.Draw(image)
 
         y = margin
-        draw.text((margin, y), "贴纸包预览", fill=(26, 33, 28), font=title_font)
+        draw.text((margin, y), msg("sticker.preview_title"), fill=(26, 33, 28), font=title_font)
         y += 48
-        summary = f"{len(packs)} 个贴纸包 / {state.get('total_stickers', 0)} 张唯一贴纸 / {len(state.get('keywords') or [])} 个关键词"
+        summary = msg(
+            "sticker.preview_summary",
+            pack_count=len(packs),
+            sticker_count=state.get("total_stickers", 0),
+            keyword_count=len(state.get("keywords") or []),
+        )
         draw.text((margin, y), summary, fill=(92, 104, 96), font=subtitle_font)
         y = margin + header_height
 
@@ -344,7 +352,12 @@ async def _make_pack_preview_image() -> Path:
                 draw.text((text_x, text_y), line, fill=(24, 32, 27), font=name_font)
                 text_y += _line_height(draw, name_font) + 4
             text_y += 8
-            draw.text((text_x, text_y), f"{pack.get('count', 0)} 张贴纸", fill=(92, 104, 96), font=meta_font)
+            draw.text(
+                (text_x, text_y),
+                msg("sticker.preview_pack_count", count=pack.get("count", 0)),
+                fill=(92, 104, 96),
+                font=meta_font,
+            )
             text_y += _line_height(draw, meta_font) + 12
             for line in row["keyword_lines"]:
                 draw.text((text_x, text_y), line, fill=(54, 68, 58), font=keyword_font)
@@ -371,7 +384,7 @@ async def _make_pack_preview_image() -> Path:
                     logger.warning("[Sticker] 贴纸包预览图加载失败: %s -> %s", path, e)
 
             if not row["preview_paths"]:
-                empty_text = "暂无预览"
+                empty_text = msg("sticker.preview_empty")
                 tx = preview_x + (preview_area_width - _text_width(draw, empty_text, keyword_font)) // 2
                 ty = card_y + card_h // 2 - _line_height(draw, keyword_font) // 2
                 draw.text((tx, ty), empty_text, fill=(139, 149, 140), font=keyword_font)
@@ -481,20 +494,19 @@ def _format_folder_label(folder_names: list[str]) -> str:
 
 
 def _sticker_library_stats_lines(state: dict) -> list[str]:
-    return [
-        "贴纸库统计：",
-        f"· 唯一贴纸：{state.get('total_stickers', 0)} 张",
-        f"· 贴纸包：{len(state.get('packs') or [])} 个",
-        f"· 关键词：{len(state.get('keywords') or [])} 个",
-        "· 同一关键词命中多个包时会合并去重",
-    ]
+    return msg(
+        "sticker.library_stats",
+        total_stickers=state.get("total_stickers", 0),
+        pack_count=len(state.get("packs") or []),
+        keyword_count=len(state.get("keywords") or []),
+    ).splitlines()
 
 
 def _format_keyword_preview(keywords: list[str], limit: int = 6) -> str:
     if not keywords:
-        return "暂无关键词"
+        return msg("sticker.no_keywords")
     preview = keywords[:limit]
-    suffix = f" 等 {len(keywords)} 个" if len(keywords) > limit else ""
+    suffix = msg("sticker.keyword_more", count=len(keywords)) if len(keywords) > limit else ""
     return f"{', '.join(preview)}{suffix}"
 
 
@@ -508,20 +520,20 @@ def _format_pack_list_page(state: dict, page: int) -> str:
     lines = [
         *_sticker_library_stats_lines(state),
         "",
-        f"贴纸包列表 {page}/{total_pages}：",
+        msg("sticker.pack_list_header", page=page, total_pages=total_pages),
     ]
 
     if not current_packs:
-        lines.append("暂无贴纸包。")
+        lines.append(msg("sticker.no_packs"))
     else:
         for pack in current_packs:
             keywords = _format_keyword_preview(pack.get("keywords") or [])
-            lines.append(f"· {pack['name']} ({pack['count']}张): {keywords}")
+            lines.append(msg("sticker.pack_list_row", name=pack["name"], count=pack["count"], keywords=keywords))
 
     if page < total_pages:
         lines.append("")
-        lines.append(f"发送「贴纸包列表 {page + 1}」查看下一页")
-    lines.append("发送「贴纸包统计」只看总数")
+        lines.append(msg("sticker.pack_list_next_page", page=page + 1))
+    lines.append(msg("sticker.pack_list_stats_hint"))
     return "\n".join(lines)
 
 
