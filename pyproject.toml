@@ -14,7 +14,6 @@ dependencies = [
     "img2pdf>=0.6.3",
     "lottie>=0.7.2",
     "cairosvg>=2.9.0",
-    "edge-tts>=7.2.8",
 ]
 
 [tool.nonebot]

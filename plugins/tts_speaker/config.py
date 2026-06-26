@@ -9,21 +9,33 @@ logger = logging.getLogger("HikariBot.TTSSpeaker.Config")
 
 CONFIG_PATH = Path("BotData/plugin_configs/tts_speaker.json")
 
+DEFAULT_VOICES: list[dict[str, str]] = [
+    {"name": "永雏塔菲", "reference_id": "55b28b196e1c4fff9a55cd32a46eff25"},
+    {"name": "蒋介石", "reference_id": "918a8277663d476b95e2c4867da0f6a6"},
+    {"name": "电棍", "reference_id": "703b0f7a5b7848f3bdfb7698ddb1899b"},
+]
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
-    "default_provider": "edge",
-    "voice": "zh-CN-XiaoxiaoNeural",
-    "rate": "+0%",
-    "volume": "+0%",
-    "pitch": "+0Hz",
+    "selected_voice": "永雏塔菲",
+    "voices": DEFAULT_VOICES,
     "fish_audio": {
-        "enabled": True,
         "api_key": "",
-        "reference_id": "55b28b196e1c4fff9a55cd32a46eff25",
         "model": "s2-pro",
         "format": "mp3",
         "latency": "normal",
         "speed": 1.0,
+        "volume": 0.0,
+        "normalize_loudness": True,
+        "pitch_semitones": 0.0,
+        "temperature": 0.7,
+        "top_p": 0.7,
+        "chunk_length": 300,
+        "normalize": True,
+        "sample_rate": None,
+        "mp3_bitrate": 128,
+        "repetition_penalty": 1.2,
+        "condition_on_previous_chunks": True,
     },
     "proxy": "",
     "connect_timeout": 10,
@@ -53,6 +65,20 @@ def ensure_config() -> None:
         return
 
     changed = False
+    fish_cfg = data.get("fish_audio") if isinstance(data.get("fish_audio"), dict) else {}
+    legacy_reference_id = str(fish_cfg.get("reference_id") or "").strip()
+
+    if not isinstance(data.get("voices"), list) or not data["voices"]:
+        voices = [voice.copy() for voice in DEFAULT_VOICES]
+        if legacy_reference_id and all(voice["reference_id"] != legacy_reference_id for voice in voices):
+            voices.append({"name": "原有音色", "reference_id": legacy_reference_id})
+        data["voices"] = voices
+        data["selected_voice"] = next(
+            (voice["name"] for voice in voices if voice["reference_id"] == legacy_reference_id),
+            "永雏塔菲",
+        )
+        changed = True
+
     for key, value in DEFAULT_CONFIG.items():
         if key not in data:
             data[key] = value
@@ -62,6 +88,17 @@ def ensure_config() -> None:
                 if nested_key not in data[key]:
                     data[key][nested_key] = nested_value
                     changed = True
+
+    # Remove obsolete Edge TTS fields when upgrading an existing installation.
+    for key in ("default_provider", "voice", "rate", "volume", "pitch"):
+        if key in data:
+            data.pop(key)
+            changed = True
+    if isinstance(data.get("fish_audio"), dict):
+        for key in ("enabled", "reference_id"):
+            if key in data["fish_audio"]:
+                data["fish_audio"].pop(key)
+                changed = True
     if changed:
         _write_config(data)
         logger.info("已补全 TTS 配置文件: %s", CONFIG_PATH)

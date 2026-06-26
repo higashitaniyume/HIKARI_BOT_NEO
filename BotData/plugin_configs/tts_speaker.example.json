@@ -1,18 +1,37 @@
 {
   "enabled": true,
-  "default_provider": "edge",
-  "voice": "zh-CN-XiaoxiaoNeural",
-  "rate": "+0%",
-  "volume": "+0%",
-  "pitch": "+0Hz",
+  "selected_voice": "永雏塔菲",
+  "voices": [
+    {
+      "name": "永雏塔菲",
+      "reference_id": "55b28b196e1c4fff9a55cd32a46eff25"
+    },
+    {
+      "name": "蒋介石",
+      "reference_id": "918a8277663d476b95e2c4867da0f6a6"
+    },
+    {
+      "name": "电棍",
+      "reference_id": "703b0f7a5b7848f3bdfb7698ddb1899b"
+    }
+  ],
   "fish_audio": {
-    "enabled": true,
     "api_key": "",
-    "reference_id": "55b28b196e1c4fff9a55cd32a46eff25",
     "model": "s2-pro",
     "format": "mp3",
     "latency": "normal",
-    "speed": 1.0
+    "speed": 1.0,
+    "volume": 0.0,
+    "normalize_loudness": true,
+    "pitch_semitones": 0.0,
+    "temperature": 0.7,
+    "top_p": 0.7,
+    "chunk_length": 300,
+    "normalize": true,
+    "sample_rate": null,
+    "mp3_bitrate": 128,
+    "repetition_penalty": 1.2,
+    "condition_on_previous_chunks": true
   },
   "proxy": "",
   "connect_timeout": 10,

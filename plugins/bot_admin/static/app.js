@@ -12,6 +12,7 @@ const state = {
   totalVoices: 0,
   totalVoiceKeywords: 0,
   ttsConfig: {},
+  editingTtsVoiceName: "",
   draggingInboxIds: [],
   pickerInboxIds: [],
 };
@@ -19,6 +20,7 @@ const MAX_UPLOAD_FILES = 99;
 const MAX_VOICE_UPLOAD_FILES = 20;
 const RECENT_PACKS_KEY = "hikariStickerRecentPacks";
 const RECENT_PACKS_LIMIT = 6;
+const SIDEBAR_COLLAPSED_KEY = "hikariAdminSidebarCollapsed";
 const VIEW_TITLES = {
   overview: "总览",
   stickers: "贴纸",
@@ -59,6 +61,34 @@ function initNavigation() {
   }
   const initial = window.location.hash.replace(/^#/, "");
   setView(initial || "overview");
+}
+
+function setSidebarCollapsed(collapsed) {
+  const shell = document.querySelector(".admin-shell");
+  shell.classList.toggle("sidebar-collapsed", collapsed);
+  const button = $("#sidebarToggle");
+  button.textContent = collapsed ? ">>" : "<<";
+  button.setAttribute("aria-label", collapsed ? "展开侧边栏" : "收起侧边栏");
+  button.setAttribute("title", collapsed ? "展开侧边栏" : "收起侧边栏");
+  button.setAttribute("aria-expanded", String(!collapsed));
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+  } catch {
+    // 侧栏状态不影响后台的核心功能。
+  }
+}
+
+function initSidebar() {
+  let collapsed = false;
+  try {
+    collapsed = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  } catch {
+    // 浏览器禁用本地存储时使用展开状态。
+  }
+  setSidebarCollapsed(collapsed);
+  $("#sidebarToggle").addEventListener("click", () => {
+    setSidebarCollapsed(!document.querySelector(".admin-shell").classList.contains("sidebar-collapsed"));
+  });
 }
 
 function showToast(message, isError = false) {
@@ -835,11 +865,12 @@ function renderTtsConfig() {
   const cfg = state.ttsConfig || {};
   const fish = cfg.fish_audio || {};
   $("#ttsEnabled").checked = cfg.enabled !== false;
-  $("#ttsDefaultProvider").value = cfg.default_provider || "edge";
-  $("#ttsVoice").value = cfg.voice || "zh-CN-XiaoxiaoNeural";
-  $("#ttsRate").value = cfg.rate || "+0%";
-  $("#ttsVolume").value = cfg.volume || "+0%";
-  $("#ttsPitch").value = cfg.pitch || "+0Hz";
+  const selectedVoice = $("#ttsSelectedVoice");
+  selectedVoice.replaceChildren();
+  for (const voice of cfg.voices || []) {
+    selectedVoice.append(option(voice.name, voice.name));
+  }
+  selectedVoice.value = cfg.selected_voice || "";
   $("#ttsProxy").value = cfg.proxy || "";
   $("#ttsConnectTimeout").value = cfg.connect_timeout ?? 10;
   $("#ttsReceiveTimeout").value = cfg.receive_timeout ?? 60;
@@ -847,14 +878,69 @@ function renderTtsConfig() {
   $("#ttsCooldown").value = cfg.cooldown_seconds ?? 5;
   $("#ttsCacheDir").value = cfg.cache_dir || "/tmp/hikari_bot/tts";
   $("#ttsCacheTtl").value = cfg.cache_ttl_minutes ?? 60;
-  $("#fishEnabled").checked = fish.enabled !== false;
   $("#fishApiKey").value = "";
   $("#fishApiKeyHint").textContent = fish.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
-  $("#fishReferenceId").value = fish.reference_id || "55b28b196e1c4fff9a55cd32a46eff25";
   $("#fishModel").value = fish.model || "s2-pro";
   $("#fishFormat").value = fish.format || "mp3";
   $("#fishLatency").value = fish.latency || "normal";
   $("#fishSpeed").value = fish.speed ?? 1.0;
+  $("#fishVolume").value = fish.volume ?? 0;
+  $("#fishPitch").value = fish.pitch_semitones ?? 0;
+  $("#fishNormalizeLoudness").checked = fish.normalize_loudness !== false;
+  $("#fishTemperature").value = fish.temperature ?? 0.7;
+  $("#fishTopP").value = fish.top_p ?? 0.7;
+  $("#fishChunkLength").value = fish.chunk_length ?? 300;
+  $("#fishNormalize").checked = fish.normalize !== false;
+  $("#fishSampleRate").value = fish.sample_rate || "";
+  $("#fishMp3Bitrate").value = fish.mp3_bitrate ?? 128;
+  $("#fishRepetitionPenalty").value = fish.repetition_penalty ?? 1.2;
+  $("#fishConditionPrevious").checked = fish.condition_on_previous_chunks !== false;
+  renderTtsVoiceList();
+}
+
+function renderTtsVoiceList() {
+  const list = $("#ttsVoiceList");
+  const cfg = state.ttsConfig || {};
+  const voices = cfg.voices || [];
+  list.replaceChildren();
+  if (!voices.length) {
+    list.className = "list empty";
+    list.textContent = "暂无音色";
+    return;
+  }
+  list.className = "list tts-voice-list";
+  for (const voice of voices) {
+    const row = document.createElement("div");
+    row.className = "tts-voice-row";
+    const meta = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = voice.name;
+    const id = document.createElement("small");
+    id.textContent = voice.reference_id;
+    meta.append(name, id);
+    const actions = document.createElement("div");
+    actions.className = "item-actions";
+    const useButton = document.createElement("button");
+    useButton.type = "button";
+    useButton.className = "ghost";
+    useButton.textContent = voice.name === cfg.selected_voice ? "当前" : "使用";
+    useButton.disabled = voice.name === cfg.selected_voice;
+    useButton.addEventListener("click", () => saveTtsConfigData({ ...buildTtsPayload(), selected_voice: voice.name }));
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "ghost";
+    editButton.textContent = "编辑";
+    editButton.addEventListener("click", () => startTtsVoiceEdit(voice));
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "danger-button";
+    deleteButton.textContent = "删除";
+    deleteButton.disabled = voices.length <= 1;
+    deleteButton.addEventListener("click", () => deleteTtsVoice(voice.name));
+    actions.append(useButton, editButton, deleteButton);
+    row.append(meta, actions);
+    list.append(row);
+  }
 }
 
 function updateFileHint() {
@@ -1061,50 +1147,115 @@ async function uploadVoices(event) {
   }
 }
 
-async function saveTtsConfig(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const submitButton = form.querySelector("button[type='submit']");
-  submitButton.disabled = true;
+function buildTtsPayload() {
+  return {
+    enabled: $("#ttsEnabled").checked,
+    selected_voice: $("#ttsSelectedVoice").value,
+    voices: (state.ttsConfig?.voices || []).map((voice) => ({ name: voice.name, reference_id: voice.reference_id })),
+    fish_audio: {
+      api_key: $("#fishApiKey").value.trim(),
+      model: $("#fishModel").value,
+      format: $("#fishFormat").value,
+      latency: $("#fishLatency").value,
+      speed: Number($("#fishSpeed").value || 1),
+      volume: Number($("#fishVolume").value || 0),
+      pitch_semitones: Number($("#fishPitch").value || 0),
+      normalize_loudness: $("#fishNormalizeLoudness").checked,
+      temperature: Number($("#fishTemperature").value || 0.7),
+      top_p: Number($("#fishTopP").value || 0.7),
+      chunk_length: Number($("#fishChunkLength").value || 300),
+      normalize: $("#fishNormalize").checked,
+      sample_rate: $("#fishSampleRate").value ? Number($("#fishSampleRate").value) : null,
+      mp3_bitrate: Number($("#fishMp3Bitrate").value || 128),
+      repetition_penalty: Number($("#fishRepetitionPenalty").value || 1.2),
+      condition_on_previous_chunks: $("#fishConditionPrevious").checked,
+    },
+    proxy: $("#ttsProxy").value.trim(),
+    connect_timeout: Number($("#ttsConnectTimeout").value || 10),
+    receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
+    max_chars: Number($("#ttsMaxChars").value || 120),
+    cooldown_seconds: Number($("#ttsCooldown").value || 5),
+    cache_dir: $("#ttsCacheDir").value.trim(),
+    cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
+  };
+}
 
+async function saveTtsConfigData(payload, successMessage = "TTS 设置已保存。") {
   try {
     const res = await fetch("/api/tts-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        enabled: $("#ttsEnabled").checked,
-        default_provider: $("#ttsDefaultProvider").value,
-        voice: $("#ttsVoice").value.trim(),
-        rate: $("#ttsRate").value.trim(),
-        volume: $("#ttsVolume").value.trim(),
-        pitch: $("#ttsPitch").value.trim(),
-        fish_audio: {
-          enabled: $("#fishEnabled").checked,
-          api_key: $("#fishApiKey").value.trim(),
-          reference_id: $("#fishReferenceId").value.trim(),
-          model: $("#fishModel").value,
-          format: $("#fishFormat").value,
-          latency: $("#fishLatency").value,
-          speed: Number($("#fishSpeed").value || 1),
-        },
-        proxy: $("#ttsProxy").value.trim(),
-        connect_timeout: Number($("#ttsConnectTimeout").value || 10),
-        receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
-        max_chars: Number($("#ttsMaxChars").value || 120),
-        cooldown_seconds: Number($("#ttsCooldown").value || 5),
-        cache_dir: $("#ttsCacheDir").value.trim(),
-        cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await readJsonResponse(res, "保存 TTS 设置失败");
     state.ttsConfig = data.config || {};
     renderTtsConfig();
-    showToast(data.message || "TTS 设置已保存。");
+    showToast(data.message || successMessage);
+    return true;
   } catch (err) {
     showToast(err.message, true);
-  } finally {
-    submitButton.disabled = false;
+    return false;
   }
+}
+
+async function saveTtsConfig(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  button.disabled = true;
+  try {
+    await saveTtsConfigData(buildTtsPayload());
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function resetTtsVoiceEdit() {
+  state.editingTtsVoiceName = "";
+  $("#ttsVoiceForm").reset();
+  $("#ttsVoiceEditSubmit").textContent = "添加音色";
+  $("#ttsVoiceEditCancel").hidden = true;
+}
+
+function startTtsVoiceEdit(voice) {
+  state.editingTtsVoiceName = voice.name;
+  $("#ttsVoiceEditName").value = voice.name;
+  $("#ttsVoiceEditReferenceId").value = voice.reference_id;
+  $("#ttsVoiceEditSubmit").textContent = "保存音色";
+  $("#ttsVoiceEditCancel").hidden = false;
+  $("#ttsVoiceEditName").focus();
+}
+
+async function saveTtsVoice(event) {
+  event.preventDefault();
+  const name = $("#ttsVoiceEditName").value.trim();
+  const referenceId = $("#ttsVoiceEditReferenceId").value.trim();
+  if (!name || !referenceId) {
+    showToast("请填写音色名称和模型 ID。", true);
+    return;
+  }
+  const payload = buildTtsPayload();
+  const previousName = state.editingTtsVoiceName;
+  const existing = payload.voices.find((voice) => voice.name === previousName);
+  if (existing) {
+    existing.name = name;
+    existing.reference_id = referenceId;
+    if (payload.selected_voice === previousName) payload.selected_voice = name;
+  } else {
+    payload.voices.push({ name, reference_id: referenceId });
+    payload.selected_voice = name;
+  }
+  if (await saveTtsConfigData(payload, "音色已保存。")) resetTtsVoiceEdit();
+}
+
+async function deleteTtsVoice(name) {
+  const payload = buildTtsPayload();
+  if (payload.voices.length <= 1) {
+    showToast("至少保留一个音色。", true);
+    return;
+  }
+  payload.voices = payload.voices.filter((voice) => voice.name !== name);
+  if (payload.selected_voice === name) payload.selected_voice = payload.voices[0].name;
+  if (await saveTtsConfigData(payload, "音色已删除。") && state.editingTtsVoiceName === name) resetTtsVoiceEdit();
 }
 
 async function addKeyword(event) {
@@ -1312,6 +1463,8 @@ $("#tgForm").addEventListener("submit", importTelegramStickers);
 $("#voiceUploadForm").addEventListener("submit", uploadVoices);
 $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
+$("#ttsVoiceForm").addEventListener("submit", saveTtsVoice);
+$("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
 $("#inboxDeleteBtn").addEventListener("click", deleteInboxItems);
 $("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
@@ -1334,4 +1487,5 @@ $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 
 initNavigation();
+initSidebar();
 fetchState().catch((err) => showToast(err.message, true));

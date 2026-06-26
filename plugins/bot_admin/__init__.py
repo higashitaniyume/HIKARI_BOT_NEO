@@ -28,6 +28,7 @@ from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
 from plugins.tg_sticker_parser.config import get_config as get_tg_config
 from plugins.tg_sticker_parser.tg_api import extract_sticker_set_names
+from plugins.tts_speaker.config import DEFAULT_VOICES
 from plugins.tts_speaker.config import get_config as get_tts_config
 from plugins.tts_speaker.config import save_config as save_tts_config
 
@@ -145,46 +146,25 @@ def _parse_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
     return min(max(parsed, minimum), maximum)
 
 
-def _parse_percent(value: Any, default: str = "+0%") -> str:
-    text = str(value or default).strip()
-    if re.fullmatch(r"[+-]\d{1,3}%", text):
-        return text
-    raise ValueError(f"百分比格式无效：{text}，请使用 +0%、-20% 这样的格式。")
-
-
-def _parse_pitch(value: Any, default: str = "+0Hz") -> str:
-    text = str(value or default).strip()
-    if re.fullmatch(r"[+-]\d{1,4}Hz", text):
-        return text
-    raise ValueError(f"音高格式无效：{text}，请使用 +0Hz、-20Hz 这样的格式。")
-
-
-def _parse_provider(value: Any, default: str = "edge") -> str:
-    provider = str(value or default).strip().casefold().replace("-", "_")
-    if provider in {"edge", "fish", "fish_audio"}:
-        return "fish_audio" if provider in {"fish", "fish_audio"} else "edge"
-    raise ValueError("默认 TTS 引擎只能是 edge 或 fish_audio。")
-
-
 def _parse_fish_model(value: Any, default: str = "s2-pro") -> str:
     model = str(value or default).strip()
-    if model in {"s1", "s2-pro", "s2.1-pro-free"}:
+    if model in {"s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"}:
         return model
-    raise ValueError("Fish Audio 模型只能是 s1、s2-pro 或 s2.1-pro-free。")
+    raise ValueError("Fish Audio 模型只能是 s1、s2-pro、s2.1-pro 或 s2.1-pro-free。")
 
 
 def _parse_fish_format(value: Any, default: str = "mp3") -> str:
     fmt = str(value or default).strip().lower()
-    if fmt in {"mp3", "wav", "opus"}:
+    if fmt in {"mp3", "wav", "opus", "pcm"}:
         return fmt
-    raise ValueError("Fish Audio 输出格式只能是 mp3、wav 或 opus。")
+    raise ValueError("Fish Audio 输出格式只能是 mp3、wav、opus 或 pcm。")
 
 
 def _parse_fish_latency(value: Any, default: str = "normal") -> str:
     latency = str(value or default).strip().lower()
-    if latency in {"normal", "balanced"}:
+    if latency in {"low", "normal", "balanced"}:
         return latency
-    raise ValueError("Fish Audio 延迟模式只能是 normal 或 balanced。")
+    raise ValueError("Fish Audio 延迟模式只能是 low、normal 或 balanced。")
 
 
 def _parse_float(value: Any, default: float, *, minimum: float, maximum: float) -> float:
@@ -195,39 +175,74 @@ def _parse_float(value: Any, default: float, *, minimum: float, maximum: float) 
     return min(max(parsed, minimum), maximum)
 
 
+def _parse_sample_rate(value: Any) -> int | None:
+    if value in (None, "", 0, "0", "auto"):
+        return None
+    return _parse_int(value, 44100, minimum=8000, maximum=192000)
+
+
+def _parse_mp3_bitrate(value: Any) -> int:
+    bitrate = _parse_int(value, 128, minimum=64, maximum=192)
+    if bitrate not in {64, 128, 192}:
+        raise ValueError("MP3 比特率只能是 64、128 或 192 kbps。")
+    return bitrate
+
+
+def _parse_tts_voices(value: Any, fallback: list[dict[str, str]]) -> list[dict[str, str]]:
+    raw_voices = value if isinstance(value, list) else fallback
+    voices: list[dict[str, str]] = []
+    names: set[str] = set()
+    for item in raw_voices:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        reference_id = str(item.get("reference_id") or "").strip()
+        if not name or len(name) > 40 or not re.fullmatch(r"[A-Za-z0-9_-]{4,128}", reference_id):
+            raise ValueError("音色名称或模型 ID 格式无效。")
+        normalized_name = name.casefold()
+        if normalized_name in names:
+            raise ValueError(f"音色名称重复：{name}")
+        names.add(normalized_name)
+        voices.append({"name": name, "reference_id": reference_id})
+    if not voices:
+        raise ValueError("至少保留一个音色。")
+    return voices
+
+
 def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
     current = get_tts_config()
     current_fish = current.get("fish_audio") if isinstance(current.get("fish_audio"), dict) else {}
     input_fish = data.get("fish_audio") if isinstance(data.get("fish_audio"), dict) else {}
-    voice = str(data.get("voice", current.get("voice", ""))).strip()
-    if not voice:
-        raise ValueError("音色不能为空。")
+    current_voices = current.get("voices") if isinstance(current.get("voices"), list) else DEFAULT_VOICES
+    voices = _parse_tts_voices(data.get("voices", current_voices), current_voices)
+    selected_voice = str(data.get("selected_voice", current.get("selected_voice", ""))).strip()
+    if selected_voice not in {voice["name"] for voice in voices}:
+        raise ValueError("请选择音色库中的一个音色。")
 
     fish_api_key = str(input_fish.get("api_key") or "").strip()
     if not fish_api_key:
         fish_api_key = str(current_fish.get("api_key") or "").strip()
-    fish_reference_id = str(
-        input_fish.get("reference_id", current_fish.get("reference_id", "55b28b196e1c4fff9a55cd32a46eff25"))
-        or ""
-    ).strip()
-    if not fish_reference_id:
-        raise ValueError("Fish Audio 音色 ID 不能为空。")
-
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", True))),
-        "default_provider": _parse_provider(data.get("default_provider", current.get("default_provider", "edge"))),
-        "voice": voice,
-        "rate": _parse_percent(data.get("rate", current.get("rate", "+0%"))),
-        "volume": _parse_percent(data.get("volume", current.get("volume", "+0%"))),
-        "pitch": _parse_pitch(data.get("pitch", current.get("pitch", "+0Hz"))),
+        "selected_voice": selected_voice,
+        "voices": voices,
         "fish_audio": {
-            "enabled": _parse_bool(input_fish.get("enabled", current_fish.get("enabled", True))),
             "api_key": fish_api_key,
-            "reference_id": fish_reference_id,
             "model": _parse_fish_model(input_fish.get("model", current_fish.get("model", "s2-pro"))),
             "format": _parse_fish_format(input_fish.get("format", current_fish.get("format", "mp3"))),
             "latency": _parse_fish_latency(input_fish.get("latency", current_fish.get("latency", "normal"))),
             "speed": _parse_float(input_fish.get("speed", current_fish.get("speed", 1.0)), 1.0, minimum=0.5, maximum=2.0),
+            "volume": _parse_float(input_fish.get("volume", current_fish.get("volume", 0.0)), 0.0, minimum=-24.0, maximum=24.0),
+            "normalize_loudness": _parse_bool(input_fish.get("normalize_loudness", current_fish.get("normalize_loudness", True))),
+            "pitch_semitones": _parse_float(input_fish.get("pitch_semitones", current_fish.get("pitch_semitones", 0.0)), 0.0, minimum=-12.0, maximum=12.0),
+            "temperature": _parse_float(input_fish.get("temperature", current_fish.get("temperature", 0.7)), 0.7, minimum=0.0, maximum=1.0),
+            "top_p": _parse_float(input_fish.get("top_p", current_fish.get("top_p", 0.7)), 0.7, minimum=0.0, maximum=1.0),
+            "chunk_length": _parse_int(input_fish.get("chunk_length", current_fish.get("chunk_length", 300)), 300, minimum=100, maximum=300),
+            "normalize": _parse_bool(input_fish.get("normalize", current_fish.get("normalize", True))),
+            "sample_rate": _parse_sample_rate(input_fish.get("sample_rate", current_fish.get("sample_rate"))),
+            "mp3_bitrate": _parse_mp3_bitrate(input_fish.get("mp3_bitrate", current_fish.get("mp3_bitrate", 128))),
+            "repetition_penalty": _parse_float(input_fish.get("repetition_penalty", current_fish.get("repetition_penalty", 1.2)), 1.2, minimum=0.0, maximum=3.0),
+            "condition_on_previous_chunks": _parse_bool(input_fish.get("condition_on_previous_chunks", current_fish.get("condition_on_previous_chunks", True))),
         },
         "proxy": str(data.get("proxy", current.get("proxy", ""))).strip(),
         "connect_timeout": _parse_int(

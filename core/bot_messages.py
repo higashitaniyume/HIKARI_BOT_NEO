@@ -50,9 +50,15 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "tts": {
         "usage": "用法：说话 <文本>",
+        "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>",
+        "switch_usage": "用法：切换音色 <名称>。发送“音色列表”查看可用音色。",
+        "switch_success": "已切换到音色：{voice}。",
+        "voice_not_found": "没有找到音色“{voice}”。发送“音色列表”查看可用音色。",
         "disabled": "语音合成功能当前已关闭。",
         "too_long": "文本太长啦，最多 {max_chars} 个字符。",
         "cooldown": "稍等 {seconds} 秒再让我说话吧。",
+        "fish_credit_insufficient": "Fish Audio API 余额不足，请在开发者控制台充值 API credit 后重试。",
+        "fish_auth_failed": "Fish Audio API Key 无效或没有权限，请在 Bot 后台更新 API Key。",
         "failed": "语音生成失败，请稍后再试。",
     },
 }
