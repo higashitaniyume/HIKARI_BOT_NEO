@@ -66,7 +66,20 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 if ($Local) {
-    $localDirs = @("BotData", "UserData", "sharedFolder", "tmp\hikari_bot")
+    $localRuntimeRoot = Join-Path $ProjectRoot "runtime"
+    $legacySharedPath = Join-Path $ProjectRoot "sharedFolder"
+    $runtimeSharedPath = Join-Path $localRuntimeRoot "shared"
+    $legacyTmpPath = Join-Path $ProjectRoot "tmp"
+    $runtimeTmpPath = Join-Path $localRuntimeRoot "tmp"
+    if ((Test-Path $legacySharedPath) -and -not (Test-Path $runtimeSharedPath)) {
+        New-Item -ItemType Directory -Force -Path $runtimeSharedPath | Out-Null
+        Get-ChildItem -Force $legacySharedPath | Where-Object Name -ne ".gitkeep" | Move-Item -Destination $runtimeSharedPath
+    }
+    if ((Test-Path $legacyTmpPath) -and -not (Test-Path $runtimeTmpPath)) {
+        New-Item -ItemType Directory -Force -Path $localRuntimeRoot | Out-Null
+        Move-Item -LiteralPath $legacyTmpPath -Destination $runtimeTmpPath
+    }
+    $localDirs = @("BotData", "UserData", "runtime\shared", "runtime\tmp\hikari_bot")
     foreach ($dir in $localDirs) {
         New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot $dir) | Out-Null
     }
@@ -84,12 +97,17 @@ $quotedDeployPath = Quote-RemoteSingle $DeployPath
 $quotedLegacyPath = Quote-RemoteSingle $LegacyDeployPath
 $quotedAppPath = Quote-RemoteSingle "$DeployPath/app"
 $quotedStagingPath = Quote-RemoteSingle "$DeployPath/.source-staging"
+$quotedRuntimePath = Quote-RemoteSingle "$DeployPath/runtime"
+$quotedLegacySharedPath = Quote-RemoteSingle "$DeployPath/sharedFolder"
+$quotedRuntimeSharedPath = Quote-RemoteSingle "$DeployPath/runtime/shared"
+$quotedLegacyTmpPath = Quote-RemoteSingle "$DeployPath/tmp"
+$quotedRuntimeTmpPath = Quote-RemoteSingle "$DeployPath/runtime/tmp"
 
 Write-Host "准备服务器目录..." -ForegroundColor Yellow
 if ($DeployPath -eq "/opt/hikaribot-docker") {
     Run-Remote "if [ ! -d $quotedDeployPath ] && [ -d $quotedLegacyPath ]; then cd $quotedLegacyPath && docker compose stop hikaribot || true; mv $quotedLegacyPath $quotedDeployPath; fi"
 }
-Run-Remote "mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedDeployPath/sharedFolder $quotedDeployPath/tmp/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
+Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
 
 $archivePath = Join-Path $env:TEMP "hikaribot-source-$PID.tar.gz"
 $remoteArchivePath = "/tmp/hikaribot-source-$PID.tar.gz"
@@ -122,7 +140,7 @@ Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -Foregro
 if ($AllServices) {
     Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot && docker compose restart hikaribot"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot napcat astrbot && docker compose restart hikaribot"
 }
 
 Write-Host ""

@@ -58,11 +58,25 @@ if (Test-Path (Join-Path $AppPath ".git")) {
     & git clone --depth 1 --branch $Branch $RepositoryUrl $AppPath
 }
 
+$runtimeRoot = Join-Path $DeployPath "runtime"
+$legacySharedPath = Join-Path $DeployPath "sharedFolder"
+$runtimeSharedPath = Join-Path $runtimeRoot "shared"
+$legacyTmpPath = Join-Path $DeployPath "tmp"
+$runtimeTmpPath = Join-Path $runtimeRoot "tmp"
+if ((Test-Path $legacySharedPath) -and -not (Test-Path $runtimeSharedPath)) {
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+    Move-Item -LiteralPath $legacySharedPath -Destination $runtimeSharedPath
+}
+if ((Test-Path $legacyTmpPath) -and -not (Test-Path $runtimeTmpPath)) {
+    New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+    Move-Item -LiteralPath $legacyTmpPath -Destination $runtimeTmpPath
+}
+
 $runtimeDirs = @(
     "BotData",
     "UserData",
-    "sharedFolder",
-    "tmp/hikari_bot",
+    "runtime/shared",
+    "runtime/tmp/hikari_bot",
     "napcat/config",
     "napcat/ntqq",
     "astrbot/data",

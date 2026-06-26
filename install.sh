@@ -57,11 +57,21 @@ else
   git clone --depth 1 --branch "$BRANCH" "$REPOSITORY_URL" "$APP_DIR"
 fi
 
+if [ -d "$DEPLOY_DIR/sharedFolder" ] && [ ! -e "$DEPLOY_DIR/runtime/shared" ]; then
+  mkdir -p "$DEPLOY_DIR/runtime"
+  mv "$DEPLOY_DIR/sharedFolder" "$DEPLOY_DIR/runtime/shared"
+fi
+
+if [ -d "$DEPLOY_DIR/tmp" ] && [ ! -e "$DEPLOY_DIR/runtime/tmp" ]; then
+  mkdir -p "$DEPLOY_DIR/runtime"
+  mv "$DEPLOY_DIR/tmp" "$DEPLOY_DIR/runtime/tmp"
+fi
+
 mkdir -p \
   "$DEPLOY_DIR/BotData" \
   "$DEPLOY_DIR/UserData" \
-  "$DEPLOY_DIR/sharedFolder" \
-  "$DEPLOY_DIR/tmp/hikari_bot" \
+  "$DEPLOY_DIR/runtime/shared" \
+  "$DEPLOY_DIR/runtime/tmp/hikari_bot" \
   "$DEPLOY_DIR/napcat/config" \
   "$DEPLOY_DIR/napcat/ntqq" \
   "$DEPLOY_DIR/astrbot/data" \

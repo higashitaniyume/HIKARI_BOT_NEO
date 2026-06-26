@@ -52,7 +52,7 @@ Compose 默认启动 4 个服务：
 | `cobalt` | Instagram / Facebook 媒体解析 API | `54257` |
 | `astrbot` | 其他平台解析机器人 | `6185`、`6199` |
 
-运行数据会保存在 compose 所在目录，主要包括 `BotData/`、`UserData/`、`napcat/`、`astrbot/`、`sharedFolder/`、`tmp/`。删除容器不会删除这些数据。
+运行数据会保存在 compose 所在目录，主要包括 `BotData/`、`UserData/`、`napcat/`、`astrbot/` 与统一的 `runtime/`。其中 `runtime/shared/` 用于跨容器共享文件，`runtime/tmp/hikari_bot/` 存放 NapCat 可读取的临时媒体。删除容器不会删除这些数据。
 
 ### 源码挂载部署（推荐）
 
@@ -138,7 +138,7 @@ NAPCAT_ACCOUNT=你的QQ号
 1. 首次使用时把历史目录 `/opt/hikaribot-dockcer` 迁移为正确的 `/opt/hikaribot-docker`，并保留所有运行数据
 2. 上传源码到 `/opt/hikaribot-docker/app/`，不会上传 `.env`、真实配置、用户数据或媒体文件
 3. 上传服务器 Compose 文件
-4. 默认只更新并重启 `hikaribot`，不会动 `napcat`、`cobalt`、`astrbot`
+4. 默认更新并重启 `hikaribot`；当共享目录挂载发生变化时，Compose 会自动重建 `napcat` 与 `astrbot` 以保持同一共享目录，`cobalt` 不受影响
 
 如果是第一次在服务器部署，或者确实想更新所有服务：
 
@@ -152,6 +152,7 @@ NAPCAT_ACCOUNT=你的QQ号
 |------|------|----------------|
 | `/opt/hikaribot-docker/app/` | 机器人源码、静态资源与 example 配置 | 是 |
 | `/opt/hikaribot-docker/BotData/`、`UserData/` 等 | 真实配置、贴纸、语音、日志与用户数据 | 否 |
+| `/opt/hikaribot-docker/runtime/` | `shared/` 跨容器共享文件与 `tmp/hikari_bot/` 临时媒体 | 否 |
 | Docker volume `hikaribot_hikaribot_venv` | Python 依赖与启动标记 | 仅在依赖锁文件变化时同步 |
 
 ### 访问地址
@@ -633,7 +634,7 @@ jm 123456
 services:
   napcat:
     volumes:
-      - /tmp/hikari_bot:/tmp/hikari_bot
+      - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
 ```
 
 ---
@@ -689,7 +690,7 @@ HIKARI_BOT_NEO/
 |------|----------|----------|
 | 启动后机器人不在线 | NapCat WebSocket 地址或 Token 错误 | 检查 `BotData/config.json` 的 `napcat.ws_url` 和 `napcat.token` |
 | 发链接没有反应 | 插件关闭、链接不匹配、NapCat 未连接 | 检查插件配置里的 `auto_parse`，再看日志 |
-| 图片或视频发送失败 | NapCat 读不到临时文件 | 挂载 `/tmp/hikari_bot:/tmp/hikari_bot`，并确认 systemd `PrivateTmp=no` |
+| 图片或视频发送失败 | NapCat 读不到临时文件 | 挂载 `./runtime/tmp/hikari_bot:/tmp/hikari_bot`，并确认 systemd `PrivateTmp=no` |
 | Pixiv 403 / Cloudflare | Cookie 失效或不完整 | 更新 `pixiv_parser.json` 的 `cookie`，必要时补 `cf_clearance` |
 | Pixiv 连接失败 | 网络无法直连 Pixiv | 配置 `proxy` |
 | Instagram / Facebook 解析失败 | cobalt API 不可用或地址写错 | 确认 `cobalt_api` 指向自部署实例 |

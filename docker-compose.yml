@@ -26,8 +26,8 @@ services:
       - .:/opt/hikaribot-source:ro
       - ./BotData:/app/BotData
       - ./UserData:/app/UserData
-      - ./sharedFolder:/app/sharedFolder
-      - ./tmp/hikari_bot:/tmp/hikari_bot
+      - ./runtime/shared:/app/sharedFolder
+      - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
       - hikaribot_venv:/opt/hikaribot-venv
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -51,9 +51,9 @@ services:
     volumes:
       - ./napcat/config:/app/napcat/config
       - ./napcat/ntqq:/app/.config/QQ
-      - ./sharedFolder:/app/sharedFolder
+      - ./runtime/shared:/app/sharedFolder
       - ./legacy/pixiv_cache:/opt/HIKARI_BOT/data/pixiv_cache
-      - ./tmp/hikari_bot:/tmp/hikari_bot
+      - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
 
   cobalt:
     image: ghcr.io/imputnet/cobalt:11
@@ -77,7 +77,7 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - ./astrbot/data:/AstrBot/data
-      - ./sharedFolder:/app/sharedFolder
+      - ./runtime/shared:/app/sharedFolder
       - /etc/localtime:/etc/localtime:ro
 
 volumes:
