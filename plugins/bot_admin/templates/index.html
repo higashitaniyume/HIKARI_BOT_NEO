@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HIKARI Bot 后台</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<main class="admin-shell">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <p class="eyebrow">HIKARI Bot</p>
+      <h1>后台</h1>
+    </div>
+    <nav class="side-nav" aria-label="后台导航">
+      <button type="button" class="nav-item is-active" data-view-target="overview">总览</button>
+      <button type="button" class="nav-item" data-view-target="stickers">贴纸</button>
+      <button type="button" class="nav-item" data-view-target="inbox">待整理</button>
+      <button type="button" class="nav-item" data-view-target="voices">语音</button>
+      <button type="button" class="nav-item" data-view-target="settings">设置</button>
+      <button type="button" class="nav-item" data-view-target="configs">配置</button>
+      <button type="button" class="nav-item" data-view-target="logs">日志</button>
+    </nav>
+    <a class="ghost link-button logout-link" href="/logout">退出</a>
+  </aside>
+
+  <section class="content-shell">
+    <header class="page-header">
+      <div class="title-block">
+        <p class="eyebrow">Bot Console</p>
+        <h2 id="viewTitle">总览</h2>
+      </div>
+      <button type="button" id="refreshBtn" class="ghost">刷新数据</button>
+    </header>
+
+    <!-- MESSAGE_HTML -->
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <section class="view-panel is-active" data-view="overview">
+      <section class="statline" aria-live="polite">
+        <span><strong id="stickerCount">0</strong> 张贴纸</span>
+        <span><strong id="packCount">0</strong> 个贴纸包</span>
+        <span><strong id="keywordCount">0</strong> 个贴纸关键词</span>
+        <span><strong id="voiceCount">0</strong> 条语音</span>
+        <span><strong id="voiceKeywordCount">0</strong> 个语音关键词</span>
+      </section>
+
+      <section class="overview-panel">
+        <div>
+          <h2>内容入口</h2>
+          <p>左侧切换贴纸、待整理表情和语音管理。关键词关系会同步给机器人触发。</p>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="stickers" hidden>
+      <div class="action-grid sticker-action-grid">
+        <section class="panel upload-panel">
+          <div class="panel-heading">
+            <h2>上传贴纸</h2>
+            <p>素材会统一转换为 GIF。支持一次选择多个文件，最多 99 个。</p>
+          </div>
+          <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data" class="upload-form">
+            <label>
+              <span>已有贴纸包</span>
+              <select id="existing_pack" name="existing_pack">
+                <option value="">新建贴纸包</option>
+              </select>
+            </label>
+
+            <label>
+              <span>新贴纸包名称</span>
+              <input id="new_pack" name="new_pack" placeholder="例如 capoo_gif">
+            </label>
+
+            <label>
+              <span>额外关键词</span>
+              <input id="keyword" name="keyword" placeholder="猫猫虫；capoo;可爱">
+            </label>
+
+            <label class="file-field">
+              <span>贴纸文件</span>
+              <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" multiple required>
+              <small id="fileHint">可多选，单次最多 99 个文件。</small>
+            </label>
+
+            <button type="submit" class="primary">上传</button>
+          </form>
+          <div id="uploadProgress" class="upload-progress" hidden>
+            <div class="progress-head">
+              <strong id="uploadProgressText">等待上传...</strong>
+              <span id="uploadProgressCount">0/0</span>
+            </div>
+            <progress id="uploadProgressBar" value="0" max="100"></progress>
+            <p id="uploadProgressDetail">选择文件后开始上传。</p>
+          </div>
+        </section>
+
+        <section class="panel tg-panel">
+          <div class="panel-heading">
+            <h2>导入 Telegram 贴纸包</h2>
+            <p>粘贴 t.me/addstickers 链接，复用机器人解析逻辑保存为本地 GIF 贴纸包。</p>
+          </div>
+          <form id="tgForm" class="tg-form">
+            <label>
+              <span>贴纸包链接</span>
+              <input id="tgUrl" name="url" placeholder="https://t.me/addstickers/StickerSetName" required>
+            </label>
+
+            <label>
+              <span>保存为贴纸包</span>
+              <input id="tgPack" name="pack" placeholder="默认使用 Telegram 贴纸包名">
+            </label>
+
+            <label>
+              <span>关键词</span>
+              <input id="tgKeyword" name="keyword" placeholder="猫猫虫；capoo;可爱">
+            </label>
+
+            <label class="checkbox-field">
+              <input id="tgRefresh" name="refresh" type="checkbox">
+              <span>强制重新拉取</span>
+            </label>
+
+            <button type="submit" class="primary">导入</button>
+          </form>
+          <div id="tgProgress" class="upload-progress" hidden>
+            <div class="progress-head">
+              <strong id="tgProgressText">等待导入...</strong>
+              <span id="tgProgressCount">0/0</span>
+            </div>
+            <progress id="tgProgressBar" value="0" max="100"></progress>
+            <p id="tgProgressDetail">粘贴链接后开始导入。</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel manage-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>关键词关系</h2>
+            <p>同一个关键词可以挂到多个贴纸包；触发、拼图和批量发送时会合并这些贴纸包。</p>
+          </div>
+        </div>
+
+        <form id="keywordForm" class="keyword-form">
+          <label>
+            <span>贴纸包</span>
+            <select id="keywordPack" required></select>
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="keywordInput" placeholder="例如 猫猫虫；capoo;可爱" required>
+          </label>
+          <button type="submit" class="primary">添加关联</button>
+        </form>
+
+        <div class="library-grid">
+          <section class="library-section">
+            <h3>按贴纸包</h3>
+            <div id="packList" class="list empty">加载中...</div>
+          </section>
+          <section class="library-section">
+            <h3>按关键词</h3>
+            <div id="keywordList" class="list empty">加载中...</div>
+          </section>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="inbox" hidden>
+      <section class="panel inbox-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>待整理表情</h2>
+            <p>机器人会静默收集群聊和私聊里的图片表情；这里确认后再分配到正式贴纸包。</p>
+          </div>
+          <div class="panel-count"><strong id="inboxCount">0</strong> 个待整理</div>
+        </div>
+
+        <form id="inboxForm" class="inbox-form">
+          <label>
+            <span>目标贴纸包</span>
+            <select id="inboxPack">
+              <option value="">选择已有贴纸包</option>
+            </select>
+          </label>
+          <label>
+            <span>或新建贴纸包</span>
+            <input id="inboxNewPack" placeholder="例如 collected_memes">
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="inboxKeyword" placeholder="猫猫虫；capoo;可爱">
+          </label>
+          <button type="submit" class="primary">加入贴纸包</button>
+          <button type="button" id="inboxDeleteBtn" class="danger-button">删除所选</button>
+        </form>
+
+        <div class="inbox-toolbar">
+          <label class="checkbox-field">
+            <input id="inboxSelectAll" type="checkbox">
+            <span>全选当前列表</span>
+          </label>
+          <span id="inboxSelectedText">已选择 0 个</span>
+        </div>
+
+        <div id="inboxList" class="inbox-list empty">暂无待整理表情</div>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="voices" hidden>
+      <section class="panel voice-upload-panel">
+        <div class="panel-heading">
+          <h2>上传语音</h2>
+          <p>建议使用 silk 或 amr；也可上传 mp3、wav、ogg 等常见音频格式。</p>
+        </div>
+        <form id="voiceUploadForm" class="voice-upload-form" enctype="multipart/form-data">
+          <label>
+            <span>语音名称</span>
+            <input id="voiceName" name="voice_name" placeholder="例如 goodnight">
+          </label>
+
+          <label>
+            <span>触发关键词</span>
+            <input id="voiceKeyword" name="voice_keyword" placeholder="晚安；睡觉">
+          </label>
+
+          <label class="file-field">
+            <span>语音文件</span>
+            <input id="voiceFile" name="voice_file" type="file" accept=".silk,.amr,.mp3,.wav,.ogg,.m4a,.aac,.flac,.opus" multiple required>
+            <small id="voiceFileHint">可多选，单次最多 20 个文件。</small>
+          </label>
+
+          <button type="submit" class="primary">上传语音</button>
+        </form>
+      </section>
+
+      <section class="panel voice-manage-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>语音关键词</h2>
+            <p>纯文本消息完全匹配关键词时，机器人会随机发送关联语音。</p>
+          </div>
+        </div>
+
+        <form id="voiceKeywordForm" class="voice-keyword-form">
+          <label>
+            <span>语音</span>
+            <select id="voiceKeywordVoice" required></select>
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="voiceKeywordInput" placeholder="例如 晚安；睡觉" required>
+          </label>
+          <button type="submit" class="primary">添加关联</button>
+        </form>
+
+        <div class="library-grid voice-library-grid">
+          <section class="library-section">
+            <h3>语音列表</h3>
+            <div id="voiceList" class="list empty">加载中...</div>
+          </section>
+          <section class="library-section">
+            <h3>按关键词</h3>
+            <div id="voiceKeywordList" class="list empty">加载中...</div>
+          </section>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="settings" hidden>
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Edge TTS 设置</h2>
+            <p>这些设置会直接写入插件配置，保存后下一次“说话”命令生效。</p>
+          </div>
+        </div>
+
+        <form id="ttsConfigForm" class="settings-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="ttsEnabled" type="checkbox">
+            <span>启用说话命令</span>
+          </label>
+
+          <label>
+            <span>说话命令默认引擎</span>
+            <select id="ttsDefaultProvider">
+              <option value="edge">Edge TTS</option>
+              <option value="fish_audio">Fish Audio</option>
+            </select>
+          </label>
+
+          <label>
+            <span>默认音色</span>
+            <input id="ttsVoice" list="ttsVoiceOptions" placeholder="zh-CN-XiaoxiaoNeural" required>
+            <datalist id="ttsVoiceOptions">
+              <option value="zh-CN-XiaoxiaoNeural"></option>
+              <option value="zh-CN-XiaoyiNeural"></option>
+              <option value="zh-CN-YunjianNeural"></option>
+              <option value="zh-CN-YunxiNeural"></option>
+              <option value="zh-CN-YunxiaNeural"></option>
+              <option value="zh-CN-YunyangNeural"></option>
+              <option value="zh-CN-liaoning-XiaobeiNeural"></option>
+              <option value="zh-CN-shaanxi-XiaoniNeural"></option>
+            </datalist>
+          </label>
+
+          <label>
+            <span>语速</span>
+            <input id="ttsRate" placeholder="+0%" required>
+            <small>格式示例：+0%、-20%、+20%</small>
+          </label>
+
+          <label>
+            <span>音量</span>
+            <input id="ttsVolume" placeholder="+0%" required>
+            <small>格式示例：+0%、-20%、+20%</small>
+          </label>
+
+          <label>
+            <span>音高</span>
+            <input id="ttsPitch" placeholder="+0Hz" required>
+            <small>格式示例：+0Hz、-20Hz、+20Hz</small>
+          </label>
+
+          <label>
+            <span>代理</span>
+            <input id="ttsProxy" placeholder="http://127.0.0.1:7890">
+          </label>
+
+          <label>
+            <span>连接超时（秒）</span>
+            <input id="ttsConnectTimeout" type="number" min="1" max="300" step="1">
+          </label>
+
+          <label>
+            <span>接收超时（秒）</span>
+            <input id="ttsReceiveTimeout" type="number" min="1" max="600" step="1">
+          </label>
+
+          <label>
+            <span>最大字符数</span>
+            <input id="ttsMaxChars" type="number" min="1" max="1000" step="1">
+          </label>
+
+          <label>
+            <span>用户冷却（秒）</span>
+            <input id="ttsCooldown" type="number" min="0" max="3600" step="1">
+          </label>
+
+          <label>
+            <span>缓存目录</span>
+            <input id="ttsCacheDir" placeholder="/tmp/hikari_bot/tts">
+          </label>
+
+          <label>
+            <span>缓存保留（分钟）</span>
+            <input id="ttsCacheTtl" type="number" min="1" max="10080" step="1">
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="fishEnabled" type="checkbox">
+            <span>启用 Fish Audio</span>
+          </label>
+
+          <label>
+            <span>Fish Audio API Key</span>
+            <input id="fishApiKey" type="password" autocomplete="new-password" placeholder="留空表示不修改已有 Key">
+            <small id="fishApiKeyHint">未配置</small>
+          </label>
+
+          <label>
+            <span>Fish 音色 ID</span>
+            <input id="fishReferenceId" placeholder="55b28b196e1c4fff9a55cd32a46eff25">
+            <small>可从 fish.audio 声音页面 URL 复制。</small>
+          </label>
+
+          <label>
+            <span>Fish 模型</span>
+            <select id="fishModel">
+              <option value="s2-pro">s2-pro</option>
+              <option value="s1">s1</option>
+              <option value="s2.1-pro-free">s2.1-pro-free</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Fish 输出格式</span>
+            <select id="fishFormat">
+              <option value="mp3">mp3</option>
+              <option value="wav">wav</option>
+              <option value="opus">opus</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Fish 延迟模式</span>
+            <select id="fishLatency">
+              <option value="normal">normal</option>
+              <option value="balanced">balanced</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Fish 语速倍率</span>
+            <input id="fishSpeed" type="number" min="0.5" max="2" step="0.05">
+          </label>
+
+          <button type="submit" class="primary">保存 TTS 设置</button>
+        </form>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="configs" hidden>
+      <section class="panel config-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>插件配置</h2>
+            <p>在线编辑 BotData/plugin_configs 里的 JSON 配置；保存前会校验 JSON 格式。</p>
+          </div>
+          <button type="button" id="configRefreshBtn" class="ghost">刷新配置</button>
+        </div>
+
+        <div class="ops-layout">
+          <aside class="ops-list" id="configFileList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="configEditorTitle">选择一个配置文件</h3>
+                <p id="configEditorMeta">暂无文件</p>
+              </div>
+              <button type="button" id="configSaveBtn" class="primary">保存配置</button>
+            </div>
+            <textarea id="configEditor" class="code-editor" spellcheck="false" placeholder="选择左侧配置文件后编辑 JSON"></textarea>
+          </section>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="logs" hidden>
+      <section class="panel logs-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>运行日志</h2>
+            <p>查看 BotData/logs 中的日志文件尾部内容。</p>
+          </div>
+          <button type="button" id="logRefreshBtn" class="ghost">刷新日志</button>
+        </div>
+
+        <div class="ops-layout">
+          <aside class="ops-list" id="logFileList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="logViewerTitle">选择一个日志文件</h3>
+                <p id="logViewerMeta">暂无文件</p>
+              </div>
+              <button type="button" id="logReloadBtn" class="ghost">重新载入</button>
+            </div>
+            <pre id="logViewer" class="log-viewer">选择左侧日志文件后查看内容</pre>
+          </section>
+        </div>
+      </section>
+    </section>
+
+    <dialog id="packPickerDialog" class="pack-picker-dialog">
+      <div class="pack-picker">
+        <div class="pack-picker-head">
+          <div>
+            <h3 id="packPickerTitle">移动到贴纸包</h3>
+            <p id="packPickerSummary">选择一个目标贴纸包。</p>
+          </div>
+          <button type="button" id="packPickerClose" class="icon-button" aria-label="关闭">×</button>
+        </div>
+
+        <label class="pack-picker-search">
+          <span>搜索贴纸包</span>
+          <input id="packPickerSearch" autocomplete="off" placeholder="输入贴纸包名称">
+        </label>
+
+        <div id="packPickerRecent" class="pack-picker-section" hidden>
+          <h4>最近使用</h4>
+          <div id="packPickerRecentList" class="pack-picker-list"></div>
+        </div>
+
+        <div class="pack-picker-section">
+          <h4>全部贴纸包</h4>
+          <div id="packPickerList" class="pack-picker-list"></div>
+        </div>
+      </div>
+    </dialog>
+  </section>
+</main>
+</body>
+</html>

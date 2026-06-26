@@ -37,6 +37,10 @@ BotData/fonts/*
 BotData/Gifs/*/**
 !BotData/Gifs/**/.gitkeep
 
+# Voices: keep directory structure, ignore actual media
+BotData/Voices/*/**
+!BotData/Voices/**/.gitkeep
+
 # Logs (history logs on dev machine)
 BotData/logs/*.log
 !BotData/logs/.gitkeep

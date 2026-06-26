@@ -5,9 +5,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger("HikariBot.StickerWeb.Config")
+logger = logging.getLogger("HikariBot.BotAdmin.Config")
 
-CONFIG_PATH = Path("BotData/plugin_configs/sticker_web.json")
+CONFIG_PATH = Path("BotData/plugin_configs/bot_admin.json")
+LEGACY_CONFIG_PATH = Path("BotData/plugin_configs/sticker_web.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
@@ -27,8 +28,19 @@ def _write_config(data: dict[str, Any]) -> None:
 def ensure_config() -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not CONFIG_PATH.exists():
+        if LEGACY_CONFIG_PATH.exists():
+            try:
+                data = json.loads(LEGACY_CONFIG_PATH.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    cfg = DEFAULT_CONFIG.copy()
+                    cfg.update(data)
+                    _write_config(cfg)
+                    logger.info("已从旧贴纸页面配置迁移 Bot 后台配置: %s", CONFIG_PATH)
+                    return
+            except Exception as e:
+                logger.warning("迁移旧贴纸页面配置失败，将创建默认 Bot 后台配置: %s", e)
         _write_config(DEFAULT_CONFIG)
-        logger.info("已创建贴纸上传页面配置文件: %s", CONFIG_PATH)
+        logger.info("已创建 Bot 后台配置文件: %s", CONFIG_PATH)
         return
 
     try:
@@ -43,7 +55,7 @@ def ensure_config() -> None:
             changed = True
     if changed:
         _write_config(data)
-        logger.info("已补全贴纸上传页面配置文件: %s", CONFIG_PATH)
+        logger.info("已补全 Bot 后台配置文件: %s", CONFIG_PATH)
 
 
 def get_config() -> dict[str, Any]:
@@ -51,7 +63,7 @@ def get_config() -> dict[str, Any]:
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception as e:
-        logger.exception("读取贴纸上传页面配置失败: %s", e)
+        logger.exception("读取 Bot 后台配置失败: %s", e)
         return DEFAULT_CONFIG.copy()
 
     cfg = DEFAULT_CONFIG.copy()

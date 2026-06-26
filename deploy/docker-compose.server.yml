@@ -13,7 +13,7 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
     ports:
-      - "${HIKARI_STICKER_WEB_PORT:-54213}:54213"
+      - "${HIKARI_BOT_ADMIN_PORT:-${HIKARI_STICKER_WEB_PORT:-54213}}:54213"
     volumes:
       - ./BotData:/app/BotData
       - ./UserData:/app/UserData

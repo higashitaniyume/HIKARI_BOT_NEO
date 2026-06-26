@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "default_provider": "edge",
+  "voice": "zh-CN-XiaoxiaoNeural",
+  "rate": "+0%",
+  "volume": "+0%",
+  "pitch": "+0Hz",
+  "fish_audio": {
+    "enabled": true,
+    "api_key": "",
+    "reference_id": "55b28b196e1c4fff9a55cd32a46eff25",
+    "model": "s2-pro",
+    "format": "mp3",
+    "latency": "normal",
+    "speed": 1.0
+  },
+  "proxy": "",
+  "connect_timeout": 10,
+  "receive_timeout": 60,
+  "max_chars": 120,
+  "cooldown_seconds": 5,
+  "cache_dir": "/tmp/hikari_bot/tts",
+  "cache_ttl_minutes": 60
+}

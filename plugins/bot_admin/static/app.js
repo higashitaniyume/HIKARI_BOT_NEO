@@ -2,15 +2,64 @@ const state = {
   packs: [],
   keywords: [],
   inbox: [],
+  voices: [],
+  voiceKeywords: [],
+  configFiles: [],
+  selectedConfig: "",
+  logFiles: [],
+  selectedLog: "",
   totalStickers: 0,
+  totalVoices: 0,
+  totalVoiceKeywords: 0,
+  ttsConfig: {},
   draggingInboxIds: [],
   pickerInboxIds: [],
 };
 const MAX_UPLOAD_FILES = 99;
+const MAX_VOICE_UPLOAD_FILES = 20;
 const RECENT_PACKS_KEY = "hikariStickerRecentPacks";
 const RECENT_PACKS_LIMIT = 6;
+const VIEW_TITLES = {
+  overview: "总览",
+  stickers: "贴纸",
+  inbox: "待整理",
+  voices: "语音",
+  settings: "设置",
+  configs: "配置",
+  logs: "日志",
+};
 
 const $ = (selector) => document.querySelector(selector);
+
+function setView(view) {
+  const target = VIEW_TITLES[view] ? view : "overview";
+  for (const panel of document.querySelectorAll("[data-view]")) {
+    const active = panel.dataset.view === target;
+    panel.hidden = !active;
+    panel.classList.toggle("is-active", active);
+  }
+  for (const button of document.querySelectorAll("[data-view-target]")) {
+    button.classList.toggle("is-active", button.dataset.viewTarget === target);
+  }
+  $("#viewTitle").textContent = VIEW_TITLES[target];
+  if (window.location.hash !== `#${target}`) {
+    window.history.replaceState(null, "", `#${target}`);
+  }
+  if (target === "configs" && !state.configFiles.length) {
+    fetchConfigFiles().catch((err) => showToast(err.message, true));
+  }
+  if (target === "logs" && !state.logFiles.length) {
+    fetchLogFiles().catch((err) => showToast(err.message, true));
+  }
+}
+
+function initNavigation() {
+  for (const button of document.querySelectorAll("[data-view-target]")) {
+    button.addEventListener("click", () => setView(button.dataset.viewTarget));
+  }
+  const initial = window.location.hash.replace(/^#/, "");
+  setView(initial || "overview");
+}
 
 function showToast(message, isError = false) {
   const toast = $("#toast");
@@ -74,8 +123,22 @@ async function fetchState() {
   state.packs = data.packs || [];
   state.keywords = data.keywords || [];
   state.totalStickers = Number(data.total_stickers || 0);
+  await fetchVoiceState(false);
+  await fetchTtsConfig(false);
   await fetchInbox(false);
   render();
+}
+
+async function fetchVoiceState(shouldRender = true) {
+  const res = await fetch("/api/voice-state", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取语音数据失败");
+  state.voices = data.voices || [];
+  state.voiceKeywords = data.keywords || [];
+  state.totalVoices = Number(data.total_voices || 0);
+  state.totalVoiceKeywords = Number(data.total_keywords || 0);
+  if (shouldRender) {
+    render();
+  }
 }
 
 async function fetchInbox(shouldRender = true) {
@@ -87,13 +150,152 @@ async function fetchInbox(shouldRender = true) {
   }
 }
 
+async function fetchTtsConfig(shouldRender = true) {
+  const res = await fetch("/api/tts-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取 TTS 设置失败");
+  state.ttsConfig = data.config || {};
+  if (shouldRender) {
+    render();
+  }
+}
+
+async function fetchConfigFiles() {
+  const res = await fetch("/api/configs", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取配置列表失败");
+  state.configFiles = data.files || [];
+  renderConfigFiles();
+}
+
+async function openConfigFile(name) {
+  state.selectedConfig = name;
+  renderConfigFiles();
+  const res = await fetch(`/api/configs/${encodeURIComponent(name)}`, { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取配置文件失败");
+  $("#configEditorTitle").textContent = data.file?.name || name;
+  $("#configEditorMeta").textContent = `${formatBytes(data.file?.size || 0)} / ${formatTime(data.file?.mtime || 0)}`;
+  $("#configEditor").value = data.content || "";
+}
+
+function renderConfigFiles() {
+  const list = $("#configFileList");
+  list.replaceChildren();
+  if (!state.configFiles.length) {
+    list.className = "ops-list empty";
+    list.textContent = "暂无配置文件";
+    return;
+  }
+  list.className = "ops-list";
+  for (const file of state.configFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ops-list-item";
+    button.classList.toggle("is-active", file.name === state.selectedConfig);
+    button.addEventListener("click", () => openConfigFile(file.name).catch((err) => showToast(err.message, true)));
+
+    const title = document.createElement("span");
+    title.className = "ops-list-title";
+    title.textContent = file.name;
+    const meta = document.createElement("span");
+    meta.className = "ops-list-meta";
+    meta.textContent = `${formatBytes(file.size)} / ${formatTime(file.mtime)}`;
+    button.append(title, meta);
+    list.append(button);
+  }
+}
+
+async function saveCurrentConfig() {
+  if (!state.selectedConfig) {
+    showToast("请先选择一个配置文件。", true);
+    return;
+  }
+  let normalized = "";
+  try {
+    normalized = JSON.stringify(JSON.parse($("#configEditor").value), null, 2);
+  } catch (err) {
+    showToast(`JSON 格式错误：${err.message}`, true);
+    return;
+  }
+
+  const button = $("#configSaveBtn");
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/configs/${encodeURIComponent(state.selectedConfig)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: normalized }),
+    });
+    const data = await readJsonResponse(res, "保存配置失败");
+    $("#configEditor").value = data.config?.content || normalized;
+    $("#configEditorMeta").textContent = `${formatBytes(data.config?.file?.size || 0)} / ${formatTime(data.config?.file?.mtime || 0)}`;
+    await fetchConfigFiles();
+    showToast(data.message || "配置已保存。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function fetchLogFiles() {
+  const res = await fetch("/api/logs", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取日志列表失败");
+  state.logFiles = data.files || [];
+  renderLogFiles();
+}
+
+async function openLogFile(name) {
+  state.selectedLog = name;
+  renderLogFiles();
+  const res = await fetch(`/api/logs/${encodeURIComponent(name)}?max_bytes=262144`, { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取日志失败");
+  $("#logViewerTitle").textContent = data.file?.name || name;
+  $("#logViewerMeta").textContent = `${formatBytes(data.file?.size || 0)} / ${formatTime(data.file?.mtime || 0)}${data.truncated ? " / 仅显示尾部" : ""}`;
+  $("#logViewer").textContent = data.content || "";
+}
+
+function renderLogFiles() {
+  const list = $("#logFileList");
+  list.replaceChildren();
+  if (!state.logFiles.length) {
+    list.className = "ops-list empty";
+    list.textContent = "暂无日志文件";
+    return;
+  }
+  list.className = "ops-list";
+  for (const file of state.logFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ops-list-item";
+    button.classList.toggle("is-active", file.name === state.selectedLog);
+    button.addEventListener("click", () => openLogFile(file.name).catch((err) => showToast(err.message, true)));
+
+    const title = document.createElement("span");
+    title.className = "ops-list-title";
+    title.textContent = file.name;
+    const meta = document.createElement("span");
+    meta.className = "ops-list-meta";
+    meta.textContent = `${formatBytes(file.size)} / ${formatTime(file.mtime)}`;
+    button.append(title, meta);
+    list.append(button);
+  }
+}
+
+async function reloadSelectedLog() {
+  await fetchLogFiles();
+  if (state.selectedLog) {
+    await openLogFile(state.selectedLog);
+  }
+}
+
 function renderSelects() {
   const uploadSelect = $("#existing_pack");
   const keywordSelect = $("#keywordPack");
   const inboxSelect = $("#inboxPack");
+  const voiceKeywordSelect = $("#voiceKeywordVoice");
   uploadSelect.replaceChildren(option("", "新建贴纸包"));
   keywordSelect.replaceChildren();
   inboxSelect.replaceChildren(option("", "选择已有贴纸包"));
+  voiceKeywordSelect.replaceChildren();
 
   for (const pack of state.packs) {
     uploadSelect.append(option(pack.name, packLabel(pack)));
@@ -101,8 +303,15 @@ function renderSelects() {
     inboxSelect.append(option(pack.name, packLabel(pack)));
   }
 
+  for (const voice of state.voices) {
+    voiceKeywordSelect.append(option(voice.id, `${voice.name} (${voice.keywords?.length || 0} 个关键词)`));
+  }
+
   if (!state.packs.length) {
     keywordSelect.append(option("", "暂无贴纸包"));
+  }
+  if (!state.voices.length) {
+    voiceKeywordSelect.append(option("", "暂无语音"));
   }
 }
 
@@ -120,8 +329,26 @@ function chip(keyword, packName) {
   return node;
 }
 
+function voiceChip(keyword, voiceId, voiceName) {
+  const node = document.createElement("span");
+  node.className = "chip";
+  const label = document.createElement("span");
+  label.textContent = String(keyword ?? "");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.textContent = "×";
+  remove.title = `删除 ${voiceName} 的关键词 ${keyword}`;
+  remove.addEventListener("click", () => deleteVoiceKeyword(voiceId, keyword));
+  node.append(label, remove);
+  return node;
+}
+
 function previewUrl(stickerId) {
   return `/api/stickers/${encodeURIComponent(stickerId)}`;
+}
+
+function voiceFileUrl(voiceId) {
+  return `/api/voices/${encodeURIComponent(voiceId)}/file`;
 }
 
 function renderPreviewStrip(pack) {
@@ -239,6 +466,118 @@ function renderKeywords() {
       packChip.className = "chip";
       packChip.textContent = packName;
       chips.append(packChip);
+    }
+
+    item.append(head, chips);
+    list.append(item);
+  }
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function renderVoices() {
+  const list = $("#voiceList");
+  list.className = "pack-list";
+  list.replaceChildren();
+
+  if (!state.voices.length) {
+    list.className = "pack-list empty";
+    list.textContent = "暂无语音";
+    return;
+  }
+
+  for (const voice of state.voices) {
+    const item = document.createElement("article");
+    item.className = "voice-card";
+
+    const head = document.createElement("div");
+    head.className = "pack-head";
+    const title = document.createElement("div");
+    title.className = "voice-title";
+    title.textContent = voice.name;
+    const actions = document.createElement("div");
+    actions.className = "pack-actions";
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = `${voice.keywords?.length || 0} 个关键词`;
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "icon-danger-button";
+    deleteButton.title = `删除语音 ${voice.name}`;
+    deleteButton.setAttribute("aria-label", `删除语音 ${voice.name}`);
+    deleteButton.textContent = "×";
+    deleteButton.addEventListener("click", () => deleteVoice(voice));
+    actions.append(badge, deleteButton);
+    head.append(title, actions);
+
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = voiceFileUrl(voice.id);
+
+    const meta = document.createElement("div");
+    meta.className = "voice-meta";
+    meta.textContent = `${voice.original_name || voice.file} / ${formatBytes(voice.size)}${voice.missing ? " / 文件缺失" : ""}`;
+
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    if (voice.keywords?.length) {
+      for (const keyword of voice.keywords) {
+        chips.append(voiceChip(keyword, voice.id, voice.name));
+      }
+    } else {
+      const empty = document.createElement("span");
+      empty.className = "badge";
+      empty.textContent = "暂无关键词";
+      chips.append(empty);
+    }
+
+    item.append(head, audio, meta, chips);
+    list.append(item);
+  }
+}
+
+function renderVoiceKeywords() {
+  const list = $("#voiceKeywordList");
+  list.className = "list";
+  list.replaceChildren();
+
+  if (!state.voiceKeywords.length) {
+    list.className = "list empty";
+    list.textContent = "暂无语音关键词";
+    return;
+  }
+
+  for (const relation of state.voiceKeywords) {
+    const item = document.createElement("article");
+    item.className = "keyword-card";
+
+    const head = document.createElement("div");
+    head.className = "item-head";
+    const title = document.createElement("div");
+    title.className = "item-title";
+    title.textContent = relation.keyword;
+    const badge = document.createElement("div");
+    badge.className = "badge";
+    badge.textContent = `${relation.voices.length} 条语音`;
+    head.append(title, badge);
+
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const voiceName of relation.voices) {
+      const voiceNode = document.createElement("span");
+      voiceNode.className = "chip";
+      voiceNode.textContent = voiceName;
+      chips.append(voiceNode);
     }
 
     item.append(head, chips);
@@ -481,10 +820,41 @@ function render() {
   $("#stickerCount").textContent = state.totalStickers;
   $("#packCount").textContent = state.packs.length;
   $("#keywordCount").textContent = state.keywords.length;
+  $("#voiceCount").textContent = state.totalVoices;
+  $("#voiceKeywordCount").textContent = state.totalVoiceKeywords;
   renderSelects();
   renderInbox();
   renderPacks();
   renderKeywords();
+  renderVoices();
+  renderVoiceKeywords();
+  renderTtsConfig();
+}
+
+function renderTtsConfig() {
+  const cfg = state.ttsConfig || {};
+  const fish = cfg.fish_audio || {};
+  $("#ttsEnabled").checked = cfg.enabled !== false;
+  $("#ttsDefaultProvider").value = cfg.default_provider || "edge";
+  $("#ttsVoice").value = cfg.voice || "zh-CN-XiaoxiaoNeural";
+  $("#ttsRate").value = cfg.rate || "+0%";
+  $("#ttsVolume").value = cfg.volume || "+0%";
+  $("#ttsPitch").value = cfg.pitch || "+0Hz";
+  $("#ttsProxy").value = cfg.proxy || "";
+  $("#ttsConnectTimeout").value = cfg.connect_timeout ?? 10;
+  $("#ttsReceiveTimeout").value = cfg.receive_timeout ?? 60;
+  $("#ttsMaxChars").value = cfg.max_chars ?? 120;
+  $("#ttsCooldown").value = cfg.cooldown_seconds ?? 5;
+  $("#ttsCacheDir").value = cfg.cache_dir || "/tmp/hikari_bot/tts";
+  $("#ttsCacheTtl").value = cfg.cache_ttl_minutes ?? 60;
+  $("#fishEnabled").checked = fish.enabled !== false;
+  $("#fishApiKey").value = "";
+  $("#fishApiKeyHint").textContent = fish.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
+  $("#fishReferenceId").value = fish.reference_id || "55b28b196e1c4fff9a55cd32a46eff25";
+  $("#fishModel").value = fish.model || "s2-pro";
+  $("#fishFormat").value = fish.format || "mp3";
+  $("#fishLatency").value = fish.latency || "normal";
+  $("#fishSpeed").value = fish.speed ?? 1.0;
 }
 
 function updateFileHint() {
@@ -500,6 +870,25 @@ function updateFileHint() {
     input.value = "";
     hint.textContent = `已超过上限，请重新选择 ${MAX_UPLOAD_FILES} 个以内的文件。`;
     showToast(`一次最多上传 ${MAX_UPLOAD_FILES} 个文件。`, true);
+    return;
+  }
+
+  hint.textContent = `已选择 ${count} 个文件。`;
+}
+
+function updateVoiceFileHint() {
+  const input = $("#voiceFile");
+  const hint = $("#voiceFileHint");
+  const count = input.files?.length || 0;
+  if (!count) {
+    hint.textContent = `可多选，单次最多 ${MAX_VOICE_UPLOAD_FILES} 个文件。`;
+    return;
+  }
+
+  if (count > MAX_VOICE_UPLOAD_FILES) {
+    input.value = "";
+    hint.textContent = `已超过上限，请重新选择 ${MAX_VOICE_UPLOAD_FILES} 个以内的文件。`;
+    showToast(`一次最多上传 ${MAX_VOICE_UPLOAD_FILES} 个语音文件。`, true);
     return;
   }
 
@@ -635,6 +1024,89 @@ async function uploadStickers(event) {
   }
 }
 
+async function uploadVoices(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fileCount = $("#voiceFile").files?.length || 0;
+  if (fileCount <= 0) {
+    showToast("请选择要上传的语音文件。", true);
+    return;
+  }
+  if (fileCount > MAX_VOICE_UPLOAD_FILES) {
+    showToast(`一次最多上传 ${MAX_VOICE_UPLOAD_FILES} 个语音文件。`, true);
+    return;
+  }
+
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+
+  try {
+    const res = await fetch("/api/voices", {
+      method: "POST",
+      body: new FormData(form),
+    });
+    const data = await readJsonResponse(res, "上传语音失败");
+    state.voices = data.state?.voices || [];
+    state.voiceKeywords = data.state?.keywords || [];
+    state.totalVoices = Number(data.state?.total_voices || 0);
+    state.totalVoiceKeywords = Number(data.state?.total_keywords || 0);
+    form.reset();
+    updateVoiceFileHint();
+    render();
+    showToast(data.message || "语音上传完成。", data.status === "failed");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function saveTtsConfig(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+
+  try {
+    const res = await fetch("/api/tts-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: $("#ttsEnabled").checked,
+        default_provider: $("#ttsDefaultProvider").value,
+        voice: $("#ttsVoice").value.trim(),
+        rate: $("#ttsRate").value.trim(),
+        volume: $("#ttsVolume").value.trim(),
+        pitch: $("#ttsPitch").value.trim(),
+        fish_audio: {
+          enabled: $("#fishEnabled").checked,
+          api_key: $("#fishApiKey").value.trim(),
+          reference_id: $("#fishReferenceId").value.trim(),
+          model: $("#fishModel").value,
+          format: $("#fishFormat").value,
+          latency: $("#fishLatency").value,
+          speed: Number($("#fishSpeed").value || 1),
+        },
+        proxy: $("#ttsProxy").value.trim(),
+        connect_timeout: Number($("#ttsConnectTimeout").value || 10),
+        receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
+        max_chars: Number($("#ttsMaxChars").value || 120),
+        cooldown_seconds: Number($("#ttsCooldown").value || 5),
+        cache_dir: $("#ttsCacheDir").value.trim(),
+        cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
+      }),
+    });
+    const data = await readJsonResponse(res, "保存 TTS 设置失败");
+    state.ttsConfig = data.config || {};
+    renderTtsConfig();
+    showToast(data.message || "TTS 设置已保存。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
 async function addKeyword(event) {
   event.preventDefault();
   const pack = $("#keywordPack").value;
@@ -662,6 +1134,34 @@ async function addKeyword(event) {
   }
 }
 
+async function addVoiceKeyword(event) {
+  event.preventDefault();
+  const voice = $("#voiceKeywordVoice").value;
+  const keyword = $("#voiceKeywordInput").value.trim();
+  if (!voice || !keyword) {
+    showToast("请选择语音并填写一个或多个关键词。", true);
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/voice-keywords", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ voice, keyword }),
+    });
+    const data = await readJsonResponse(res, "添加语音关键词失败");
+    state.voices = data.voices || [];
+    state.voiceKeywords = data.keywords || [];
+    state.totalVoices = Number(data.total_voices || 0);
+    state.totalVoiceKeywords = Number(data.total_keywords || 0);
+    $("#voiceKeywordInput").value = "";
+    render();
+    showToast("语音关键词关联已添加。");
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
 async function deleteKeyword(pack, keyword) {
   try {
     const params = new URLSearchParams({ pack, keyword });
@@ -672,6 +1172,22 @@ async function deleteKeyword(pack, keyword) {
     state.totalStickers = Number(data.total_stickers || 0);
     render();
     showToast("关键词关联已删除。");
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deleteVoiceKeyword(voice, keyword) {
+  try {
+    const params = new URLSearchParams({ voice, keyword });
+    const res = await fetch(`/api/voice-keywords?${params}`, { method: "DELETE" });
+    const data = await readJsonResponse(res, "删除语音关键词失败");
+    state.voices = data.voices || [];
+    state.voiceKeywords = data.keywords || [];
+    state.totalVoices = Number(data.total_voices || 0);
+    state.totalVoiceKeywords = Number(data.total_keywords || 0);
+    render();
+    showToast("语音关键词关联已删除。");
   } catch (err) {
     showToast(err.message, true);
   }
@@ -693,6 +1209,27 @@ async function deletePack(pack) {
     render();
     const result = data.result || {};
     showToast(`已删除 ${result.pack || pack.name}，移除 ${result.removed_stickers || 0} 个关联，删除 ${result.deleted_files || 0} 个本地文件。`);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function deleteVoice(voice) {
+  const confirmed = window.confirm(`确定删除语音「${voice.name}」吗？\n会移除这个语音及其所有关键词。`);
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({ voice: voice.id });
+    const res = await fetch(`/api/voices?${params}`, { method: "DELETE" });
+    const data = await readJsonResponse(res, "删除语音失败");
+    state.voices = data.voices || [];
+    state.voiceKeywords = data.keywords || [];
+    state.totalVoices = Number(data.total_voices || 0);
+    state.totalVoiceKeywords = Number(data.total_keywords || 0);
+    render();
+    showToast(`已删除 ${voice.name}。`);
   } catch (err) {
     showToast(err.message, true);
   }
@@ -772,6 +1309,9 @@ function toggleInboxSelection(event) {
 $("#keywordForm").addEventListener("submit", addKeyword);
 $("#uploadForm").addEventListener("submit", uploadStickers);
 $("#tgForm").addEventListener("submit", importTelegramStickers);
+$("#voiceUploadForm").addEventListener("submit", uploadVoices);
+$("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
+$("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
 $("#inboxDeleteBtn").addEventListener("click", deleteInboxItems);
 $("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
@@ -786,6 +1326,12 @@ $("#packPickerDialog").addEventListener("close", () => {
   state.pickerInboxIds = [];
 });
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
+$("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then(() => showToast("配置列表已刷新。")).catch((err) => showToast(err.message, true)));
+$("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());
+$("#logRefreshBtn").addEventListener("click", () => fetchLogFiles().then(() => showToast("日志列表已刷新。")).catch((err) => showToast(err.message, true)));
+$("#logReloadBtn").addEventListener("click", () => reloadSelectedLog().catch((err) => showToast(err.message, true)));
 $("#file").addEventListener("change", updateFileHint);
+$("#voiceFile").addEventListener("change", updateVoiceFileHint);
 
+initNavigation();
 fetchState().catch((err) => showToast(err.message, true));

@@ -41,5 +41,12 @@
   },
   "cobalt": {
     "download_failed": "媒体下载失败，请稍后再试。"
+  },
+  "tts": {
+    "usage": "用法：说话 <文本>",
+    "disabled": "语音合成功能当前已关闭。",
+    "too_long": "文本太长啦，最多 {max_chars} 个字符。",
+    "cooldown": "稍等 {seconds} 秒再让我说话吧。",
+    "failed": "语音生成失败，请稍后再试。"
   }
 }
