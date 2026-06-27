@@ -22,6 +22,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "fish_audio": {
         "api_key": "",
         "model": "s2-pro",
+        "backup_model": "s2.1-pro-free",
+        "retry_count": 3,
+        "retry_delay_seconds": 1.0,
         "format": "mp3",
         "latency": "normal",
         "speed": 1.0,

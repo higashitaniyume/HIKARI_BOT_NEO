@@ -68,6 +68,14 @@ def _safe_mp3_bitrate(value: Any) -> int:
     return bitrate if bitrate in {64, 128, 192} else 128
 
 
+def _safe_retry_count(value: Any) -> int:
+    return _safe_timeout(value, 3, minimum=0, maximum=5)
+
+
+def _safe_retry_delay(value: Any) -> float:
+    return _safe_float(value, 1.0, minimum=0.1, maximum=30.0)
+
+
 def _safe_sample_rate(value: Any) -> int | None:
     if value in (None, "", 0, "0", "auto"):
         return None
@@ -146,6 +154,49 @@ async def _apply_pitch(input_path: Path, output_path: Path, pitch_semitones: flo
         temp_path.unlink(missing_ok=True)
 
 
+def _should_retry(error: Exception) -> bool:
+    if isinstance(error, FishAudioRequestError):
+        return error.status_code == 429 or error.status_code >= 500
+    return isinstance(error, httpx.HTTPError)
+
+
+async def _request_fish_audio(
+    client: httpx.AsyncClient,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    *,
+    model: str,
+    retry_count: int,
+    retry_delay_seconds: float,
+) -> bytes:
+    request_headers = {**headers, "model": model}
+    last_error: Exception | None = None
+    for attempt in range(retry_count + 1):
+        try:
+            response = await client.post("https://api.fish.audio/v1/tts", headers=request_headers, json=payload)
+            if response.status_code >= 400:
+                raise FishAudioRequestError(response.status_code, response.text[:300])
+            if not response.content:
+                raise RuntimeError("Fish Audio 生成结果为空。")
+            return response.content
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            last_error = error
+            if attempt >= retry_count or not _should_retry(error):
+                break
+            logger.warning(
+                "[TTS] Fish Audio 模型 %s 第 %d 次请求失败，将在 %.1f 秒后重试: %s",
+                model,
+                attempt + 1,
+                retry_delay_seconds,
+                error,
+            )
+            await asyncio.sleep(retry_delay_seconds)
+    assert last_error is not None
+    raise last_error
+
+
 async def _render_fish_tts(text: str, cfg: dict[str, Any], cache_dir: Path) -> Path:
     fish_cfg = cfg.get("fish_audio") if isinstance(cfg.get("fish_audio"), dict) else {}
     api_key = str(fish_cfg.get("api_key") or "").strip()
@@ -186,14 +237,37 @@ async def _render_fish_tts(text: str, cfg: dict[str, Any], cache_dir: Path) -> P
         write=30,
         pool=30,
     )
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "model": _safe_fish_model(fish_cfg.get("model"))}
+    primary_model = _safe_fish_model(fish_cfg.get("model"))
+    backup_model_raw = str(fish_cfg.get("backup_model") or "").strip()
+    backup_model = _safe_fish_model(backup_model_raw) if backup_model_raw else ""
+    retry_count = _safe_retry_count(fish_cfg.get("retry_count"))
+    retry_delay_seconds = _safe_retry_delay(fish_cfg.get("retry_delay_seconds"))
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     raw_path = output_path.with_name(f"{output_path.stem}.source{output_path.suffix}")
     proxy = str(cfg.get("proxy") or "").strip() or None
     async with httpx.AsyncClient(timeout=timeout, proxy=proxy) as client:
-        response = await client.post("https://api.fish.audio/v1/tts", headers=headers, json=payload)
-    if response.status_code >= 400:
-        raise FishAudioRequestError(response.status_code, response.text[:300])
-    raw_path.write_bytes(response.content)
+        try:
+            content = await _request_fish_audio(
+                client,
+                payload,
+                headers,
+                model=primary_model,
+                retry_count=retry_count,
+                retry_delay_seconds=retry_delay_seconds,
+            )
+        except Exception as primary_error:
+            if not backup_model or backup_model == primary_model:
+                raise
+            logger.warning("[TTS] 主模型 %s 失败，改用备用模型 %s: %s", primary_model, backup_model, primary_error)
+            content = await _request_fish_audio(
+                client,
+                payload,
+                headers,
+                model=backup_model,
+                retry_count=0,
+                retry_delay_seconds=retry_delay_seconds,
+            )
+    raw_path.write_bytes(content)
     if not raw_path.is_file() or raw_path.stat().st_size <= 0:
         raise RuntimeError("Fish Audio 生成结果为空。")
 

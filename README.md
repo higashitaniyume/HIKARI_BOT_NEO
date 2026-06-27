@@ -489,6 +489,9 @@ BotData/Voices/_library/
 | `voices` | 音色库，每项包含 `name` 和 Fish 模型 `reference_id` |
 | `fish_audio.api_key` | Fish Audio API Key |
 | `fish_audio.model` | Fish Audio 模型，默认 `s2-pro` |
+| `fish_audio.retry_count` | 主模型在临时错误时的重试次数，默认 `3` |
+| `fish_audio.retry_delay_seconds` | 每次主模型重试前的等待秒数，默认 `1.0` |
+| `fish_audio.backup_model` | 主模型最终失败后调用一次的备用模型，默认 `s2.1-pro-free`；留空则关闭备用模型 |
 | `fish_audio.speed`、`fish_audio.volume` | Fish 原生语速倍率和响度（dB） |
 | `fish_audio.pitch_semitones` | 音高半音，使用本机 FFmpeg 后处理 |
 | `fish_audio.temperature`、`fish_audio.top_p` | 表现力和多样性参数 |

@@ -881,6 +881,9 @@ function renderTtsConfig() {
   $("#fishApiKey").value = "";
   $("#fishApiKeyHint").textContent = fish.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
   $("#fishModel").value = fish.model || "s2-pro";
+  $("#fishBackupModel").value = fish.backup_model || "";
+  $("#fishRetryCount").value = fish.retry_count ?? 3;
+  $("#fishRetryDelay").value = fish.retry_delay_seconds ?? 1.0;
   $("#fishFormat").value = fish.format || "mp3";
   $("#fishLatency").value = fish.latency || "normal";
   $("#fishSpeed").value = fish.speed ?? 1.0;
@@ -1155,6 +1158,9 @@ function buildTtsPayload() {
     fish_audio: {
       api_key: $("#fishApiKey").value.trim(),
       model: $("#fishModel").value,
+      backup_model: $("#fishBackupModel").value,
+      retry_count: Number($("#fishRetryCount").value || 0),
+      retry_delay_seconds: Number($("#fishRetryDelay").value || 1),
       format: $("#fishFormat").value,
       latency: $("#fishLatency").value,
       speed: Number($("#fishSpeed").value || 1),

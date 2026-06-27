@@ -153,6 +153,11 @@ def _parse_fish_model(value: Any, default: str = "s2-pro") -> str:
     raise ValueError("Fish Audio 模型只能是 s1、s2-pro、s2.1-pro 或 s2.1-pro-free。")
 
 
+def _parse_fish_backup_model(value: Any) -> str:
+    model = str(value or "").strip()
+    return "" if not model else _parse_fish_model(model)
+
+
 def _parse_fish_format(value: Any, default: str = "mp3") -> str:
     fmt = str(value or default).strip().lower()
     if fmt in {"mp3", "wav", "opus", "pcm"}:
@@ -229,6 +234,9 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
         "fish_audio": {
             "api_key": fish_api_key,
             "model": _parse_fish_model(input_fish.get("model", current_fish.get("model", "s2-pro"))),
+            "backup_model": _parse_fish_backup_model(input_fish.get("backup_model", current_fish.get("backup_model", "s2.1-pro-free"))),
+            "retry_count": _parse_int(input_fish.get("retry_count", current_fish.get("retry_count", 3)), 3, minimum=0, maximum=5),
+            "retry_delay_seconds": _parse_float(input_fish.get("retry_delay_seconds", current_fish.get("retry_delay_seconds", 1.0)), 1.0, minimum=0.1, maximum=30.0),
             "format": _parse_fish_format(input_fish.get("format", current_fish.get("format", "mp3"))),
             "latency": _parse_fish_latency(input_fish.get("latency", current_fish.get("latency", "normal"))),
             "speed": _parse_float(input_fish.get("speed", current_fish.get("speed", 1.0)), 1.0, minimum=0.5, maximum=2.0),
