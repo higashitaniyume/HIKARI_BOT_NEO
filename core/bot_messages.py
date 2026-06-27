@@ -144,7 +144,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "failed": "语音生成失败，请稍后再试。",
     },
     "aiagent": {
-        "usage": "用法：ai <内容>。发送“ai 重置”可清空当前会话上下文。",
+        "usage": "用法：私聊直接发送文本；群聊 @机器人；也可发送 ai <内容>。发送“ai 重置”可清空当前会话上下文。",
         "disabled": "AI Agent 当前已关闭，请先在 Bot 后台启用并配置模型。",
         "too_long": "消息太长啦，最多 {max_chars} 个字符。",
         "cooldown": "稍等 {seconds} 秒再继续聊天吧。",

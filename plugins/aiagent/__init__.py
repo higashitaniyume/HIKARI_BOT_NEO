@@ -5,12 +5,13 @@ import time
 from typing import Any
 
 import httpx
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
+from nonebot import on_message
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 
 from core.bot_messages import get_message as msg
-from core.command_router import CommandContext, command
+from core.command_router import CommandContext, command, is_command_handled
 
-from .config import get_config, load_persona_prompt, save_config
+from .config import get_config, load_persona_prompt
 
 logger = logging.getLogger("HikariBot.AIAgent")
 
@@ -45,8 +46,7 @@ def _safe_float(value: Any, default: float, *, minimum: float, maximum: float) -
     return min(max(parsed, minimum), maximum)
 
 
-def _session_key(ctx: CommandContext) -> str:
-    event = ctx.event
+def _session_key(event: MessageEvent) -> str:
     if isinstance(event, GroupMessageEvent):
         return f"group:{event.group_id}"
     return f"private:{event.get_user_id()}"
@@ -140,33 +140,35 @@ def _remember(session_key: str, user_text: str, assistant_text: str, cfg: dict[s
     _histories[session_key] = _trim_history(history, chat_cfg.get("max_history_messages"))
 
 
-async def _handle_chat(ctx: CommandContext) -> None:
+async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str, *, show_usage: bool) -> None:
     cfg = get_config()
     if not cfg.get("enabled", False):
-        await ctx.send(Message(msg("aiagent.disabled")))
+        if show_usage:
+            await bot.send(event, Message(msg("aiagent.disabled")))
         return
 
-    text = _normalize_text(ctx.args)
+    text = _normalize_text(text)
     if not text:
-        await ctx.send(Message(msg("aiagent.usage")))
+        if show_usage:
+            await bot.send(event, Message(msg("aiagent.usage")))
         return
     if text.casefold() in {"reset", "重置", "清空上下文"}:
-        _histories.pop(_session_key(ctx), None)
-        await ctx.send(Message(msg("aiagent.reset_done")))
+        _histories.pop(_session_key(event), None)
+        await bot.send(event, Message(msg("aiagent.reset_done")))
         return
 
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
     max_user_chars = _safe_int(chat_cfg.get("max_user_chars"), 2000, minimum=1, maximum=20000)
     if len(text) > max_user_chars:
-        await ctx.send(Message(msg("aiagent.too_long", max_chars=max_user_chars)))
+        await bot.send(event, Message(msg("aiagent.too_long", max_chars=max_user_chars)))
         return
 
-    remain = _check_cooldown(ctx.event.get_user_id(), chat_cfg.get("cooldown_seconds", 3))
+    remain = _check_cooldown(event.get_user_id(), chat_cfg.get("cooldown_seconds", 3))
     if remain > 0:
-        await ctx.send(Message(msg("aiagent.cooldown", seconds=remain)))
+        await bot.send(event, Message(msg("aiagent.cooldown", seconds=remain)))
         return
 
-    session_key = _session_key(ctx)
+    session_key = _session_key(event)
     try:
         messages = _build_messages(cfg, session_key, text)
         reply = await _request_chat_completion(cfg, messages)
@@ -174,24 +176,44 @@ async def _handle_chat(ctx: CommandContext) -> None:
         if len(reply) > max_reply_chars:
             reply = f"{reply[:max_reply_chars].rstrip()}\n\n{msg('aiagent.reply_truncated')}"
         _remember(session_key, text, reply, cfg)
-        await ctx.send(Message(reply))
+        await bot.send(event, Message(reply))
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
         if e.status_code in {401, 403}:
-            await ctx.send(Message(msg("aiagent.auth_failed")))
+            await bot.send(event, Message(msg("aiagent.auth_failed")))
         else:
-            await ctx.send(Message(msg("aiagent.failed")))
+            await bot.send(event, Message(msg("aiagent.failed")))
     except Exception as e:
         logger.exception("[AIAgent] 聊天失败: %s", e)
-        await ctx.send(Message(msg("aiagent.failed")))
+        await bot.send(event, Message(msg("aiagent.failed")))
 
 
-@command("ai", aliases=("aiagent", "聊天"), description="和配置的 AI Agent 聊天", usage="ai <内容>")
+async def _handle_chat(ctx: CommandContext) -> None:
+    await _handle_chat_event(ctx.bot, ctx.event, ctx.args, show_usage=True)
+
+
+def _should_auto_reply(event: MessageEvent) -> bool:
+    if isinstance(event, GroupMessageEvent):
+        return event.is_tome()
+    return True
+
+
+aiagent_auto_matcher = on_message(priority=2, block=False)
+
+
+@aiagent_auto_matcher.handle()
+async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
+    if is_command_handled(event) or not _should_auto_reply(event):
+        return
+    await _handle_chat_event(bot, event, event.get_plaintext(), show_usage=False)
+
+
+@command("ai", aliases=("aiagent", "聊天"), description="和配置的 AI Agent 聊天", usage="ai <内容>", require_tome=True)
 async def cmd_aiagent(ctx: CommandContext) -> None:
     await _handle_chat(ctx)
 
 
-@command("ai重置", aliases=("ai reset", "聊天重置"), description="清空当前会话的 AI Agent 上下文", usage="ai重置")
+@command("ai重置", aliases=("ai reset", "聊天重置"), description="清空当前会话的 AI Agent 上下文", usage="ai重置", require_tome=True)
 async def cmd_aiagent_reset(ctx: CommandContext) -> None:
-    _histories.pop(_session_key(ctx), None)
+    _histories.pop(_session_key(ctx.event), None)
     await ctx.send(Message(msg("aiagent.reset_done")))
