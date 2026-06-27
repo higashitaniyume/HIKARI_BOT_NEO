@@ -24,6 +24,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 from plugins import sticker_inbox
 from plugins import sticker_library
 from plugins import voice_library
+from plugins.aiagent.config import get_config as get_aiagent_config
+from plugins.aiagent.config import list_persona_skills as list_aiagent_persona_skills
+from plugins.aiagent.config import resolve_persona_path as resolve_aiagent_persona_path
+from plugins.aiagent.config import save_config as save_aiagent_config
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
 from plugins.tg_sticker_parser.config import get_config as get_tg_config
@@ -128,6 +132,20 @@ def _tts_config_state() -> dict[str, Any]:
     return {"config": sanitized}
 
 
+def _aiagent_config_state() -> dict[str, Any]:
+    cfg = get_aiagent_config()
+    sanitized = json.loads(json.dumps(cfg, ensure_ascii=False))
+    model_cfg = sanitized.get("model") if isinstance(sanitized.get("model"), dict) else {}
+    api_key = str(model_cfg.get("api_key") or "")
+    model_cfg["api_key"] = ""
+    model_cfg["api_key_set"] = bool(api_key)
+    sanitized["model"] = model_cfg
+    return {
+        "config": sanitized,
+        "personas": list_aiagent_persona_skills(),
+    }
+
+
 def _json_bytes(data: Any) -> bytes:
     return json.dumps(data, ensure_ascii=False).encode("utf-8")
 
@@ -178,6 +196,11 @@ def _parse_float(value: Any, default: float, *, minimum: float, maximum: float) 
     except Exception:
         return default
     return min(max(parsed, minimum), maximum)
+
+
+def _parse_str(value: Any, default: str = "", *, max_length: int = 4000) -> str:
+    text = str(value if value is not None else default).strip()
+    return text[:max_length]
 
 
 def _parse_sample_rate(value: Any) -> int | None:
@@ -287,6 +310,55 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
         ),
     }
     return save_tts_config(next_config)
+
+
+def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
+    current = get_aiagent_config()
+    current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
+    current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
+    current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
+    input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
+    input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
+    input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+
+    api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
+    if not api_key:
+        api_key = str(current_model.get("api_key") or "")
+
+    base_url = _parse_str(input_model.get("base_url", current_model.get("base_url", "")), max_length=512).rstrip("/")
+    model_name = _parse_str(input_model.get("model", current_model.get("model", "")), max_length=160)
+    if not base_url:
+        raise ValueError("OpenAI-compatible API 地址不能为空。")
+    if not model_name:
+        raise ValueError("模型名称不能为空。")
+
+    next_config = {
+        "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
+        "model": {
+            "base_url": base_url,
+            "api_key": api_key,
+            "model": model_name,
+            "temperature": _parse_float(input_model.get("temperature", current_model.get("temperature", 0.7)), 0.7, minimum=0.0, maximum=2.0),
+            "top_p": _parse_float(input_model.get("top_p", current_model.get("top_p", 1.0)), 1.0, minimum=0.0, maximum=1.0),
+            "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 1024)), 1024, minimum=1, maximum=32000),
+            "timeout_seconds": _parse_int(input_model.get("timeout_seconds", current_model.get("timeout_seconds", 60)), 60, minimum=5, maximum=600),
+            "proxy": _parse_str(input_model.get("proxy", current_model.get("proxy", "")), max_length=512),
+        },
+        "persona": {
+            "skill_path": _parse_str(input_persona.get("skill_path", current_persona.get("skill_path", "BotData/agent_personas/default")), max_length=512),
+            "max_chars": _parse_int(input_persona.get("max_chars", current_persona.get("max_chars", 12000)), 12000, minimum=1000, maximum=80000),
+            "fallback_prompt": _parse_str(input_persona.get("fallback_prompt", current_persona.get("fallback_prompt", "")), max_length=20000),
+        },
+        "chat": {
+            "max_user_chars": _parse_int(input_chat.get("max_user_chars", current_chat.get("max_user_chars", 2000)), 2000, minimum=1, maximum=20000),
+            "max_reply_chars": _parse_int(input_chat.get("max_reply_chars", current_chat.get("max_reply_chars", 3500)), 3500, minimum=100, maximum=12000),
+            "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
+            "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
+            "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
+        },
+    }
+    resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
+    return save_aiagent_config(next_config)
 
 
 def _safe_config_file(name: str) -> Path:
@@ -1003,6 +1075,12 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(_tts_config_state())
             return
+        if parsed.path == "/api/aiagent-config":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            self._send_json(_aiagent_config_state())
+            return
         if parsed.path == "/api/configs":
             if not self._is_authenticated():
                 self._unauthorized_json()
@@ -1136,6 +1214,20 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("保存 TTS 设置失败: %s", e)
                 self._send_json({"error": "保存 TTS 设置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/aiagent-config":
+            try:
+                data = self._read_json_body()
+                _update_aiagent_config(data)
+                payload = _aiagent_config_state()
+                payload["message"] = "AI Agent 设置已保存。"
+                self._send_json(payload)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("保存 AI Agent 设置失败: %s", e)
+                self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/voice-keywords":

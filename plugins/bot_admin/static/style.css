@@ -428,7 +428,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid #c9d1d7;
   background: #fff;
   color: var(--text);
@@ -437,6 +438,7 @@ select {
 
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible {
   outline: 3px solid rgba(20, 108, 124, 0.18);
   outline-offset: 1px;
@@ -1396,7 +1398,8 @@ label span {
 }
 
 input,
-select {
+select,
+textarea {
   border-color: #d5ddea;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.96);
@@ -1405,16 +1408,34 @@ select {
 }
 
 input:hover,
-select:hover {
+select:hover,
+textarea:hover {
   border-color: #aeb9d2;
 }
 
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible {
   border-color: #7784ec;
   outline: 3px solid rgba(89, 102, 217, 0.16);
   outline-offset: 1px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 112px;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.wide-field {
+  grid-column: 1 / -1;
+}
+
+.aiagent-form .primary {
+  justify-self: start;
 }
 
 button {
@@ -1777,6 +1798,10 @@ button:not(:disabled):active {
 
   .settings-form .primary {
     width: 100%;
+  }
+
+  .aiagent-form .primary {
+    justify-self: stretch;
   }
 
   .code-editor,

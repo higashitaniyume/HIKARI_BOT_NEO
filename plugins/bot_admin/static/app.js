@@ -12,6 +12,8 @@ const state = {
   totalVoices: 0,
   totalVoiceKeywords: 0,
   ttsConfig: {},
+  aiagentConfig: {},
+  aiagentPersonas: [],
   editingTtsVoiceName: "",
   draggingInboxIds: [],
   pickerInboxIds: [],
@@ -27,6 +29,7 @@ const VIEW_TITLES = {
   inbox: "待整理",
   voices: "语音",
   settings: "设置",
+  aiagent: "AI Agent",
   configs: "配置",
   logs: "日志",
 };
@@ -52,6 +55,9 @@ function setView(view) {
   }
   if (target === "logs" && !state.logFiles.length) {
     fetchLogFiles().catch((err) => showToast(err.message, true));
+  }
+  if (target === "aiagent" && !Object.keys(state.aiagentConfig || {}).length) {
+    fetchAiAgentConfig().catch((err) => showToast(err.message, true));
   }
 }
 
@@ -155,6 +161,7 @@ async function fetchState() {
   state.totalStickers = Number(data.total_stickers || 0);
   await fetchVoiceState(false);
   await fetchTtsConfig(false);
+  await fetchAiAgentConfig(false);
   await fetchInbox(false);
   render();
 }
@@ -186,6 +193,16 @@ async function fetchTtsConfig(shouldRender = true) {
   state.ttsConfig = data.config || {};
   if (shouldRender) {
     render();
+  }
+}
+
+async function fetchAiAgentConfig(shouldRender = true) {
+  const res = await fetch("/api/aiagent-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取 AI Agent 设置失败");
+  state.aiagentConfig = data.config || {};
+  state.aiagentPersonas = data.personas || [];
+  if (shouldRender) {
+    renderAiAgentConfig();
   }
 }
 
@@ -859,6 +876,7 @@ function render() {
   renderVoices();
   renderVoiceKeywords();
   renderTtsConfig();
+  renderAiAgentConfig();
 }
 
 function renderTtsConfig() {
@@ -944,6 +962,41 @@ function renderTtsVoiceList() {
     row.append(meta, actions);
     list.append(row);
   }
+}
+
+function renderAiAgentConfig() {
+  const cfg = state.aiagentConfig || {};
+  const model = cfg.model || {};
+  const persona = cfg.persona || {};
+  const chat = cfg.chat || {};
+  $("#aiagentEnabled").checked = cfg.enabled === true;
+  $("#aiagentBaseUrl").value = model.base_url || "https://api.deepseek.com/v1";
+  $("#aiagentModel").value = model.model || "deepseek-chat";
+  $("#aiagentApiKey").value = "";
+  $("#aiagentApiKeyHint").textContent = model.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
+  $("#aiagentProxy").value = model.proxy || "";
+  $("#aiagentTimeout").value = model.timeout_seconds ?? 60;
+  $("#aiagentTemperature").value = model.temperature ?? 0.7;
+  $("#aiagentTopP").value = model.top_p ?? 1.0;
+  $("#aiagentMaxTokens").value = model.max_tokens ?? 1024;
+
+  const personaPath = persona.skill_path || "BotData/agent_personas/default";
+  $("#aiagentPersonaPath").value = personaPath;
+  $("#aiagentPersonaMaxChars").value = persona.max_chars ?? 12000;
+  $("#aiagentFallbackPrompt").value = persona.fallback_prompt || "";
+  $("#aiagentMaxUserChars").value = chat.max_user_chars ?? 2000;
+  $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 3500;
+  $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
+  $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
+  $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
+
+  const select = $("#aiagentPersonaSelect");
+  select.replaceChildren(option("", "手动填写路径"));
+  for (const personaItem of state.aiagentPersonas || []) {
+    const label = `${personaItem.title || personaItem.path} (${personaItem.path})`;
+    select.append(option(personaItem.path, label));
+  }
+  select.value = (state.aiagentPersonas || []).some((item) => item.path === personaPath) ? personaPath : "";
 }
 
 function updateFileHint() {
@@ -1184,6 +1237,56 @@ function buildTtsPayload() {
     cache_dir: $("#ttsCacheDir").value.trim(),
     cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
   };
+}
+
+function buildAiAgentPayload() {
+  return {
+    enabled: $("#aiagentEnabled").checked,
+    model: {
+      base_url: $("#aiagentBaseUrl").value.trim(),
+      api_key: $("#aiagentApiKey").value.trim(),
+      model: $("#aiagentModel").value.trim(),
+      temperature: Number($("#aiagentTemperature").value || 0.7),
+      top_p: Number($("#aiagentTopP").value || 1),
+      max_tokens: Number($("#aiagentMaxTokens").value || 1024),
+      timeout_seconds: Number($("#aiagentTimeout").value || 60),
+      proxy: $("#aiagentProxy").value.trim(),
+    },
+    persona: {
+      skill_path: $("#aiagentPersonaPath").value.trim(),
+      max_chars: Number($("#aiagentPersonaMaxChars").value || 12000),
+      fallback_prompt: $("#aiagentFallbackPrompt").value.trim(),
+    },
+    chat: {
+      max_user_chars: Number($("#aiagentMaxUserChars").value || 2000),
+      max_reply_chars: Number($("#aiagentMaxReplyChars").value || 3500),
+      max_history_messages: Number($("#aiagentMaxHistory").value || 10),
+      cooldown_seconds: Number($("#aiagentCooldown").value || 3),
+      system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
+    },
+  };
+}
+
+async function saveAiAgentConfig(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type='submit']");
+  button.disabled = true;
+  try {
+    const res = await fetch("/api/aiagent-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAiAgentPayload()),
+    });
+    const data = await readJsonResponse(res, "保存 AI Agent 设置失败");
+    state.aiagentConfig = data.config || {};
+    state.aiagentPersonas = data.personas || [];
+    renderAiAgentConfig();
+    showToast(data.message || "AI Agent 设置已保存。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function saveTtsConfigData(payload, successMessage = "TTS 设置已保存。") {
@@ -1469,6 +1572,7 @@ $("#tgForm").addEventListener("submit", importTelegramStickers);
 $("#voiceUploadForm").addEventListener("submit", uploadVoices);
 $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
+$("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
 $("#ttsVoiceForm").addEventListener("submit", saveTtsVoice);
 $("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
@@ -1489,6 +1593,11 @@ $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then((
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());
 $("#logRefreshBtn").addEventListener("click", () => fetchLogFiles().then(() => showToast("日志列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#logReloadBtn").addEventListener("click", () => reloadSelectedLog().catch((err) => showToast(err.message, true)));
+$("#aiagentPersonaSelect").addEventListener("change", (event) => {
+  if (event.currentTarget.value) {
+    $("#aiagentPersonaPath").value = event.currentTarget.value;
+  }
+});
 $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 

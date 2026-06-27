@@ -143,6 +143,16 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "fish_auth_failed": "Fish Audio API Key 无效或没有权限，请在 Bot 后台更新 API Key。",
         "failed": "语音生成失败，请稍后再试。",
     },
+    "aiagent": {
+        "usage": "用法：ai <内容>。发送“ai 重置”可清空当前会话上下文。",
+        "disabled": "AI Agent 当前已关闭，请先在 Bot 后台启用并配置模型。",
+        "too_long": "消息太长啦，最多 {max_chars} 个字符。",
+        "cooldown": "稍等 {seconds} 秒再继续聊天吧。",
+        "auth_failed": "AI Agent API Key 无效或没有权限，请在 Bot 后台更新配置。",
+        "failed": "AI Agent 暂时聊不动，请稍后再试。",
+        "reset_done": "已清空当前会话的 AI Agent 上下文。",
+        "reply_truncated": "（回复过长，已截断）",
+    },
 }
 
 
