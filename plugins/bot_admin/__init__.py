@@ -317,9 +317,11 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
+    current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -355,6 +357,13 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
             "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
             "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
+            "blocked_url_domains": current_chat.get("blocked_url_domains", []),
+        },
+        "memory": {
+            "enabled": _parse_bool(input_memory.get("enabled", current_memory.get("enabled", True))),
+            "root": _parse_str(input_memory.get("root", current_memory.get("root", "UserData/aiagent_memory")), max_length=512),
+            "max_read_chars_per_file": _parse_int(input_memory.get("max_read_chars_per_file", current_memory.get("max_read_chars_per_file", 8000)), 8000, minimum=1000, maximum=80000),
+            "max_file_chars": _parse_int(input_memory.get("max_file_chars", current_memory.get("max_file_chars", 60000)), 60000, minimum=5000, maximum=500000),
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])

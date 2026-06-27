@@ -69,6 +69,7 @@ Thumbs.db
 # Temporary media
 /tmp/hikari_bot/
 /runtime/
+deploy-source-files-*.txt
 
 # Docker runtime data
 astrbot/

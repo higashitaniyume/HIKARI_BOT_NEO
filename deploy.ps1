@@ -31,7 +31,7 @@ function Run-Remote {
     ssh "${ServerUser}@${ServerIP}" $Command
 }
 
-function Get-SourceFiles {
+function Get-SourceRelativePaths {
     $files = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
     if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
         throw "无法读取要部署的项目文件。"
@@ -40,14 +40,35 @@ function Get-SourceFiles {
     foreach ($relativePath in $files) {
         $localPath = Join-Path $ProjectRoot $relativePath
         if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) {
-            # 已删除但仍在 Git 索引里的文件无需上传；同步阶段会由 rsync --delete 清理远端副本。
+            # 已删除但仍在 Git 索引里的文件无需打包；同步阶段会由 rsync --delete 清理远端副本。
             Write-Verbose "跳过已删除文件：$relativePath"
             continue
         }
-        [PSCustomObject]@{
-            RelativePath = $relativePath.Replace("\", "/")
-            LocalPath = $localPath
+        $relativePath.Replace("\", "/")
+    }
+}
+
+function New-SourceArchive {
+    param(
+        [string[]]$RelativePaths,
+        [string]$ArchivePath,
+        [string]$ListPath
+    )
+
+    if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+        throw "未找到 7z 命令。请先安装 7-Zip，并确认 7z 在 PATH 中。"
+    }
+
+    $RelativePaths | Set-Content -LiteralPath $ListPath -Encoding UTF8
+    Push-Location $ProjectRoot
+    try {
+        $listFileName = Split-Path -Leaf $ListPath
+        7z a -t7z -mx=5 -scsUTF-8 $ArchivePath "@$listFileName" | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "7z 打包源码失败。"
         }
+    } finally {
+        Pop-Location
     }
 }
 
@@ -110,33 +131,31 @@ if ($DeployPath -eq "/opt/hikaribot-docker") {
 }
 Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
 
-Write-Host "逐文件上传源码..." -ForegroundColor Yellow
-$sourceFiles = @(Get-SourceFiles)
-Run-Remote "mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
+Write-Host "打包源码..." -ForegroundColor Yellow
+$sourcePaths = @(Get-SourceRelativePaths)
+$deployArchiveId = [System.Guid]::NewGuid().ToString("N")
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hikari-deploy-" + $deployArchiveId)
+$archivePath = Join-Path $tempRoot "source.7z"
+$listPath = Join-Path $ProjectRoot "deploy-source-files-$deployArchiveId.txt"
+$remoteArchivePath = "$DeployPath/.source-staging/source.7z"
+$quotedRemoteArchivePath = Quote-RemoteSingle $remoteArchivePath
+New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+try {
+    New-SourceArchive -RelativePaths $sourcePaths -ArchivePath $archivePath -ListPath $listPath
 
-$createdRemoteDirs = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-$uploaded = 0
-foreach ($sourceFile in $sourceFiles) {
-    $remotePath = "$DeployPath/.source-staging/$($sourceFile.RelativePath)"
-    $remoteDirectory = [System.IO.Path]::GetDirectoryName($remotePath).Replace("\", "/")
-    if ($createdRemoteDirs.Add($remoteDirectory)) {
-        Run-Remote ("mkdir -p " + (Quote-RemoteSingle $remoteDirectory))
-    }
-
-    $uploaded++
-    Write-Progress -Activity "上传源码" -Status $sourceFile.RelativePath -PercentComplete (($uploaded / $sourceFiles.Count) * 100)
-    scp -- $sourceFile.LocalPath "${ServerUser}@${ServerIP}:$remotePath"
+    Write-Host "上传源码压缩包..." -ForegroundColor Yellow
+    Run-Remote "command -v 7z >/dev/null 2>&1 || { echo '服务器未找到 7z 命令，请先安装 p7zip/7zip。' >&2; exit 127; }; mkdir -p $quotedStagingPath && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
+    scp -- $archivePath "${ServerUser}@${ServerIP}:$remoteArchivePath"
     if ($LASTEXITCODE -ne 0) {
-        throw "上传源码文件失败：$($sourceFile.RelativePath)"
+        throw "上传源码压缩包失败。"
     }
+
+    Write-Host "解压并同步源码目录..." -ForegroundColor Yellow
+    Run-Remote "7z x -y $quotedRemoteArchivePath -o$quotedStagingPath >/dev/null && rm -f $quotedRemoteArchivePath && rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && chmod +x $quotedAppPath/install.sh && cp $quotedAppPath/deploy/docker-compose.server.yml $quotedDeployPath/docker-compose.yml && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
+} finally {
+    Remove-Item -LiteralPath $listPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Progress -Activity "上传源码" -Completed
-
-Write-Host "同步源码目录..." -ForegroundColor Yellow
-Run-Remote "rsync -a --delete $quotedStagingPath/ $quotedAppPath/ && chmod +x $quotedAppPath/install.sh && find $quotedStagingPath -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +"
-
-Write-Host "上传 Docker Compose 配置..." -ForegroundColor Yellow
-scp $ServerCompose "${ServerUser}@${ServerIP}:${DeployPath}/docker-compose.yml"
 
 if ($NapcatAccount -ne "") {
     Write-Host "更新 NapCat 账号配置..." -ForegroundColor Yellow

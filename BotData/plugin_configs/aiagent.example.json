@@ -20,6 +20,33 @@
     "max_reply_chars": 3500,
     "max_history_messages": 10,
     "cooldown_seconds": 3,
-    "system_prompt_extra": ""
+    "system_prompt_extra": "",
+    "blocked_url_domains": [
+      "douyin.com",
+      "iesdouyin.com",
+      "bilibili.com",
+      "b23.tv",
+      "xiaohongshu.com",
+      "xhslink.com",
+      "xiaoheihe.cn",
+      "heybox.cn",
+      "twitter.com",
+      "x.com",
+      "t.co",
+      "toutiao.com",
+      "ixigua.com",
+      "kuaishou.com",
+      "gifshow.com",
+      "weibo.com",
+      "weibo.cn",
+      "tiktok.com",
+      "vm.tiktok.com"
+    ]
+  },
+  "memory": {
+    "enabled": true,
+    "root": "UserData/aiagent_memory",
+    "max_read_chars_per_file": 8000,
+    "max_file_chars": 60000
   }
 }

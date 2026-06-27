@@ -21,7 +21,7 @@ from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegme
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.bot_messages import get_message as msg
-from core.command_router import CommandContext, command, is_command_handled
+from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.error_notifier import notify_error_to_superuser
 from core.rendering import load_font
 from core.stats_tracker import increment as stats_increment, format_stats
@@ -702,6 +702,7 @@ async def handle_sticker(bot: Bot, event: MessageEvent):
 
     sent = await _send_many_stickers(bot, event, picked)
     if sent:
+        mark_event_handled(event)
         stats_increment(event, "stickers_sent", sent)
 
     _cleanup_shared_dir()

@@ -13,7 +13,7 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
-from core.command_router import is_command_handled
+from core.command_router import is_command_handled, mark_event_handled
 from plugins import voice_library
 
 logger = logging.getLogger("HikariBot.VoiceTrigger")
@@ -109,6 +109,7 @@ async def handle_voice(bot: Bot, event: MessageEvent) -> None:
     logger.info("[Voice] 关键词 %r -> %s", text, picked.name)
     try:
         await _send_voice(bot, event, picked, f"语音 {picked.name}")
+        mark_event_handled(event)
     except Exception as e:
         logger.exception("[Voice] 语音发送失败: %s", e)
     finally:

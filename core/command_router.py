@@ -107,6 +107,10 @@ def is_command_handled(event: MessageEvent) -> bool:
     return id(event) in _handled_event_ids
 
 
+def mark_event_handled(event: MessageEvent) -> None:
+    _mark_command_handled(event)
+
+
 def _mark_command_handled(event: MessageEvent) -> None:
     _cleanup_handled_events()
     _handled_event_ids[id(event)] = time.monotonic()
