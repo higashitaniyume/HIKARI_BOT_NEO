@@ -41,6 +41,7 @@ class CommandSpec:
     handler: CommandHandler
     description: str = ""
     usage: str = ""
+    detail_key: str = ""
     require_tome: bool = False
     private_only: bool = False
     group_only: bool = False
@@ -61,6 +62,7 @@ def command(
     aliases: Iterable[str] = (),
     description: str = "",
     usage: str = "",
+    detail_key: str = "",
     require_tome: bool = False,
     private_only: bool = False,
     group_only: bool = False,
@@ -74,6 +76,7 @@ def command(
             handler=func,
             description=description,
             usage=usage or name,
+            detail_key=detail_key,
             require_tome=require_tome,
             private_only=private_only,
             group_only=group_only,

@@ -13,6 +13,8 @@ import httpx
 from PIL import Image
 
 import plugins.osu_info as osu_plugin
+import plugins.bot_help as bot_help
+from core.command_router import iter_commands
 from plugins.osu_info import api as osu_api
 from plugins.osu_info import downloader as osu_downloader
 from plugins.osu_info import render as osu_render
@@ -434,6 +436,44 @@ class OsuCommandTests(unittest.IsolatedAsyncioTestCase):
         ) as notice:
             await osu_plugin.handle_osu_unbind(ctx)
             notice.assert_awaited_once()
+
+    async def test_osu_dispatcher_routes_spaced_subcommands(self) -> None:
+        seen_args: list[str] = []
+
+        with patch.object(
+            osu_plugin,
+            "handle_osu_dashboard",
+            AsyncMock(side_effect=lambda inner_ctx: seen_args.append(inner_ctx.args)),
+        ) as dashboard:
+            ctx = FakeContext("看板 mania SampleUser")
+            await osu_plugin.handle_osu(ctx)
+
+        dashboard.assert_awaited_once()
+        self.assertEqual(seen_args, ["mania SampleUser"])
+        self.assertEqual(ctx.args, "看板 mania SampleUser")
+
+    async def test_osu_dispatcher_defaults_to_user_query(self) -> None:
+        seen_args: list[str] = []
+
+        with patch.object(
+            osu_plugin,
+            "handle_osu_user",
+            AsyncMock(side_effect=lambda inner_ctx: seen_args.append(inner_ctx.args)),
+        ) as user_query:
+            await osu_plugin.handle_osu(FakeContext("mania SampleUser"))
+
+        user_query.assert_awaited_once()
+        self.assertEqual(seen_args, ["mania SampleUser"])
+
+    async def test_help_osu_shows_subcommand_detail(self) -> None:
+        spec = next(spec for spec in iter_commands() if spec.name == "osu")
+
+        self.assertEqual(spec.usage, "osu")
+        self.assertEqual(spec.detail_key, "osu.help")
+        detail = bot_help._format_command_detail(spec)
+
+        self.assertIn("详细用法", detail)
+        self.assertIn("osu 看板", detail)
 
     async def test_bind_command_fetches_user_and_saves_binding(self) -> None:
         ctx = FakeContext("mania SampleUser")

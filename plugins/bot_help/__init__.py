@@ -68,6 +68,8 @@ def _format_command_detail(spec: CommandSpec) -> str:
     scope = _command_scope(spec)
     if scope:
         lines.append(msg("bot_help.command_detail_scope", scope=scope))
+    if spec.detail_key:
+        lines.append(msg("bot_help.command_detail_extra", details=msg(spec.detail_key)))
     return "\n".join(lines)
 
 

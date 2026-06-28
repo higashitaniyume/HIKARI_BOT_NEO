@@ -45,6 +45,38 @@ logger = logging.getLogger("HikariBot.OsuInfo")
 _client: OsuApiClient | None = None
 _client_key: tuple[str, str, str, str] | None = None
 
+_SUBCOMMAND_ALIASES = {
+    "help": "help",
+    "帮助": "help",
+    "菜单": "help",
+    "bind": "bind",
+    "绑定": "bind",
+    "unbind": "unbind",
+    "解绑": "unbind",
+    "user": "user",
+    "用户": "user",
+    "信息": "user",
+    "profile": "user",
+    "看板": "dashboard",
+    "卡片": "dashboard",
+    "card": "dashboard",
+    "dashboard": "dashboard",
+    "score": "scores",
+    "scores": "scores",
+    "成绩": "scores",
+    "bp": "scores",
+    "ranking": "ranking",
+    "rank": "ranking",
+    "排名": "ranking",
+    "排行榜": "ranking",
+    "beatmap": "beatmap",
+    "map": "beatmap",
+    "谱面": "beatmap",
+    "download": "download",
+    "dl": "download",
+    "下载": "download",
+}
+
 
 def _cache_dir() -> Path:
     return Path(str(get_config().get("cache_dir") or "/tmp/hikari_bot/osu_info"))
@@ -221,7 +253,6 @@ async def _send_download_link(ctx: CommandContext, beatmapset_id: int, reason: s
     )
 
 
-@command("osu帮助", aliases=("osu help", "osuhelp"), description="查看 osu! 查询命令", usage="osu帮助", require_tome=True)
 async def handle_osu_help(ctx: CommandContext) -> None:
     await _send_notice(
         ctx,
@@ -230,7 +261,6 @@ async def handle_osu_help(ctx: CommandContext) -> None:
     )
 
 
-@command("osu绑定", aliases=("osubind", "绑定osu"), description="绑定当前 QQ 的 osu! 账号", usage="osu绑定 <用户名/ID> [模式]", require_tome=True)
 async def handle_osu_bind(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -261,13 +291,11 @@ async def handle_osu_bind(ctx: CommandContext) -> None:
         await _send_resource_notice(ctx, "user_not_found_title", "target", target=target)
 
 
-@command("osu解绑", aliases=("osuunbind", "解绑osu"), description="解绑当前 QQ 的 osu! 账号", usage="osu解绑", require_tome=True)
 async def handle_osu_unbind(ctx: CommandContext) -> None:
     existed = remove_binding(ctx.event.get_user_id())
     await _send_notice(ctx, msg("osu.unbind_title"), [msg("osu.unbind_success") if existed else msg("osu.unbind_empty")])
 
 
-@command("osu", aliases=("osu信息", "osu用户", "osuinfo"), description="查询 osu! 用户信息", usage="osu [模式] [用户名/ID]", require_tome=True)
 async def handle_osu_user(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -296,7 +324,6 @@ async def handle_osu_user(ctx: CommandContext) -> None:
         await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
-@command("osu看板", aliases=("osucard", "osu卡片"), description="查询 osu! 个人看板", usage="osu看板 [模式] [用户名/ID]", require_tome=True)
 async def handle_osu_dashboard(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -324,7 +351,6 @@ async def handle_osu_dashboard(ctx: CommandContext) -> None:
         await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
-@command("osu成绩", aliases=("osuscore", "osubp", "bp"), description="查询 osu! 最好/最近成绩", usage="osu成绩 [best|recent|firsts] [模式] [用户名/ID]", require_tome=True)
 async def handle_osu_scores(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -350,7 +376,6 @@ async def handle_osu_scores(ctx: CommandContext) -> None:
         await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
-@command("osu排名", aliases=("osurank", "osu排行榜"), description="查询 osu! 排行榜", usage="osu排名 [模式] [国家代码]", require_tome=True)
 async def handle_osu_ranking(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -385,7 +410,6 @@ async def handle_osu_ranking(ctx: CommandContext) -> None:
         await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
-@command("osu谱面", aliases=("osumap", "osu beatmap"), description="查询或搜索 osu! 谱面", usage="osu谱面 <谱面ID|关键词>", require_tome=True)
 async def handle_osu_beatmap(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -421,7 +445,6 @@ async def handle_osu_beatmap(ctx: CommandContext) -> None:
         await _send_notice(ctx, msg("osu.query_failed_title"), [str(e)])
 
 
-@command("osu下载", aliases=("osudl", "osu谱面下载", "osu下载谱面"), description="下载 osu! 谱面 .osz", usage="osu下载 <谱面集ID|谱面链接|关键词>", require_tome=True)
 async def handle_osu_download(ctx: CommandContext) -> None:
     if not _enabled():
         return
@@ -461,6 +484,52 @@ async def handle_osu_download(ctx: CommandContext) -> None:
             await _send_resource_notice(ctx, "download_failed_title", "upload_failed", error_type=type(e).__name__)
         else:
             await _send_download_link(ctx, beatmapset_id, msg("osu.upload_failed", error_type=type(e).__name__))
+
+
+async def _call_with_args(ctx: CommandContext, args: str, handler) -> None:
+    old_args = ctx.args
+    ctx.args = args
+    try:
+        await handler(ctx)
+    finally:
+        ctx.args = old_args
+
+
+def _split_osu_subcommand(args: str) -> tuple[str | None, str]:
+    text = args.strip()
+    if not text:
+        return None, ""
+    parts = text.split(maxsplit=1)
+    head = parts[0].casefold()
+    subcommand = _SUBCOMMAND_ALIASES.get(head)
+    if subcommand is None:
+        return None, text
+    return subcommand, parts[1].strip() if len(parts) > 1 else ""
+
+
+@command("osu", description="osu! 信息查询", usage="osu", detail_key="osu.help", require_tome=True)
+async def handle_osu(ctx: CommandContext) -> None:
+    subcommand, rest = _split_osu_subcommand(ctx.args)
+    if subcommand == "help":
+        await _call_with_args(ctx, rest, handle_osu_help)
+    elif subcommand == "bind":
+        await _call_with_args(ctx, rest, handle_osu_bind)
+    elif subcommand == "unbind":
+        await _call_with_args(ctx, rest, handle_osu_unbind)
+    elif subcommand == "user":
+        await _call_with_args(ctx, rest, handle_osu_user)
+    elif subcommand == "dashboard":
+        await _call_with_args(ctx, rest, handle_osu_dashboard)
+    elif subcommand == "scores":
+        await _call_with_args(ctx, rest, handle_osu_scores)
+    elif subcommand == "ranking":
+        await _call_with_args(ctx, rest, handle_osu_ranking)
+    elif subcommand == "beatmap":
+        await _call_with_args(ctx, rest, handle_osu_beatmap)
+    elif subcommand == "download":
+        await _call_with_args(ctx, rest, handle_osu_download)
+    else:
+        await _call_with_args(ctx, ctx.args, handle_osu_user)
 
 
 get_config()
