@@ -43,6 +43,26 @@ PACK_PREVIEW_IMAGE_WIDTH = 1200
 SHARED_DIR = Path("/tmp/hikari_bot/stickers")
 T = TypeVar("T")
 
+_PACK_SUBCOMMAND_ALIASES = {
+    "help": "help",
+    "帮助": "help",
+    "菜单": "help",
+    "random": "random",
+    "随机": "random",
+    "随机贴纸": "random",
+    "贴纸": "random",
+    "collage": "collage",
+    "拼图": "collage",
+    "stats": "stats",
+    "stat": "stats",
+    "统计": "stats",
+    "列表": "list",
+    "list": "list",
+    "packs": "list",
+    "预览": "preview",
+    "preview": "preview",
+}
+
 
 def _cleanup_shared_dir():
     """删除超过 2 分钟的临时贴纸文件，避免堆积。"""
@@ -566,14 +586,9 @@ async def _send_pack_list(bot: Bot, event: MessageEvent, arg: str) -> None:
 
 
 def _is_reserved_command_text(text: str) -> bool:
-    return (
-        text in {"随机贴纸", "统计", "贴纸包统计", "贴纸包列表", "贴纸包预览"}
-        or text.startswith("拼图 ")
-        or text.startswith("贴纸包列表 ")
-    )
+    return text == "统计" or text == "贴纸包" or text.startswith("贴纸包 ")
 
 
-@command("随机贴纸", description="从所有贴纸包随机发送一张贴纸")
 async def cmd_random_sticker(ctx: CommandContext) -> None:
     all_files = sticker_library.get_all_files()
     if not all_files:
@@ -585,7 +600,6 @@ async def cmd_random_sticker(ctx: CommandContext) -> None:
     stats_increment(ctx.event, "stickers_sent", 1)
 
 
-@command("拼图", description="生成关键词对应贴纸包的预览拼图", usage="拼图 <关键词>")
 async def cmd_sticker_collage(ctx: CommandContext) -> None:
     keyword = ctx.args.strip()
     if not keyword:
@@ -634,17 +648,14 @@ async def cmd_session_stats(ctx: CommandContext) -> None:
     await ctx.send(Message(format_stats(ctx.event)))
 
 
-@command("贴纸包统计", description="查看贴纸库摘要")
 async def cmd_sticker_pack_stats(ctx: CommandContext) -> None:
     await ctx.send(Message("\n".join(_sticker_library_stats_lines(sticker_library.get_state()))))
 
 
-@command("贴纸包列表", aliases=("sticker packs",), description="分页查看贴纸包", usage="贴纸包列表 [页码|全部]")
 async def cmd_sticker_pack_list(ctx: CommandContext) -> None:
     await _send_pack_list(ctx.bot, ctx.event, ctx.args.strip())
 
 
-@command("贴纸包预览", description="生成包含所有贴纸包名称、关键词和预览图的长图")
 async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
     state = sticker_library.get_state()
     if not state.get("packs"):
@@ -659,6 +670,50 @@ async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
         logger.exception("[Sticker] 贴纸包预览生成或发送失败: %s", e)
         await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerPackPreview")
         await _try_send_text(ctx.bot, ctx.event, msg("sticker.pack_preview_failed"), "贴纸包预览失败提示")
+
+
+async def cmd_sticker_pack_help(ctx: CommandContext) -> None:
+    await ctx.send(Message(msg("sticker.help")))
+
+
+async def _call_with_args(ctx: CommandContext, args: str, handler) -> None:
+    old_args = ctx.args
+    ctx.args = args
+    try:
+        await handler(ctx)
+    finally:
+        ctx.args = old_args
+
+
+def _split_pack_subcommand(args: str) -> tuple[str | None, str]:
+    text = args.strip()
+    if not text:
+        return "help", ""
+    parts = text.split(maxsplit=1)
+    head = parts[0].casefold()
+    subcommand = _PACK_SUBCOMMAND_ALIASES.get(head)
+    if subcommand is None:
+        return None, text
+    return subcommand, parts[1].strip() if len(parts) > 1 else ""
+
+
+@command("贴纸包", description="贴纸包工具", usage="贴纸包", detail_key="sticker.help")
+async def cmd_sticker_pack(ctx: CommandContext) -> None:
+    subcommand, rest = _split_pack_subcommand(ctx.args)
+    if subcommand == "help":
+        await _call_with_args(ctx, rest, cmd_sticker_pack_help)
+    elif subcommand == "random":
+        await _call_with_args(ctx, rest, cmd_random_sticker)
+    elif subcommand == "collage":
+        await _call_with_args(ctx, rest, cmd_sticker_collage)
+    elif subcommand == "stats":
+        await _call_with_args(ctx, rest, cmd_sticker_pack_stats)
+    elif subcommand == "list":
+        await _call_with_args(ctx, rest, cmd_sticker_pack_list)
+    elif subcommand == "preview":
+        await _call_with_args(ctx, rest, cmd_sticker_pack_preview)
+    else:
+        await _call_with_args(ctx, "", cmd_sticker_pack_help)
 
 
 @sticker_matcher.handle()
