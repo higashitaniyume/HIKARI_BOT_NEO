@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -51,6 +52,18 @@ def _safe_float(value: Any, default: float, *, minimum: float, maximum: float) -
     return min(max(parsed, minimum), maximum)
 
 
+def _safe_bool(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
 def _session_key(event: MessageEvent) -> str:
     if isinstance(event, GroupMessageEvent):
         return f"group:{event.group_id}"
@@ -81,6 +94,15 @@ def _endpoint(base_url: Any) -> str:
     if base.endswith("/chat/completions"):
         return base
     return f"{base}/chat/completions"
+
+
+def _search_endpoint(base_url: Any) -> str:
+    base = str(base_url or "http://searxng-core:8080").strip().rstrip("/")
+    if not base:
+        base = "http://searxng-core:8080"
+    if base.endswith("/search"):
+        return base
+    return f"{base}/search"
 
 
 def _trim_history(history: list[dict[str, str]], max_messages: Any) -> list[dict[str, str]]:
@@ -190,7 +212,169 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session_key: str, 
     return [{"role": "system", "content": system_prompt}, *history, {"role": "user", "content": user_text}]
 
 
-async def _request_chat_completion(cfg: dict[str, Any], messages: list[dict[str, str]]) -> str:
+def _tools_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    return cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+
+
+def _search_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    tools_cfg = _tools_cfg(cfg)
+    return tools_cfg.get("search") if isinstance(tools_cfg.get("search"), dict) else {}
+
+
+def _search_tool_enabled(cfg: dict[str, Any]) -> bool:
+    search_cfg = _search_cfg(cfg)
+    return _safe_bool(search_cfg.get("enabled"), True)
+
+
+def _available_tools(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _search_tool_enabled(cfg):
+        return []
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": (
+                    "Search the web through the configured SearXNG instance. "
+                    "Use it for current events, facts that may have changed, or questions requiring external sources."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query, written in the user's language when possible.",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of results to return.",
+                            "minimum": 1,
+                            "maximum": 10,
+                        },
+                        "categories": {
+                            "type": "string",
+                            "description": "Optional SearXNG categories, such as general, news, images, science.",
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "Optional SearXNG language code, or auto.",
+                        },
+                        "time_range": {
+                            "type": "string",
+                            "description": "Optional SearXNG time range: day, week, month, or year.",
+                            "enum": ["day", "week", "month", "year"],
+                        },
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            },
+        }
+    ]
+
+
+async def _search_web(cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
+    search_cfg = _search_cfg(cfg)
+    query = str(arguments.get("query") or "").strip()
+    if not query:
+        return json.dumps({"error": "query is required"}, ensure_ascii=False)
+
+    configured_max = _safe_int(search_cfg.get("max_results"), 5, minimum=1, maximum=10)
+    max_results = _safe_int(arguments.get("max_results"), configured_max, minimum=1, maximum=10)
+    categories = str(arguments.get("categories") or search_cfg.get("categories") or "general").strip()
+    language = str(arguments.get("language") or search_cfg.get("language") or "auto").strip()
+    time_range = str(arguments.get("time_range") or "").strip()
+    safesearch = _safe_int(search_cfg.get("safesearch"), 1, minimum=0, maximum=2)
+
+    params: dict[str, Any] = {
+        "q": query,
+        "format": "json",
+        "safesearch": safesearch,
+    }
+    if categories:
+        params["categories"] = categories
+    if language and language.lower() != "auto":
+        params["language"] = language
+    if time_range:
+        params["time_range"] = time_range
+
+    timeout = httpx.Timeout(_safe_int(search_cfg.get("timeout_seconds"), 15, minimum=1, maximum=120))
+    proxy = str(search_cfg.get("proxy") or "").strip() or None
+    async with httpx.AsyncClient(timeout=timeout, proxy=proxy) as client:
+        response = await client.get(_search_endpoint(search_cfg.get("base_url")), params=params)
+    if response.status_code >= 400:
+        return json.dumps(
+            {"query": query, "error": f"SearXNG HTTP {response.status_code}", "detail": response.text[:300]},
+            ensure_ascii=False,
+        )
+
+    data = response.json()
+    raw_results = data.get("results") if isinstance(data, dict) else []
+    results: list[dict[str, Any]] = []
+    if isinstance(raw_results, list):
+        for item in raw_results[:max_results]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or "").strip()
+            content = str(item.get("content") or item.get("snippet") or "").strip()
+            if not title and not url and not content:
+                continue
+            results.append(
+                {
+                    "title": title[:200],
+                    "url": url[:500],
+                    "content": content[:500],
+                    "engine": str(item.get("engine") or "").strip()[:80],
+                }
+            )
+
+    payload = {
+        "query": query,
+        "answer": str(data.get("answer") or "").strip()[:1000] if isinstance(data, dict) else "",
+        "results": results,
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+async def _execute_tool_call(cfg: dict[str, Any], tool_call: dict[str, Any]) -> dict[str, str]:
+    tool_call_id = str(tool_call.get("id") or "")
+    function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+    name = str(function.get("name") or "").strip()
+    raw_arguments = str(function.get("arguments") or "{}")
+    try:
+        arguments = json.loads(raw_arguments)
+    except json.JSONDecodeError:
+        arguments = {}
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    if name == "web_search" and _search_tool_enabled(cfg):
+        try:
+            content = await _search_web(cfg, arguments)
+        except Exception as e:
+            logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
+            content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
+    else:
+        content = json.dumps({"error": f"unknown or disabled tool: {name}"}, ensure_ascii=False)
+
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "name": name,
+        "content": content,
+    }
+
+
+def _assistant_tool_message(message: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "role": "assistant",
+        "content": message.get("content"),
+        "tool_calls": message.get("tool_calls"),
+    }
+
+
+async def _post_chat_completion(cfg: dict[str, Any], messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "").strip()
     model = str(model_cfg.get("model") or "").strip()
@@ -204,6 +388,9 @@ async def _request_chat_completion(cfg: dict[str, Any], messages: list[dict[str,
         "top_p": _safe_float(model_cfg.get("top_p"), 1.0, minimum=0.0, maximum=1.0),
         "max_tokens": _safe_int(model_cfg.get("max_tokens"), 1024, minimum=1, maximum=32000),
     }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
     extra_body = model_cfg.get("extra_body")
     if isinstance(extra_body, dict):
         payload.update(extra_body)
@@ -223,10 +410,44 @@ async def _request_chat_completion(cfg: dict[str, Any], messages: list[dict[str,
     if not choices:
         raise RuntimeError("AI Agent 返回结果为空。")
     message = choices[0].get("message") if isinstance(choices[0], dict) else {}
-    content = str(message.get("content") or "").strip()
-    if not content:
-        raise RuntimeError("AI Agent 回复为空。")
-    return content
+    if not isinstance(message, dict):
+        raise RuntimeError("AI Agent 返回消息格式无效。")
+    return message
+
+
+async def _request_chat_completion(cfg: dict[str, Any], messages: list[dict[str, str]]) -> str:
+    request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
+    tools = _available_tools(cfg)
+    max_rounds = _safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 2, minimum=0, maximum=5)
+
+    for round_index in range(max_rounds + 1):
+        try:
+            message = await _post_chat_completion(cfg, request_messages, tools)
+        except AIAgentRequestError as e:
+            if tools and e.status_code in {400, 422}:
+                logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
+                tools = []
+                message = await _post_chat_completion(cfg, request_messages, tools)
+            else:
+                raise
+        tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
+        content = str(message.get("content") or "").strip()
+        if not tool_calls:
+            if not content:
+                raise RuntimeError("AI Agent 回复为空。")
+            return content
+
+        if round_index >= max_rounds:
+            if content:
+                return content
+            raise RuntimeError("AI Agent 工具调用轮数已达上限且没有最终回复。")
+
+        request_messages.append(_assistant_tool_message(message))
+        for tool_call in tool_calls:
+            if isinstance(tool_call, dict):
+                request_messages.append(await _execute_tool_call(cfg, tool_call))
+
+    raise RuntimeError("AI Agent 回复为空。")
 
 
 def _remember(session_key: str, user_text: str, assistant_text: str, cfg: dict[str, Any]) -> None:

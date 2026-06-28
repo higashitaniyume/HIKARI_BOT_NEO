@@ -73,6 +73,8 @@ irm https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/instal
 
 该脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部服务。
 
+部署编排会同时启动 SearXNG 搜索服务和 Valkey 缓存，供 AI Agent 的搜索工具使用。默认外部端口为 `8080`，可在 `.env` 中通过 `SEARXNG_HOST`、`SEARXNG_PORT` 和 `SEARXNG_VERSION` 调整；SearXNG 配置目录位于部署根目录的 `searxng/core-config/`。
+
 如果需要使用镜像站、私有仓库或其他目录，可以在执行时覆盖环境变量：
 
 ```bash
@@ -88,6 +90,8 @@ git clone <本仓库地址> /opt/hikaribot-docker/app
 cd /opt/hikaribot-docker
 cp app/deploy/docker-compose.server.yml docker-compose.yml
 cp app/.env.example .env
+mkdir -p searxng/core-config && cp app/deploy/searxng/core-config/settings.yml searxng/core-config/settings.yml
+sed -i "s/__SEARXNG_SECRET__/$(openssl rand -hex 32)/g" searxng/core-config/settings.yml
 docker compose up -d
 ```
 
@@ -547,6 +551,11 @@ BotData/Voices/_library/
 | `memory.root` | 持久化记忆根目录，默认 `UserData/aiagent_memory` |
 | `memory.max_read_chars_per_file` | 每个 memory.md 注入提示词的最大字符数 |
 | `memory.max_file_chars` | 单个 memory.md 保留的最大字符数 |
+| `tools.search.enabled` | 是否向模型提供 `web_search` 搜索工具 |
+| `tools.search.base_url` | SearXNG 地址；Docker 部署内默认 `http://searxng-core:8080` |
+| `tools.search.max_results` | 每次搜索最多返回多少条结果 |
+| `tools.search.safesearch` | SearXNG 安全搜索等级，`0` 关闭、`1` 中等、`2` 严格 |
+| `tools.max_tool_rounds` | 单次回复最多允许多少轮工具调用 |
 
 女娲人格 skill 放在：
 
@@ -561,6 +570,8 @@ BotData/agent_personas/nuwa_hikari/SKILL.md
 ```
 
 插件会优先读取目录中的 `SKILL.md`、`skill.md`、`PERSONA.md`、`persona.md` 或 `README.md`，也支持直接把 `persona.skill_path` 指向 `.md`、`.txt`、`.json` 文件。默认还会读取入口 skill 中通过 Markdown 链接或裸相对路径显式引用的本地补充资源，例如 `[语气细则](tone.md)` 或 `references/style.md`；引用必须仍位于 `BotData/agent_personas/` 下，且受 `persona.reference_*` 限制。后台管理页面的 “AI Agent” 页会扫描 `BotData/agent_personas/` 下可用的人格 skill，并支持配置 API 地址、模型、Key、代理、上下文长度和人格路径。
+
+搜索工具使用 OpenAI-compatible Chat Completions 的 `tools` / function calling。模型需要支持工具调用才会主动搜索；如果 SearXNG 使用自定义配置，请确保 `search.formats` 包含 `json`，否则 JSON 搜索接口不可用。
 
 可用指令：
 

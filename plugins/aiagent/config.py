@@ -69,6 +69,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_read_chars_per_file": 8000,
         "max_file_chars": 60000,
     },
+    "tools": {
+        "search": {
+            "enabled": True,
+            "base_url": "http://searxng-core:8080",
+            "timeout_seconds": 15,
+            "max_results": 5,
+            "safesearch": 1,
+            "language": "auto",
+            "categories": "general",
+        },
+        "max_tool_rounds": 2,
+    },
 }
 
 _REFERENCE_EXTENSIONS = {".md", ".txt", ".json"}

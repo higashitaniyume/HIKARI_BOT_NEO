@@ -1,0 +1,21 @@
+# SearXNG settings for HIKARI BOT NEO deployments.
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "HIKARI BOT Search"
+
+search:
+  safe_search: 1
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "__SEARXNG_SECRET__"
+  limiter: false
+  image_proxy: true
+
+valkey:
+  url: valkey://searxng-valkey:6379/0

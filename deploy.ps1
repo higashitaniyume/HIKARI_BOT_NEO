@@ -129,7 +129,7 @@ Write-Host "准备服务器目录..." -ForegroundColor Yellow
 if ($DeployPath -eq "/opt/hikaribot-docker") {
     Run-Remote "if [ ! -d $quotedDeployPath ] && [ -d $quotedLegacyPath ]; then cd $quotedLegacyPath && docker compose stop hikaribot || true; mv $quotedLegacyPath $quotedDeployPath; fi"
 }
-Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/legacy/pixiv_cache"
+Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/astrbot/data $quotedDeployPath/searxng/core-config $quotedDeployPath/legacy/pixiv_cache"
 
 Write-Host "打包源码..." -ForegroundColor Yellow
 $sourcePaths = @(Get-SourceRelativePaths)
@@ -157,6 +157,10 @@ try {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$quotedSearxngSettingsPath = Quote-RemoteSingle "$DeployPath/searxng/core-config/settings.yml"
+$quotedSearxngTemplatePath = Quote-RemoteSingle "$DeployPath/app/deploy/searxng/core-config/settings.yml"
+Run-Remote "if [ ! -f $quotedSearxngSettingsPath ]; then cp $quotedSearxngTemplatePath $quotedSearxngSettingsPath && secret=`$(openssl rand -hex 32 2>/dev/null || date +%s) && sed -i `"s/__SEARXNG_SECRET__/`$secret/g`" $quotedSearxngSettingsPath; fi"
+
 if ($NapcatAccount -ne "") {
     Write-Host "更新 NapCat 账号配置..." -ForegroundColor Yellow
     $quotedEnvPath = Quote-RemoteSingle "$DeployPath/.env"
@@ -171,7 +175,7 @@ Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -Foregro
 if ($AllServices) {
     Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot napcat astrbot && docker compose restart hikaribot"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot napcat cobalt searxng searxng-valkey astrbot && docker compose restart hikaribot"
 }
 
 Write-Host ""

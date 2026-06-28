@@ -15,12 +15,28 @@ BRANCH="${HIKARI_BRANCH:-main}"
 APP_DIR="$DEPLOY_DIR/app"
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 ENV_FILE="$DEPLOY_DIR/.env"
+SEARXNG_CONFIG_DIR="$DEPLOY_DIR/searxng/core-config"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "缺少命令：$1" >&2
     exit 1
   }
+}
+
+create_searxng_settings() {
+  settings_file="$SEARXNG_CONFIG_DIR/settings.yml"
+  if [ -f "$settings_file" ]; then
+    return
+  fi
+
+  cp "$APP_DIR/deploy/searxng/core-config/settings.yml" "$settings_file"
+  if command -v openssl >/dev/null 2>&1; then
+    secret="$(openssl rand -hex 32)"
+  else
+    secret="$(date +%s)-$(hostname)-hikari"
+  fi
+  sed -i "s/__SEARXNG_SECRET__/$secret/g" "$settings_file"
 }
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -75,7 +91,10 @@ mkdir -p \
   "$DEPLOY_DIR/napcat/config" \
   "$DEPLOY_DIR/napcat/ntqq" \
   "$DEPLOY_DIR/astrbot/data" \
+  "$DEPLOY_DIR/searxng/core-config" \
   "$DEPLOY_DIR/legacy/pixiv_cache"
+
+create_searxng_settings
 
 cp "$APP_DIR/deploy/docker-compose.server.yml" "$COMPOSE_FILE"
 

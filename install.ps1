@@ -19,6 +19,7 @@ $ProgressPreference = "SilentlyContinue"
 $AppPath = Join-Path $DeployPath "app"
 $ComposePath = Join-Path $DeployPath "docker-compose.yml"
 $EnvPath = Join-Path $DeployPath ".env"
+$SearxngConfigPath = Join-Path $DeployPath "searxng/core-config/settings.yml"
 
 function Require-Command {
     param([string]$Name)
@@ -80,10 +81,18 @@ $runtimeDirs = @(
     "napcat/config",
     "napcat/ntqq",
     "astrbot/data",
+    "searxng/core-config",
     "legacy/pixiv_cache"
 )
 foreach ($dir in $runtimeDirs) {
     New-Item -ItemType Directory -Force -Path (Join-Path $DeployPath $dir) | Out-Null
+}
+
+if (-not (Test-Path $SearxngConfigPath)) {
+    Copy-Item (Join-Path $AppPath "deploy/searxng/core-config/settings.yml") $SearxngConfigPath
+    $secret = -join ((1..64) | ForEach-Object { "{0:x}" -f (Get-Random -Minimum 0 -Maximum 16) })
+    (Get-Content -LiteralPath $SearxngConfigPath -Raw).Replace("__SEARXNG_SECRET__", $secret) |
+        Set-Content -LiteralPath $SearxngConfigPath -Encoding UTF8
 }
 
 Copy-Item -Force (Join-Path $AppPath "deploy/docker-compose.server.yml") $ComposePath

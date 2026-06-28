@@ -318,10 +318,14 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
+    current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
+    current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
+    input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
+    input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -369,6 +373,18 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
             "root": _parse_str(input_memory.get("root", current_memory.get("root", "UserData/aiagent_memory")), max_length=512),
             "max_read_chars_per_file": _parse_int(input_memory.get("max_read_chars_per_file", current_memory.get("max_read_chars_per_file", 8000)), 8000, minimum=1000, maximum=80000),
             "max_file_chars": _parse_int(input_memory.get("max_file_chars", current_memory.get("max_file_chars", 60000)), 60000, minimum=5000, maximum=500000),
+        },
+        "tools": {
+            "search": {
+                "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
+                "base_url": _parse_str(input_search.get("base_url", current_search.get("base_url", "http://searxng-core:8080")), max_length=512),
+                "timeout_seconds": _parse_int(input_search.get("timeout_seconds", current_search.get("timeout_seconds", 15)), 15, minimum=1, maximum=120),
+                "max_results": _parse_int(input_search.get("max_results", current_search.get("max_results", 5)), 5, minimum=1, maximum=10),
+                "safesearch": _parse_int(input_search.get("safesearch", current_search.get("safesearch", 1)), 1, minimum=0, maximum=2),
+                "language": _parse_str(input_search.get("language", current_search.get("language", "auto")), max_length=32),
+                "categories": _parse_str(input_search.get("categories", current_search.get("categories", "general")), max_length=160),
+            },
+            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 2)), 2, minimum=0, maximum=5),
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
