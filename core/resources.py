@@ -68,3 +68,45 @@ def load_json_resource(file_name: str, defaults: dict[str, Any]) -> dict[str, An
 
         _json_cache[path] = (mtime_ns, data)
         return data
+
+
+def backfill_json_resource_value(file_name: str, key: str, value: Any, defaults: dict[str, Any]) -> bool:
+    path = ensure_json_resource(file_name, defaults)
+    parts = [part for part in key.split(".") if part]
+    if not parts:
+        return False
+
+    with _cache_lock:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("JSON 顶层必须是对象")
+        except Exception as e:
+            logger.exception("读取资源文件失败，无法补写默认值: %s -> %s", path, e)
+            return False
+
+        current: dict[str, Any] = data
+        for part in parts[:-1]:
+            child = current.get(part)
+            if child is None:
+                child = {}
+                current[part] = child
+            elif not isinstance(child, dict):
+                logger.warning("资源键 %s 的父节点不是对象，跳过补写: %s", key, path)
+                return False
+            current = child
+
+        leaf = parts[-1]
+        if leaf in current:
+            return False
+
+        current[leaf] = value
+        _atomic_write_json(path, data)
+        try:
+            mtime_ns = path.stat().st_mtime_ns
+        except OSError:
+            _json_cache.pop(path, None)
+            return True
+        _json_cache[path] = (mtime_ns, data)
+        logger.info("已补写资源默认值: %s -> %s", path, key)
+        return True

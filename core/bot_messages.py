@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.resources import load_json_resource
+from core.resources import backfill_json_resource_value, load_json_resource
 
 DEFAULT_MESSAGES: dict[str, Any] = {
     "error": {
@@ -171,6 +171,8 @@ def get_message(key: str, **kwargs: Any) -> str:
     value = _lookup(data, key)
     if value is None:
         value = _lookup(DEFAULT_MESSAGES, key)
+        if value is not None:
+            backfill_json_resource_value("bot_messages.json", key, value, DEFAULT_MESSAGES)
     if value is None:
         value = key
 
