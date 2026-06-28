@@ -8,6 +8,7 @@ services:
     depends_on:
       - napcat
       - cobalt
+      - searxng
     environment:
       TZ: Asia/Shanghai
       PYTHONDONTWRITEBYTECODE: "1"
@@ -64,6 +65,26 @@ services:
     environment:
       API_URL: "${COBALT_API_URL:-http://127.0.0.1:54257/}"
 
+  searxng:
+    image: docker.io/searxng/searxng:${SEARXNG_VERSION:-latest}
+    container_name: searxng-core
+    restart: always
+    ports:
+      - "${SEARXNG_HOST:+${SEARXNG_HOST}:}${SEARXNG_PORT:-54261}:8080"
+    volumes:
+      - ./searxng/core-config:/etc/searxng:Z
+      - searxng_core_data:/var/cache/searxng
+    depends_on:
+      - searxng-valkey
+
+  searxng-valkey:
+    image: docker.io/valkey/valkey:9-alpine
+    container_name: searxng-valkey
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: always
+    volumes:
+      - searxng_valkey_data:/data
+
   astrbot:
     image: soulter/astrbot:latest
     container_name: astrbot
@@ -80,3 +101,5 @@ services:
 
 volumes:
   hikaribot_venv:
+  searxng_core_data:
+  searxng_valkey_data:

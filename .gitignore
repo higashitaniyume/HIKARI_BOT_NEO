@@ -32,6 +32,8 @@ BotData/resources/*.json
 !BotData/resources/*.example.json
 BotData/fonts/*
 !BotData/fonts/.gitkeep
+BotData/agent_personas/*
+!BotData/agent_personas/.gitkeep
 
 # Gifs: keep directory structure, ignore actual media
 BotData/Gifs/*/**
@@ -67,6 +69,7 @@ Thumbs.db
 # Temporary media
 /tmp/hikari_bot/
 /runtime/
+deploy-source-files-*.txt
 
 # Docker runtime data
 astrbot/

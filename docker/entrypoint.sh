@@ -4,7 +4,7 @@ set -eu
 SOURCE_BOT_DATA="${HIKARI_SOURCE_ROOT:-/opt/hikaribot-source}/BotData"
 VENV_DIR="${UV_PROJECT_ENVIRONMENT:-/opt/hikaribot-venv}"
 
-mkdir -p /app/BotData/plugin_configs /app/BotData/resources /app/BotData/fonts /app/BotData/Gifs /app/UserData /app/sharedFolder /tmp/hikari_bot
+mkdir -p /app/BotData/plugin_configs /app/BotData/resources /app/BotData/fonts /app/BotData/agent_personas /app/BotData/Gifs /app/UserData /app/sharedFolder /tmp/hikari_bot
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   python -m venv "$VENV_DIR"
