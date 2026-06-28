@@ -536,6 +536,11 @@ BotData/Voices/_library/
 | `model.proxy` | 请求模型 API 的代理，可为空 |
 | `persona.skill_path` | 人格 skill 路径，必须位于 `BotData/agent_personas/` 下 |
 | `persona.max_chars` | 最多读取多少字符的人格 skill 内容 |
+| `persona.include_references` | 是否读取人格 skill 中显式引用的本地 `.md`、`.txt`、`.json` 补充资源 |
+| `persona.reference_max_depth` | 引用展开深度，默认只读取入口文件直接引用的资源 |
+| `persona.reference_max_files` | 最多读取多少个补充资源文件 |
+| `persona.reference_max_chars_per_file` | 每个补充资源最多读取多少字符 |
+| `persona.reference_max_total_chars` | 所有补充资源合计最多读取多少字符 |
 | `chat.max_history_messages` | 每个会话保留的上下文消息数；设为 `0` 即无历史 |
 | `chat.system_prompt_extra` | 追加在人格 skill 后的额外系统提示词 |
 | `chat.blocked_url_domains` | 默认不交给 AI 回复的媒体链接域名 |
@@ -555,7 +560,7 @@ BotData/agent_personas/
 BotData/agent_personas/nuwa_hikari/SKILL.md
 ```
 
-插件会优先读取目录中的 `SKILL.md`、`skill.md`、`PERSONA.md`、`persona.md` 或 `README.md`，也支持直接把 `persona.skill_path` 指向 `.md`、`.txt`、`.json` 文件。后台管理页面的 “AI Agent” 页会扫描 `BotData/agent_personas/` 下可用的人格 skill，并支持配置 API 地址、模型、Key、代理、上下文长度和人格路径。
+插件会优先读取目录中的 `SKILL.md`、`skill.md`、`PERSONA.md`、`persona.md` 或 `README.md`，也支持直接把 `persona.skill_path` 指向 `.md`、`.txt`、`.json` 文件。默认还会读取入口 skill 中通过 Markdown 链接或裸相对路径显式引用的本地补充资源，例如 `[语气细则](tone.md)` 或 `references/style.md`；引用必须仍位于 `BotData/agent_personas/` 下，且受 `persona.reference_*` 限制。后台管理页面的 “AI Agent” 页会扫描 `BotData/agent_personas/` 下可用的人格 skill，并支持配置 API 地址、模型、Key、代理、上下文长度和人格路径。
 
 可用指令：
 

@@ -349,6 +349,11 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
         "persona": {
             "skill_path": _parse_str(input_persona.get("skill_path", current_persona.get("skill_path", "BotData/agent_personas/default")), max_length=512),
             "max_chars": _parse_int(input_persona.get("max_chars", current_persona.get("max_chars", 12000)), 12000, minimum=1000, maximum=80000),
+            "include_references": _parse_bool(input_persona.get("include_references", current_persona.get("include_references", True))),
+            "reference_max_depth": _parse_int(input_persona.get("reference_max_depth", current_persona.get("reference_max_depth", 1)), 1, minimum=0, maximum=3),
+            "reference_max_files": _parse_int(input_persona.get("reference_max_files", current_persona.get("reference_max_files", 8)), 8, minimum=0, maximum=32),
+            "reference_max_chars_per_file": _parse_int(input_persona.get("reference_max_chars_per_file", current_persona.get("reference_max_chars_per_file", 8000)), 8000, minimum=1000, maximum=80000),
+            "reference_max_total_chars": _parse_int(input_persona.get("reference_max_total_chars", current_persona.get("reference_max_total_chars", 24000)), 24000, minimum=1000, maximum=160000),
             "fallback_prompt": _parse_str(input_persona.get("fallback_prompt", current_persona.get("fallback_prompt", "")), max_length=20000),
         },
         "chat": {
