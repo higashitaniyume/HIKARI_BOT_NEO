@@ -1,10 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 import plugins.aiagent as aiagent
+from plugins.aiagent import client as aiagent_client
+from plugins.aiagent.tools import registry as tool_registry
+from plugins.aiagent.tools import search as search_tool
+
+
+@contextmanager
+def temporary_cwd(path: Path):
+    old_cwd = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(old_cwd)
 
 
 class FakeResponse:
@@ -111,7 +128,7 @@ class ToolUnsupportedAsyncClient:
         return FakeResponse(200, {"choices": [{"message": {"role": "assistant", "content": "降级回复"}}]})
 
 
-def base_cfg(*, search_enabled: bool = True) -> dict[str, object]:
+def base_cfg(*, search_enabled: bool = True, files_enabled: bool = False) -> dict[str, object]:
     return {
         "model": {
             "base_url": "https://api.example.test/v1",
@@ -133,6 +150,11 @@ def base_cfg(*, search_enabled: bool = True) -> dict[str, object]:
                 "language": "auto",
                 "categories": "general",
             },
+            "files": {
+                "enabled": files_enabled,
+                "max_read_chars": 20000,
+                "max_write_chars": 20000,
+            },
             "max_tool_rounds": 2,
         },
     }
@@ -143,7 +165,10 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         ToolCallingAsyncClient.post_payloads = []
         ToolCallingAsyncClient.get_calls = []
 
-        with patch.object(aiagent.httpx, "AsyncClient", ToolCallingAsyncClient):
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", ToolCallingAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", ToolCallingAsyncClient),
+        ):
             reply = await aiagent._request_chat_completion(
                 base_cfg(),
                 [{"role": "user", "content": "查一下 HIKARI BOT"}],
@@ -165,7 +190,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_search_tool_is_not_sent_to_model(self) -> None:
         PlainAsyncClient.post_payloads = []
 
-        with patch.object(aiagent.httpx, "AsyncClient", PlainAsyncClient):
+        with patch.object(aiagent_client.httpx, "AsyncClient", PlainAsyncClient):
             reply = await aiagent._request_chat_completion(
                 base_cfg(search_enabled=False),
                 [{"role": "user", "content": "你好"}],
@@ -179,8 +204,8 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         ToolUnsupportedAsyncClient.post_payloads = []
 
         with (
-            patch.object(aiagent.httpx, "AsyncClient", ToolUnsupportedAsyncClient),
-            patch.object(aiagent.logger, "warning"),
+            patch.object(aiagent_client.httpx, "AsyncClient", ToolUnsupportedAsyncClient),
+            patch.object(aiagent_client.logger, "warning"),
         ):
             reply = await aiagent._request_chat_completion(
                 base_cfg(),
@@ -191,6 +216,91 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(ToolUnsupportedAsyncClient.post_payloads), 2)
         self.assertIn("tools", ToolUnsupportedAsyncClient.post_payloads[0])
         self.assertNotIn("tools", ToolUnsupportedAsyncClient.post_payloads[1])
+
+    def test_file_tools_are_declared_when_enabled(self) -> None:
+        tools = aiagent._available_tools(base_cfg(search_enabled=False, files_enabled=True))
+        tool_names = {tool["function"]["name"] for tool in tools}
+        self.assertEqual(tool_names, {"read_persona_resource", "read_user_file", "write_user_file"})
+
+    async def test_file_tools_respect_botdata_and_userdata_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "BotData" / "agent_personas" / "nuwa").mkdir(parents=True)
+            (root / "BotData" / "plugin_configs").mkdir(parents=True)
+            (root / "UserData").mkdir()
+            (root / "BotData" / "config.json").write_text("{\"bot\":true}", encoding="utf-8")
+            (root / "BotData" / "plugin_configs" / "aiagent.json").write_text("{\"enabled\":true}", encoding="utf-8")
+            (root / "BotData" / "agent_personas" / "nuwa" / "tone.md").write_text("warm tone", encoding="utf-8")
+            (root / "UserData" / "note.txt").write_text("hello", encoding="utf-8")
+
+            with temporary_cwd(root), patch.object(tool_registry.logger, "warning"):
+                cfg = base_cfg(search_enabled=False, files_enabled=True)
+                persona_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "read_persona",
+                        "function": {"name": "read_persona_resource", "arguments": "{\"path\":\"nuwa/tone.md\"}"},
+                    },
+                )
+                blocked_config_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "read_config",
+                        "function": {"name": "read_persona_resource", "arguments": "{\"path\":\"../config.json\"}"},
+                    },
+                )
+                blocked_plugin_config_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "read_plugin_config",
+                        "function": {
+                            "name": "read_persona_resource",
+                            "arguments": "{\"path\":\"../plugin_configs/aiagent.json\"}",
+                        },
+                    },
+                )
+                user_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "read_user",
+                        "function": {"name": "read_user_file", "arguments": "{\"path\":\"note.txt\"}"},
+                    },
+                )
+                write_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "write_user",
+                        "function": {
+                            "name": "write_user_file",
+                            "arguments": "{\"path\":\"notes/out.txt\",\"content\":\"saved\",\"mode\":\"overwrite\"}",
+                        },
+                    },
+                )
+                escape_result = await aiagent._execute_tool_call(
+                    cfg,
+                    {
+                        "id": "escape",
+                        "function": {
+                            "name": "write_user_file",
+                            "arguments": "{\"path\":\"../BotData/config.json\",\"content\":\"bad\"}",
+                        },
+                    },
+                )
+
+            persona_payload = json.loads(persona_result["content"])
+            blocked_config_payload = json.loads(blocked_config_result["content"])
+            blocked_plugin_config_payload = json.loads(blocked_plugin_config_result["content"])
+            user_payload = json.loads(user_result["content"])
+            write_payload = json.loads(write_result["content"])
+            escape_payload = json.loads(escape_result["content"])
+
+            self.assertEqual(persona_payload["content"], "warm tone")
+            self.assertIn("outside allowed directory", blocked_config_payload["error"])
+            self.assertIn("outside allowed directory", blocked_plugin_config_payload["error"])
+            self.assertEqual(user_payload["content"], "hello")
+            self.assertTrue(write_payload["ok"])
+            self.assertEqual((root / "UserData" / "notes" / "out.txt").read_text(encoding="utf-8"), "saved")
+            self.assertIn("outside allowed directory", escape_payload["error"])
 
 
 if __name__ == "__main__":

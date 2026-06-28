@@ -320,12 +320,14 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
+    current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
+    input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -383,6 +385,11 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
                 "safesearch": _parse_int(input_search.get("safesearch", current_search.get("safesearch", 1)), 1, minimum=0, maximum=2),
                 "language": _parse_str(input_search.get("language", current_search.get("language", "auto")), max_length=32),
                 "categories": _parse_str(input_search.get("categories", current_search.get("categories", "general")), max_length=160),
+            },
+            "files": {
+                "enabled": _parse_bool(input_files.get("enabled", current_files.get("enabled", True))),
+                "max_read_chars": _parse_int(input_files.get("max_read_chars", current_files.get("max_read_chars", 20000)), 20000, minimum=1000, maximum=200000),
+                "max_write_chars": _parse_int(input_files.get("max_write_chars", current_files.get("max_write_chars", 20000)), 20000, minimum=1000, maximum=200000),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 2)), 2, minimum=0, maximum=5),
         },

@@ -79,6 +79,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "language": "auto",
             "categories": "general",
         },
+        "files": {
+            "enabled": True,
+            "max_read_chars": 20000,
+            "max_write_chars": 20000,
+        },
         "max_tool_rounds": 2,
     },
 }

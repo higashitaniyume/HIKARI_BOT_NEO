@@ -555,6 +555,9 @@ BotData/Voices/_library/
 | `tools.search.base_url` | SearXNG 地址；Docker 部署内默认 `http://searxng-core:8080` |
 | `tools.search.max_results` | 每次搜索最多返回多少条结果 |
 | `tools.search.safesearch` | SearXNG 安全搜索等级，`0` 关闭、`1` 中等、`2` 严格 |
+| `tools.files.enabled` | 是否向模型提供文件工具 |
+| `tools.files.max_read_chars` | 单次读取文件最多返回多少字符 |
+| `tools.files.max_write_chars` | 单次写入 UserData 文件最多允许多少字符 |
 | `tools.max_tool_rounds` | 单次回复最多允许多少轮工具调用 |
 
 女娲人格 skill 放在：
@@ -572,6 +575,8 @@ BotData/agent_personas/nuwa_hikari/SKILL.md
 插件会优先读取目录中的 `SKILL.md`、`skill.md`、`PERSONA.md`、`persona.md` 或 `README.md`，也支持直接把 `persona.skill_path` 指向 `.md`、`.txt`、`.json` 文件。默认还会读取入口 skill 中通过 Markdown 链接或裸相对路径显式引用的本地补充资源，例如 `[语气细则](tone.md)` 或 `references/style.md`；引用必须仍位于 `BotData/agent_personas/` 下，且受 `persona.reference_*` 限制。后台管理页面的 “AI Agent” 页会扫描 `BotData/agent_personas/` 下可用的人格 skill，并支持配置 API 地址、模型、Key、代理、上下文长度和人格路径。
 
 搜索工具使用 OpenAI-compatible Chat Completions 的 `tools` / function calling。模型需要支持工具调用才会主动搜索；如果 SearXNG 使用自定义配置，请确保 `search.formats` 包含 `json`，否则 JSON 搜索接口不可用。
+
+文件工具同样使用 function calling。模型只能读取 `BotData/agent_personas/` 下的 `.md`、`.txt`、`.json` 人格 skill 资源；不能读取 `BotData/config.json`、`BotData/plugin_configs/` 或其他可能含有密钥的配置。`UserData/` 是唯一允许读写的用户数据目录，写入工具会拒绝绝对路径和任何逃出 `UserData/` 的相对路径。
 
 可用指令：
 
