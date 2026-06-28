@@ -73,7 +73,7 @@ irm https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/instal
 
 该脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部服务。
 
-部署编排会同时启动 SearXNG 搜索服务和 Valkey 缓存，供 AI Agent 的搜索工具使用。默认外部端口为 `8080`，可在 `.env` 中通过 `SEARXNG_HOST`、`SEARXNG_PORT` 和 `SEARXNG_VERSION` 调整；SearXNG 配置目录位于部署根目录的 `searxng/core-config/`。
+部署编排会同时启动 SearXNG 搜索服务和 Valkey 缓存，供 AI Agent 的搜索工具使用。默认外部端口为 `54261`，可在 `.env` 中通过 `SEARXNG_HOST`、`SEARXNG_PORT` 和 `SEARXNG_VERSION` 调整；SearXNG 配置目录位于部署根目录的 `searxng/core-config/`。
 
 如果需要使用镜像站、私有仓库或其他目录，可以在执行时覆盖环境变量：
 
