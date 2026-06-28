@@ -47,6 +47,8 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "preview_empty": "暂无预览",
     },
     "tg_sticker": {
+        "usage": "用法：tg贴纸 <https://t.me/addstickers/贴纸包名> [zip] [refresh] [nosave] [name=关键词]",
+        "help": "tg贴纸 <链接> [参数]：解析 Telegram 贴纸包并保存到本地贴纸库。\n参数：zip 打包发送；refresh 忽略缓存重新转换；nosave 只发送不保存；name=关键词 / keyword=关键词 / kw=关键词 额外注册触发词。",
         "no_gif": "没有成功转换出可发送的 GIF。",
         "empty_pack": "这个贴纸包里没有可处理的贴纸。",
         "detected": "检测到 Telegram 贴纸包：{title}\n共 {count} 个贴纸，开始处理……",
@@ -66,7 +68,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "bot_help": {
         "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。",
-        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- Instagram / Facebook 链接：解析并发送媒体\n- Telegram 贴纸包链接：转 GIF 并发送\n  参数：zip / refresh / nosave / name=关键词",
+        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- Instagram / Facebook 链接：解析并发送媒体",
         "fallback": "自然触发：\n- 贴纸关键词：随机发送一张贴纸\n- 贴纸关键词 10：随机发送 10 张，不重复",
         "web": "管理页面：\n- https://stickers-hikari.vlnc.top/\n- 可上传贴纸、导入 Telegram 贴纸包、管理关键词",
         "usage": "帮助用法：\n- 帮助：查看摘要\n- 帮助 命令：查看命令列表\n- 帮助 全部：查看完整说明\n- 帮助 <命令名>：查看单个命令",

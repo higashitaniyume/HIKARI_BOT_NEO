@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
 from core.bot_messages import get_message as msg
-from core.message_pipeline import register_handler
+from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
 from plugins import sticker_library
 from plugins.media_transcoder import StickerGifOptions, ensure_sticker_gif
@@ -37,103 +37,106 @@ class TgStickerOptions:
     trigger_keyword: str = ""
 
 
-class AutoTgStickerHandler:
-    """自动检测 Telegram 贴纸包链接并转换为 GIF 发送。"""
+def split_command_link_and_options(args: str) -> tuple[str, str] | None:
+    tokens = [token.strip() for token in re.split(r"\s+", args.strip()) if token.strip()]
+    if not tokens:
+        return None
 
-    name = "TgStickerParser"
+    set_names = extract_sticker_set_names(tokens[0])
+    if not set_names:
+        return None
+    return set_names[0], " ".join(tokens[1:])
 
-    async def match(self, event: MessageEvent, text: str) -> bool:
-        cfg = get_config()
-        if not cfg.get("enabled", True):
-            return False
-        if not cfg.get("auto_parse", True):
-            return False
-        return bool(extract_sticker_set_names(text))
 
-    async def handle(self, bot: Bot, event: MessageEvent) -> None:
-        cfg = get_config()
-        text = str(event.get_message())
-        set_names = extract_sticker_set_names(text)
+async def handle_tg_sticker_request(bot: Bot, event: MessageEvent, set_name: str, options: TgStickerOptions) -> None:
+    cfg = get_config()
+    if not cfg.get("enabled", True):
+        return
 
-        if not set_names:
-            return
+    trigger_keyword = options.trigger_keyword or set_name
 
-        # 防刷屏：一条消息最多处理 1 个 Telegram 贴纸包
-        set_name = set_names[0]
-        options = parse_options(text)
-        trigger_keyword = options.trigger_keyword or set_name
+    logger.info(
+        "[TgSticker] 命令解析触发 → user=%s, set_name=%s, options=%s",
+        event.get_user_id(),
+        set_name,
+        options,
+    )
 
-        logger.info(
-            "[TgSticker] 自动解析触发 → user=%s, set_name=%s, options=%s",
-            event.get_user_id(),
-            set_name,
-            options,
-        )
-
-        cached_gifs = find_saved_gifs(set_name)
-        if cached_gifs and not options.refresh:
-            logger.info("[TgSticker] 使用已保存贴纸包缓存 → %s (%d 个)", set_name, len(cached_gifs))
-            cached_output_root = Path(str(cfg.get("output_root", "/tmp/hikari_bot/tg_stickers"))) / set_name / "cached_send"
-            sendable_gifs = prepare_cached_gifs_for_send(cached_gifs, cached_output_root)
-            if options.save_pack:
-                await register_sticker_trigger(set_name, trigger_keyword)
-            await send_sticker_outputs(
-                bot=bot,
-                event=event,
-                gif_paths=sendable_gifs,
-                output_root=cached_output_root,
-                set_name=set_name,
-                title=set_name,
-                total_count=len(sendable_gifs),
-                failed_count=0,
-                direct_send_limit=get_direct_send_limit(cfg),
-                merged_send_limit=int(cfg.get("merged_send_limit", 80)),
-                send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
-                use_zip=options.use_zip,
-                from_cache=True,
-            )
-            stats_increment(event, "tg_sticker_parsed", 1)
-            return
-
-        result = await parse_sticker_set_to_gifs(bot, event, set_name, cfg)
-
-        gif_paths = result["gif_paths"]
-        output_root = result["output_root"]
-        title = result["title"]
-        total_count = result.get("total_count", 0)
-        failed_count = result.get("failed_count", 0)
-
-        if not gif_paths:
-            await bot.send(event, msg("tg_sticker.no_gif"))
-            return
-
+    cached_gifs = find_saved_gifs(set_name)
+    if cached_gifs and not options.refresh:
+        logger.info("[TgSticker] 使用已保存贴纸包缓存 → %s (%d 个)", set_name, len(cached_gifs))
+        cached_output_root = Path(str(cfg.get("output_root", "/tmp/hikari_bot/tg_stickers"))) / set_name / "cached_send"
+        sendable_gifs = prepare_cached_gifs_for_send(cached_gifs, cached_output_root)
         if options.save_pack:
-            try:
-                saved_paths = save_gifs_to_pack(set_name, gif_paths)
-                await register_sticker_trigger(set_name, trigger_keyword)
-                logger.info("[TgSticker] 已保存 %d 个 GIF 并注册触发词 %s", len(saved_paths), trigger_keyword)
-            except Exception as e:
-                logger.exception("[TgSticker] 自动保存表情包或更新配置失败: %s", e)
-        else:
-            logger.info("[TgSticker] nosave 已启用，不保存贴纸包 → %s", set_name)
-
+            await register_sticker_trigger(set_name, trigger_keyword)
         await send_sticker_outputs(
             bot=bot,
             event=event,
-            gif_paths=gif_paths,
-            output_root=output_root,
+            gif_paths=sendable_gifs,
+            output_root=cached_output_root,
             set_name=set_name,
-            title=title,
-            total_count=total_count,
-            failed_count=failed_count,
+            title=set_name,
+            total_count=len(sendable_gifs),
+            failed_count=0,
             direct_send_limit=get_direct_send_limit(cfg),
             merged_send_limit=int(cfg.get("merged_send_limit", 80)),
             send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
             use_zip=options.use_zip,
-            from_cache=False,
+            from_cache=True,
         )
-
         stats_increment(event, "tg_sticker_parsed", 1)
+        return
+
+    result = await parse_sticker_set_to_gifs(bot, event, set_name, cfg)
+
+    gif_paths = result["gif_paths"]
+    output_root = result["output_root"]
+    title = result["title"]
+    total_count = result.get("total_count", 0)
+    failed_count = result.get("failed_count", 0)
+
+    if not gif_paths:
+        await bot.send(event, msg("tg_sticker.no_gif"))
+        return
+
+    if options.save_pack:
+        try:
+            saved_paths = save_gifs_to_pack(set_name, gif_paths)
+            await register_sticker_trigger(set_name, trigger_keyword)
+            logger.info("[TgSticker] 已保存 %d 个 GIF 并注册触发词 %s", len(saved_paths), trigger_keyword)
+        except Exception as e:
+            logger.exception("[TgSticker] 自动保存表情包或更新配置失败: %s", e)
+    else:
+        logger.info("[TgSticker] nosave 已启用，不保存贴纸包 → %s", set_name)
+
+    await send_sticker_outputs(
+        bot=bot,
+        event=event,
+        gif_paths=gif_paths,
+        output_root=output_root,
+        set_name=set_name,
+        title=title,
+        total_count=total_count,
+        failed_count=failed_count,
+        direct_send_limit=get_direct_send_limit(cfg),
+        merged_send_limit=int(cfg.get("merged_send_limit", 80)),
+        send_delay_seconds=float(cfg.get("send_delay_seconds", 0.5)),
+        use_zip=options.use_zip,
+        from_cache=False,
+    )
+
+    stats_increment(event, "tg_sticker_parsed", 1)
+
+
+@command("tg贴纸", description="解析 Telegram 贴纸包", usage="tg贴纸 <链接> [参数]", detail_key="tg_sticker.help")
+async def cmd_tg_sticker(ctx: CommandContext) -> None:
+    parsed = split_command_link_and_options(ctx.args)
+    if parsed is None:
+        await ctx.send(Message(msg("tg_sticker.usage")))
+        return
+
+    set_name, option_text = parsed
+    await handle_tg_sticker_request(ctx.bot, ctx.event, set_name, parse_options(option_text))
 
 
 def parse_options(text: str) -> TgStickerOptions:
@@ -338,5 +341,4 @@ async def parse_sticker_set_to_gifs(
         await api.close()
 
 
-register_handler(AutoTgStickerHandler())
-logger.info("Telegram 贴纸包解析器已注册 → t.me/addstickers")
+logger.info("Telegram 贴纸包解析命令已注册 → tg贴纸 <t.me/addstickers 链接>")

@@ -11,7 +11,7 @@ CONFIG_PATH = Path("BotData/plugin_configs/tg_sticker_parser.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": True,
-    "auto_parse": True,
+    "auto_parse": False,
     "bot_token": "",
     "api_base": "https://api.telegram.org",
     "proxy": "",
