@@ -11,7 +11,6 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, Message
 
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
-from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.message_pipeline import register_handler
 from core.stats_tracker import increment as stats_increment
 from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_url_from_card_data
@@ -175,6 +174,7 @@ async def _process_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
             if force:
                 await bot.send(event, Message(msg("media_parser.empty")))
             return
+        metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
         processed: list[dict[str, Any]] = []
         for metadata in metadata_list:
@@ -201,6 +201,24 @@ async def _process_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
         if total_sent == 0 and not any(item.get("_enable_text_metadata") for item in processed):
             await bot.send(event, Message(msg("media_parser.no_media")))
         stats_increment(event, "media_parser_parsed", len(processed))
+
+
+def _suppress_redundant_error_metadata(metadata_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop failed candidate links when the same message produced a success."""
+    successes = [item for item in metadata_list if not item.get("error")]
+    failures = [item for item in metadata_list if item.get("error")]
+    if not successes or not failures:
+        return metadata_list
+
+    for item in failures:
+        logger.info(
+            "[MediaParser] suppress failed candidate because another candidate succeeded -> "
+            "platform=%s url=%s error=%s",
+            item.get("platform") or item.get("parser_name") or "unknown",
+            item.get("source_url") or item.get("url") or "",
+            item.get("error"),
+        )
+    return successes
 
 
 def _create_record_manager(runtime: MediaParserRuntime) -> ParseRecordManager:

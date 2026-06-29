@@ -2,9 +2,8 @@
 错误通知模块。
 
 当功能处理失败时：
-1. 给触发用户或群回复简短失败提示
-2. 给 superuser 私发脱敏后的错误信息
-3. 脱敏后写入日志
+1. 给 superuser 私发脱敏后的错误信息
+2. 脱敏后写入日志
 """
 
 import logging
@@ -14,8 +13,6 @@ from datetime import datetime
 from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, MessageEvent
-
-from core.bot_messages import get_message as msg
 
 logger = logging.getLogger("HikariBot.ErrorNotifier")
 
@@ -53,13 +50,12 @@ def _get_superuser_id() -> str:
 
 async def send_user_error(bot: Bot, event: Event) -> None:
     """
-    给触发用户或群回复简短失败提示。
+    保留兼容入口，但不再向触发用户或群发送错误提示。
+
+    详细错误只通过 notify_error_to_superuser 私发给超级管理员，
+    避免在群聊或私聊窗口暴露失败细节。
     """
-    try:
-        from nonebot.adapters.onebot.v11 import Message
-        await bot.send(event, Message(msg("error.user")))
-    except Exception as e:
-        logger.warning(f"发送用户错误提示失败: {_redact_text(e)}")
+    logger.debug("已抑制用户侧错误提示，仅保留超级管理员错误通知")
 
 
 async def notify_error_to_superuser(

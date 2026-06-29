@@ -38,12 +38,13 @@ def _first_url(groups: list[list[str]], index: int) -> str:
 def build_metadata_text(metadata: dict[str, Any], *, max_desc_chars: int) -> str:
     """Build a compact text summary for one parsed link."""
     if metadata.get("error"):
-        return msg(
-            "media_parser.metadata_error",
-            platform=metadata.get("platform") or metadata.get("parser_name") or "unknown",
-            reason=_truncate(str(metadata.get("error")), 180),
-            url=metadata.get("source_url") or metadata.get("url") or "",
+        logger.info(
+            "[MediaParser] suppress public parse error -> platform=%s url=%s error=%s",
+            metadata.get("platform") or metadata.get("parser_name") or "unknown",
+            metadata.get("source_url") or metadata.get("url") or "",
+            metadata.get("error"),
         )
+        return ""
 
     video_count = len(metadata.get("video_urls") or [])
     image_count = len(metadata.get("image_urls") or [])
