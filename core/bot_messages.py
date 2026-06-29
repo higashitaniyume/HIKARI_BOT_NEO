@@ -15,6 +15,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "stats_label_stickers_sent": "发送表情包",
         "stats_label_pixiv_parsed": "Pixiv 解析",
         "stats_label_cobalt_parsed": "媒体链接解析",
+        "stats_label_youtube_downloaded": "YouTube 下载",
         "stats_label_osu_queries": "osu! 查询",
         "stats_label_collage_made": "拼图",
     },
@@ -68,7 +69,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "bot_help": {
         "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。",
-        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- Instagram / Facebook 链接：解析并发送媒体",
+        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- Instagram / Facebook 链接：解析并发送媒体\n- YouTube 链接：下载并发送视频",
         "fallback": "自然触发：\n- 贴纸关键词：随机发送一张贴纸\n- 贴纸关键词 10：随机发送 10 张，不重复",
         "web": "管理页面：\n- https://stickers-hikari.vlnc.top/\n- 可上传贴纸、导入 Telegram 贴纸包、管理关键词",
         "usage": "帮助用法：\n- 帮助：查看摘要\n- 帮助 命令：查看命令列表\n- 帮助 全部：查看完整说明\n- 帮助 <命令名>：查看单个命令",
@@ -101,6 +102,11 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "info": "媒体解析成功\n来源：{service}\n数量：{count} 个媒体 ({types}){audio}\n链接：{url}",
         "info_without_items": "媒体解析成功\n来源：{service}{audio}\n链接：{url}",
         "audio_suffix": "\n(含背景音频)",
+    },
+    "youtube": {
+        "start": "检测到 YouTube 链接，开始下载视频...",
+        "failed": "YouTube 视频下载失败：{reason}",
+        "info": "YouTube 视频下载完成\n标题：{title}\n频道：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}",
     },
     "stardew_wiki": {
         "result": "标题：{title}\n简介：{summary}\nURL：{url}",

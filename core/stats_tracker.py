@@ -5,6 +5,7 @@
 - 表情包发送次数
 - Pixiv 解析次数
 - Instagram/Facebook 解析次数
+- YouTube 下载次数
 - 拼图次数
 
 数据存储为 JSON 文件：UserData/stats/group_<id>.json / private_<id>.json
@@ -129,6 +130,7 @@ def format_stats(event: MessageEvent) -> str:
         "stickers_sent": msg("common.stats_label_stickers_sent"),
         "pixiv_parsed": msg("common.stats_label_pixiv_parsed"),
         "cobalt_parsed": msg("common.stats_label_cobalt_parsed"),
+        "youtube_downloaded": msg("common.stats_label_youtube_downloaded"),
         "osu_queries": msg("common.stats_label_osu_queries"),
         "collage_made": msg("common.stats_label_collage_made"),
     }

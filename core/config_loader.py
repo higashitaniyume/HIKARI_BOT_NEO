@@ -83,6 +83,20 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     },
 }
 
+DEFAULT_YOUTUBE_DOWNLOADER_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "auto_parse": True,
+    "max_links_per_message": 1,
+    "max_file_mb": 1024,
+    "max_height": 720,
+    "download_timeout": 1800,
+    "socket_timeout": 30,
+    "retries": 5,
+    "cache_dir": "/tmp/hikari_bot/youtube_downloader",
+    "cookiefile": "",
+    "format": "",
+}
+
 DEFAULT_STICKER_CONFIG: dict[str, Any] = {
     "triggers": {
         "capoo_gif": ["capoo", "猫猫虫"],

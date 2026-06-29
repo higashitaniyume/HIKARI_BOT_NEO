@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "auto_parse": true,
+  "max_links_per_message": 1,
+  "max_file_mb": 1024,
+  "max_height": 720,
+  "download_timeout": 1800,
+  "socket_timeout": 30,
+  "retries": 5,
+  "cache_dir": "/tmp/hikari_bot/youtube_downloader",
+  "cookiefile": "",
+  "format": ""
+}
