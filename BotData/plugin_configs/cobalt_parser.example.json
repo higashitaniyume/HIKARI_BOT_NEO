@@ -4,6 +4,7 @@
   "api_timeout": 90,
   "max_send": 6,
   "max_file_mb": 200,
+  "send_link_info": true,
   "parse_retry_count": 2,
   "parse_retry_delay_seconds": 2.0,
   "cache_dir": "/tmp/hikari_bot",

@@ -94,6 +94,7 @@ async def send_artwork(
     max_file_mb = config.get("max_file_mb", 25)
     max_send = config.get("max_send", 6)
     allow_r18 = config.get("allow_r18", False)
+    send_link_info = bool(config.get("send_link_info", True))
     send_strategy = config.get("send_strategy", {})
 
     # —— 获取作品信息 ——
@@ -147,27 +148,29 @@ async def send_artwork(
         return
 
     # —— 构建作品信息 ——
-    info_text = build_info_text(artwork, len(image_paths), original_count)
+    info_text = build_info_text(artwork, len(image_paths), original_count) if send_link_info else ""
 
     # —— 发送图片 ——
     prefer_forward = send_strategy.get("prefer_forward_message", True)
     fallback_separate = send_strategy.get("fallback_to_separate_images", True)
 
     if prefer_forward and len(image_paths) > 1:
-        # 多图作品：全部放合并转发（含作品信息 + 所有图片）
+        # 多图作品：全部放合并转发（可选作品信息 + 所有图片）
         sent_forward = await _try_send_forward(bot, event, artwork, image_paths, info_text)
         if sent_forward:
             logger.info(f"[Pixiv] 合并转发发送成功 → pid={illust_id}")
         elif fallback_separate:
             # 合并转发失败，降级：先发信息，再逐张发图片
             logger.warning(f"[Pixiv] 合并转发失败，降级为逐张发送 → pid={illust_id}")
-            await bot.send(event, Message(info_text))
+            if info_text:
+                await bot.send(event, Message(info_text))
             await _send_separate_images(bot, event, image_paths, illust_id)
         else:
             logger.warning(f"[Pixiv] 合并转发失败且不降级 → pid={illust_id}")
     else:
         # 单图：先发信息，再发图片
-        await bot.send(event, Message(info_text))
+        if info_text:
+            await bot.send(event, Message(info_text))
         await _send_separate_images(bot, event, image_paths, illust_id)
 
     total_elapsed = time.time() - t_start
@@ -199,14 +202,15 @@ async def _try_send_forward(
 
         nodes: list[MessageSegment] = []
 
-        # 节点 1: 作品信息
-        nodes.append(MessageSegment.node_custom(
-            user_id=bot_self_id,
-            nickname=bot_nickname,
-            content=Message(info_text),
-        ))
+        # 可选节点: 作品信息
+        if info_text:
+            nodes.append(MessageSegment.node_custom(
+                user_id=bot_self_id,
+                nickname=bot_nickname,
+                content=Message(info_text),
+            ))
 
-        # 节点 2-N: 每张图片
+        # 后续节点: 每张图片
         for i, path in enumerate(image_paths):
             uri = file_as_uri(path)
             image_msg = Message(MessageSegment.image(uri))

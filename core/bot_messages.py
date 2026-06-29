@@ -104,7 +104,6 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "audio_suffix": "\n(含背景音频)",
     },
     "youtube": {
-        "start": "检测到 YouTube 链接，开始下载视频...",
         "failed": "YouTube 视频下载失败：{reason}",
         "info": "YouTube 视频下载完成\n标题：{title}\n频道：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}",
     },

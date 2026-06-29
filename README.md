@@ -265,6 +265,7 @@ uv run python bot.py
 | `auto_parse` | 是否自动解析消息中的 Pixiv 链接 |
 | `max_send` | 单次最多发送图片数 |
 | `allow_r18` | 是否允许 R18 内容 |
+| `send_link_info` | 是否发送作品标题、作者、链接等详情；设为 `false` 时只发送图片 |
 | `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot` |
 
 支持链接形态：
@@ -288,6 +289,7 @@ uv run python bot.py
 | `api_key` | cobalt API Key，可为空 |
 | `api_timeout` | API 超时时间 |
 | `max_send` | 单次最多发送媒体数 |
+| `send_link_info` | 是否发送来源、数量、链接等详情；设为 `false` 时只发送媒体 |
 | `cache_dir` | 下载缓存目录 |
 
 支持 Instagram 的 `p`、`reel`、`stories`、`tv` 链接，以及 `facebook.com`、`fb.com`、`fb.watch` 链接。
@@ -307,6 +309,7 @@ uv run python bot.py
 | `max_links_per_message` | 单条消息最多处理几个 YouTube 链接，默认 `1` |
 | `max_file_mb` | 视频文件大小上限，默认 `1024` MB |
 | `max_height` | 默认最高下载清晰度，默认 `720` |
+| `send_link_info` | 是否发送标题、频道、时长、链接等详情；设为 `false` 时只发送视频 |
 | `download_timeout` | 单个视频下载超时时间，单位秒 |
 | `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot/youtube_downloader` |
 | `cookiefile` | 可选 yt-dlp cookies 文件路径；YouTube 要求登录验证时使用 |

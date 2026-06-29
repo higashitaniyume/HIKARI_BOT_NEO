@@ -4,6 +4,7 @@
   "max_send": 6,
   "max_file_mb": 25,
   "allow_r18": false,
+  "send_link_info": true,
   "cache_dir": "/tmp/hikari_bot",
   "cache_ttl_hours": 24,
   "proxy": "",

@@ -31,12 +31,13 @@ def _log_config_summary(cfg: dict[str, Any]) -> None:
     logger.info(
         "YouTube 下载配置加载完成 -> "
         "enabled=%s, auto_parse=%s, max_links_per_message=%s, "
-        "max_file_mb=%s, max_height=%s, cache_dir=%s, cookiefile=%s",
+        "max_file_mb=%s, max_height=%s, send_link_info=%s, cache_dir=%s, cookiefile=%s",
         cfg.get("enabled"),
         cfg.get("auto_parse"),
         cfg.get("max_links_per_message"),
         cfg.get("max_file_mb"),
         cfg.get("max_height"),
+        cfg.get("send_link_info"),
         cfg.get("cache_dir"),
         "已配置" if cfg.get("cookiefile") else "未配置",
     )

@@ -68,6 +68,7 @@ async def send_cobalt_result(
     api_timeout = config.get("api_timeout", 90)
     max_file_mb = config.get("max_file_mb", 200)
     max_send = config.get("max_send", 6)
+    send_link_info = bool(config.get("send_link_info", True))
     send_strategy = config.get("send_strategy", {})
 
     items = result.items[:max_send]
@@ -93,27 +94,29 @@ async def send_cobalt_result(
         return
 
     # —— 构建来源信息 ——
-    info_text = build_info_text(result)
+    info_text = build_info_text(result) if send_link_info else ""
 
     # —— 发送媒体 ——
     prefer_forward = send_strategy.get("prefer_forward_message", True)
     fallback_separate = send_strategy.get("fallback_to_separate_media", True)
 
     if prefer_forward and len(media_paths) > 1:
-        # 多个媒体：全部放合并转发（含来源信息 + 所有媒体）
+        # 多个媒体：全部放合并转发（可选来源信息 + 所有媒体）
         sent_forward = await _try_send_forward(bot, event, media_paths, media_types, info_text)
         if sent_forward:
             logger.info(f"[Cobalt] 合并转发发送成功")
         elif fallback_separate:
             # 合并转发失败，降级：先发信息，再逐条发媒体
             logger.warning(f"[Cobalt] 合并转发失败，降级为逐条发送")
-            await bot.send(event, Message(info_text))
+            if info_text:
+                await bot.send(event, Message(info_text))
             await _send_separate(bot, event, media_paths, media_types)
         else:
             logger.warning(f"[Cobalt] 合并转发失败且不降级")
     else:
         # 单个媒体：先发信息，再发媒体
-        await bot.send(event, Message(info_text))
+        if info_text:
+            await bot.send(event, Message(info_text))
         await _send_separate(bot, event, media_paths, media_types)
 
     total_elapsed = time.time() - t_start
@@ -138,12 +141,13 @@ async def _try_send_forward(
 
         nodes: list[MessageSegment] = []
 
-        # 节点 1: 来源信息
-        nodes.append(MessageSegment.node_custom(
-            user_id=bot_self_id,
-            nickname=bot_nickname,
-            content=Message(info_text),
-        ))
+        # 可选节点: 来源信息
+        if info_text:
+            nodes.append(MessageSegment.node_custom(
+                user_id=bot_self_id,
+                nickname=bot_nickname,
+                content=Message(info_text),
+            ))
 
         # 后续节点: 每个媒体
         for i, path in enumerate(media_paths):

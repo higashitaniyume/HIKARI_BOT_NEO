@@ -52,7 +52,7 @@ async def send_youtube_video(
     config: dict[str, Any],
 ) -> None:
     """下载并发送 YouTube 视频。"""
-    await bot.send(event, Message(msg("youtube.start")))
     result = await download_youtube_video(url, config)
-    await bot.send(event, Message(build_info_text(result)))
+    if bool(config.get("send_link_info", True)):
+        await bot.send(event, Message(build_info_text(result)))
     await bot.send(event, Message(MessageSegment.video(file_as_uri(result.path))))
