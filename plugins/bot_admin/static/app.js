@@ -654,6 +654,11 @@ function packArchiveFileName(packName) {
   return `${String(packName || "stickers").trim() || "stickers"}.7z`;
 }
 
+function stickerDownloadFileName(sticker) {
+  const rawName = String(sticker?.original_name || sticker?.file || sticker?.id || "sticker.gif").trim() || "sticker.gif";
+  return rawName.toLowerCase().endsWith(".gif") ? rawName : `${rawName}.gif`;
+}
+
 function downloadBlob(blob, filename) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -677,6 +682,13 @@ function filenameFromDisposition(disposition, fallback) {
   }
   const asciiMatch = value.match(/filename="?([^";]+)"?/i);
   return asciiMatch ? asciiMatch[1] : fallback;
+}
+
+function clearSelectedPackDetail() {
+  state.selectedPackName = "";
+  state.selectedPackDetail = null;
+  $("#packStickerMoveNewPack").value = "";
+  render();
 }
 
 async function downloadSelectedPackArchive() {
@@ -722,6 +734,43 @@ async function downloadSelectedPackArchive() {
   }
 }
 
+async function downloadSticker(sticker, button) {
+  if (!sticker?.id) {
+    showToast("贴纸不存在。", true);
+    return;
+  }
+
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = "下载中...";
+  try {
+    const res = await fetch(previewUrl(sticker.id), { cache: "no-store" });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      throw new Error("请先登录。");
+    }
+    if (!res.ok) {
+      let message = "下载贴纸失败";
+      try {
+        const data = await res.json();
+        message = data.error || message;
+      } catch {
+        message = await res.text() || message;
+      }
+      throw new Error(message);
+    }
+
+    const blob = await res.blob();
+    downloadBlob(blob, stickerDownloadFileName(sticker));
+    showToast("贴纸下载已开始。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = previousText || "下载";
+  }
+}
+
 function getSelectedPackStickerIds() {
   return Array.from(document.querySelectorAll(".pack-sticker-check:checked")).map((input) => input.value);
 }
@@ -743,12 +792,14 @@ function renderPackDetail() {
   const detail = state.selectedPackDetail;
   const list = $("#packStickerList");
   const downloadButton = $("#packDownloadBtn");
+  const clearButton = $("#packClearBtn");
   list.replaceChildren();
 
   if (!detail) {
     $("#packDetailTitle").textContent = "贴纸包内容";
     $("#packDetailMeta").textContent = "选择上方贴纸包后查看和管理具体贴纸。";
     downloadButton.hidden = true;
+    clearButton.hidden = true;
     list.className = "sticker-grid empty";
     list.textContent = "暂无选中的贴纸包";
     updatePackStickerSelectionText();
@@ -760,6 +811,7 @@ function renderPackDetail() {
   downloadButton.hidden = false;
   downloadButton.disabled = false;
   downloadButton.textContent = "下载 7z";
+  clearButton.hidden = false;
 
   const stickers = detail.stickers || [];
   if (!stickers.length) {
@@ -802,7 +854,14 @@ function renderPackDetail() {
     meta.className = "sticker-meta";
     meta.textContent = `${formatBytes(sticker.size)} / ${formatTime(sticker.created_at)}${sticker.missing ? " / 文件缺失" : ""}`;
 
-    card.append(check, frame, title, meta);
+    const stickerDownloadButton = document.createElement("button");
+    stickerDownloadButton.type = "button";
+    stickerDownloadButton.className = "small-button sticker-download-button";
+    stickerDownloadButton.textContent = "下载";
+    stickerDownloadButton.disabled = Boolean(sticker.missing);
+    stickerDownloadButton.addEventListener("click", () => downloadSticker(sticker, stickerDownloadButton));
+
+    card.append(check, frame, title, meta, stickerDownloadButton);
     list.append(card);
   }
   updatePackStickerSelectionText();
@@ -2012,6 +2071,7 @@ $("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
 $("#packStickerSelectAll").addEventListener("change", togglePackStickerSelection);
 $("#packStickerMoveBtn").addEventListener("click", moveSelectedPackStickers);
 $("#packStickerDeleteBtn").addEventListener("click", deleteSelectedPackStickers);
+$("#packClearBtn").addEventListener("click", clearSelectedPackDetail);
 $("#packDownloadBtn").addEventListener("click", downloadSelectedPackArchive);
 $("#packPickerClose").addEventListener("click", closePackPicker);
 $("#packPickerSearch").addEventListener("input", renderPackPicker);

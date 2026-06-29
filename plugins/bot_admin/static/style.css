@@ -2650,6 +2650,17 @@ button:not(:disabled):active {
   scroll-margin-top: 18px;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.panel-actions .ghost {
+  width: auto;
+}
+
 .pack-sticker-toolbar {
   display: grid;
   grid-template-columns: minmax(170px, 0.9fr) auto minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
@@ -2677,6 +2688,7 @@ button:not(:disabled):active {
 .sticker-card {
   position: relative;
   display: grid;
+  grid-template-rows: auto auto auto 1fr;
   gap: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2738,6 +2750,11 @@ button:not(:disabled):active {
   line-height: 1.35;
 }
 
+.sticker-download-button {
+  align-self: end;
+  width: 100%;
+}
+
 @media (max-width: 1180px) {
   .pack-sticker-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2751,7 +2768,8 @@ button:not(:disabled):active {
   }
 
   .pack-sticker-toolbar .primary,
-  .pack-sticker-toolbar .danger-button {
+  .pack-sticker-toolbar .danger-button,
+  .panel-actions .ghost {
     width: 100%;
   }
 }
