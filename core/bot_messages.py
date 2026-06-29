@@ -134,6 +134,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     "osu": {
         "needs_binding_title": "需要先绑定 osu! 账号",
         "needs_binding": "用法：osu 绑定 <用户名/ID> [模式]\n也可以直接查询：osu <用户名/ID> 或 osu mania <用户名/ID>",
+    "steam_deals": {
+        "disabled": "Steam 喜加一日报当前已关闭。",
+        "fetching": "正在整理 Steam 免费和低价游戏日报...",
+        "failed": "Steam 日报获取失败：{error}",
+        "links": "商店链接：\n{links}",
+        "help": "steam日报：查看免费、低价和大折扣游戏日报。\nsteam日报 免费 / steam免费：只看免费游戏。\nsteam日报 低价 / steam低价：查看低价和大折扣游戏。\nsteam日报 刷新：忽略短期缓存重新获取。\n主动每日推送只发送到 BotData/plugin_configs/steam_deals.json 的 push_whitelist 白名单；手动命令不受白名单限制。",
+    },
         "download_link": "官方源暂时无法代下 .osz，已提供 osu! 官方下载入口：\n{download_url}\n谱面页：{page_url}\n原因：{reason}",
         "help_title": "osu! 信息查询",
         "help": "osu [模式] [用户名/ID]：查询用户信息；不填用户时使用绑定账号。\nosu 用户 [模式] [用户名/ID]：显式查询用户信息。\nosu 绑定 <用户名/ID> [模式] / osu 解绑：绑定或解绑当前 QQ。\nosu 看板 [模式] [用户名/ID]：用户信息 + 最近成绩看板。\nosu 成绩 [best|recent|firsts] [模式] [用户名/ID]：查询成绩列表。\nosu 排名 [模式] [国家代码]：查询全球或国家排行榜前列。\nosu 谱面 <谱面ID|关键词>：查询谱面详情或搜索谱面。\nosu 下载 <谱面集ID|谱面链接|关键词>：优先从 osu! 官方源下载 .osz。\n模式支持：osu/std、taiko、fruits/ctb、mania。",

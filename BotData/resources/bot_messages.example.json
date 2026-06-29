@@ -125,6 +125,13 @@
     "not_found": "没有在星露谷物语 Wiki 找到「{keyword}」。",
     "failed": "星露谷物语 Wiki 查询失败：{error}"
   },
+  "steam_deals": {
+    "disabled": "Steam 喜加一日报当前已关闭。",
+    "fetching": "正在整理 Steam 免费和低价游戏日报...",
+    "failed": "Steam 日报获取失败：{error}",
+    "links": "商店链接：\n{links}",
+    "help": "steam日报：查看免费、低价和大折扣游戏日报。\nsteam日报 免费 / steam免费：只看免费游戏。\nsteam日报 低价 / steam低价：查看低价和大折扣游戏。\nsteam日报 刷新：忽略短期缓存重新获取。\n主动每日推送只发送到 BotData/plugin_configs/steam_deals.json 的 push_whitelist 白名单；手动命令不受白名单限制。"
+  },
   "osu": {
     "needs_binding_title": "需要先绑定 osu! 账号",
     "needs_binding": "用法：osu 绑定 <用户名/ID> [模式]\n也可以直接查询：osu <用户名/ID> 或 osu mania <用户名/ID>",

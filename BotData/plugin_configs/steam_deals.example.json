@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "api_url": "https://store.steampowered.com/api/featuredcategories",
+  "country": "cn",
+  "language": "schinese",
+  "currency_symbol": "¥",
+  "timeout": 20,
+  "proxy": "",
+  "cache_dir": "/tmp/hikari_bot/steam_deals",
+  "cache_ttl_minutes": 30,
+  "max_items": 12,
+  "max_low_price_cents": 1000,
+  "min_discount_percent": 90,
+  "schedule": {
+    "enabled": false,
+    "time": "10:00",
+    "timezone": "Asia/Shanghai",
+    "startup_delay_seconds": 30,
+    "check_interval_seconds": 60
+  },
+  "push_whitelist": {
+    "group_ids": [],
+    "private_user_ids": []
+  },
+  "render": {
+    "download_covers": true,
+    "cover_timeout": 10
+  }
+}
