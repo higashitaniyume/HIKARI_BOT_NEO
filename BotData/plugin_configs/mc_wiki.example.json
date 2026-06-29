@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "api_url": "https://zh.minecraft.wiki/api.php",
+  "timeout": 12,
+  "search_limit": 3,
+  "summary_max_chars": 220,
+  "proxy": "",
+  "user_agent": "HIKARI_BOT_NEO mc_wiki"
+}

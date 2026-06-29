@@ -125,6 +125,12 @@
     "not_found": "没有在星露谷物语 Wiki 找到「{keyword}」。",
     "failed": "星露谷物语 Wiki 查询失败：{error}"
   },
+  "mc_wiki": {
+    "result": "标题：{title}\n简介：{summary}\nURL：{url}",
+    "usage": "用法：mcwiki <关键词>",
+    "not_found": "没有在 Minecraft Wiki 找到「{keyword}」。",
+    "failed": "Minecraft Wiki 查询失败：{error}"
+  },
   "steam_deals": {
     "disabled": "Steam 喜加一日报当前已关闭。",
     "fetching": "正在整理 Steam 免费和低价游戏日报...",
