@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from core.access_control import normalize_access_rules
 from plugins import sticker_inbox
 from plugins import sticker_library
 from plugins import voice_library
@@ -51,6 +52,12 @@ _PLUGIN_CONFIG_DIR = Path("BotData/plugin_configs")
 _LOG_DIR = Path("BotData/logs")
 _MAX_CONFIG_EDIT_BYTES = 2 * 1024 * 1024
 _MAX_LOG_TAIL_BYTES = 256 * 1024
+_ACCESS_RULE_PLUGINS = {
+    "media_parser.json": "聚合媒体解析",
+    "pixiv_parser.json": "Pixiv 解析",
+    "cobalt_parser.json": "Instagram / Facebook 解析",
+    "youtube_downloader.json": "YouTube 下载",
+}
 _server_started = False
 _server_lock = threading.Lock()
 _upload_jobs: dict[str, dict[str, Any]] = {}
@@ -475,6 +482,52 @@ def _write_plugin_config(name: str, content: str) -> dict[str, Any]:
     tmp_path.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp_path, path)
     return _read_plugin_config(path.name)
+
+
+def _access_rule_item(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{path.name} JSON 格式错误：{e}") from e
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} 顶层必须是 JSON 对象。")
+    return {
+        "name": path.name,
+        "label": _ACCESS_RULE_PLUGINS.get(path.name, path.stem),
+        "permissions": normalize_access_rules(data.get("permissions", {})),
+        "mtime": path.stat().st_mtime,
+    }
+
+
+def _access_rules_state() -> dict[str, Any]:
+    _PLUGIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    plugins: list[dict[str, Any]] = []
+    for file_name in _ACCESS_RULE_PLUGINS:
+        path = _PLUGIN_CONFIG_DIR / file_name
+        if path.is_file():
+            plugins.append(_access_rule_item(path))
+    return {"plugins": plugins}
+
+
+def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
+    name = str(data.get("plugin") or "").strip()
+    if name not in _ACCESS_RULE_PLUGINS:
+        raise ValueError("不支持管理这个插件的权限。")
+    path = _safe_config_file(name)
+    try:
+        current = json.loads(path.read_text(encoding="utf-8") or "{}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"配置文件 JSON 格式错误：{e}") from e
+    if not isinstance(current, dict):
+        raise ValueError("配置文件顶层必须是 JSON 对象。")
+
+    current["permissions"] = normalize_access_rules(data.get("permissions", {}))
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, path)
+    payload = _access_rules_state()
+    payload["message"] = "权限规则已保存。"
+    return payload
 
 
 def _list_logs() -> dict[str, Any]:
@@ -1118,6 +1171,18 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(_aiagent_config_state())
             return
+        if parsed.path == "/api/access-rules":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            try:
+                self._send_json(_access_rules_state())
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("读取权限规则失败: %s", e)
+                self._send_json({"error": "读取权限规则失败，请检查服务日志。"}, 500)
+            return
         if parsed.path == "/api/configs":
             if not self._is_authenticated():
                 self._unauthorized_json()
@@ -1265,6 +1330,17 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("保存 AI Agent 设置失败: %s", e)
                 self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/access-rules":
+            try:
+                data = self._read_json_body()
+                self._send_json(_write_access_rules(data))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("保存权限规则失败: %s", e)
+                self._send_json({"error": "保存权限规则失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/voice-keywords":

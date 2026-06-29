@@ -13,14 +13,27 @@
   "max_items": 18,
   "max_low_price_cents": 1000,
   "min_discount_percent": 90,
+  "include_market_results": true,
+  "market_filters": [
+    "topsellers"
+  ],
+  "market_pages": 1,
+  "market_count_per_page": 50,
   "include_search_results": true,
   "search_pages": 2,
   "search_count_per_page": 50,
   "search_sort_by": [
+    "Discount_DESC",
+    "Reviews_DESC",
     "Released_DESC"
   ],
   "search_category1": 998,
   "include_steamdb_free_promotions": true,
+  "price_watch": {
+    "enabled": true,
+    "mark_first_seen_as_new": true,
+    "max_entries": 5000
+  },
   "daily_filter": {
     "enabled": true,
     "max_per_title_family": 2,

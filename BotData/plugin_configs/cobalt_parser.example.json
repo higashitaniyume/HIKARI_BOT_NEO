@@ -1,5 +1,6 @@
 {
   "auto_parse": true,
+  "max_links_per_message": 20,
   "cobalt_api": "http://192.168.31.2:54257/",
   "api_timeout": 90,
   "max_send": 6,
@@ -12,5 +13,18 @@
   "send_strategy": {
     "prefer_forward_message": true,
     "fallback_to_separate_media": true
+  },
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    }
   }
 }

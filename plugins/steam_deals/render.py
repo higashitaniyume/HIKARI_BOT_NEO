@@ -68,7 +68,7 @@ async def render_report(
     draw.rectangle((0, header_h - 5, width, header_h), fill=ACCENT)
     draw.text((pad, 32), _title_for_mode(mode), font=title_font, fill=(255, 255, 255))
     subtitle = generated_at.strftime("%Y-%m-%d %H:%M")
-    draw.text((pad, 96), f"Steam 官方特惠 + 搜索特惠 + SteamDB 限免 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
+    draw.text((pad, 96), f"Steam 热卖榜 + 官方特惠 + SteamDB 限免 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
     summary = _summary(deals, config)
     draw.text((pad, 133), summary, font=meta_font, fill=(152, 197, 227))
 
@@ -98,7 +98,7 @@ async def render_report(
 
         y += row_h
 
-    footer = "数据来自 Steam Store 与 SteamDB Free Promotions；限免领取/免费试玩以 SteamDB 标签辅助判断。"
+    footer = "数据来自 Steam Store 与 SteamDB Free Promotions；新打折/折扣加深由本地价格快照辅助判断。"
     draw.text((pad, height - 42), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "JPEG").strip().upper()
@@ -171,6 +171,11 @@ def _draw_tags(
     colors = {
         "限免领取": (74, 160, 65),
         "免费试玩": (53, 112, 170),
+        "热卖": (198, 134, 45),
+        "热门": (180, 103, 43),
+        "榜单": (146, 105, 62),
+        "新打折": (198, 86, 43),
+        "折扣加深": (167, 70, 118),
         "近期": (85, 154, 206),
         "免费": FREE,
         "低价": (93, 123, 37),
@@ -277,7 +282,10 @@ def _summary(deals: list[SteamDeal], config: dict[str, Any]) -> str:
     big_count = sum(1 for item in deals if item.discount_percent >= int(config.get("min_discount_percent") or 90))
     keep_count = sum(1 for item in deals if item.promotion_kind == "free_to_keep")
     trial_count = sum(1 for item in deals if item.promotion_kind == "play_for_free")
-    return f"{len(deals)} 款入选 · 限免领取 {keep_count} · 免费试玩 {trial_count} · 免费 {free_count} · 低价 {low_count} · 大折扣 {big_count}"
+    new_count = sum(1 for item in deals if "新打折" in item.categories)
+    deeper_count = sum(1 for item in deals if "折扣加深" in item.categories)
+    market_count = sum(1 for item in deals if item.source in {"热卖", "热门", "榜单"} or bool({"热卖", "热门", "榜单"} & item.categories))
+    return f"{len(deals)} 款入选 · 榜单 {market_count} · 新打折 {new_count} · 折扣加深 {deeper_count} · 限免领取 {keep_count} · 免费试玩 {trial_count} · 免费 {free_count} · 低价 {low_count} · 大折扣 {big_count}"
 
 
 def _title_for_mode(mode: str) -> str:
@@ -285,7 +293,7 @@ def _title_for_mode(mode: str) -> str:
         return "Steam 免费游戏日报"
     if mode == "low":
         return "Steam 低价游戏日报"
-    return "Steam 喜加一游戏日报"
+    return "Steam 热门热卖日报"
 
 
 def _ellipsize(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> str:

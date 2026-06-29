@@ -10,6 +10,7 @@ import logging
 
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
+from core.access_control import is_event_allowed
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.stats_tracker import increment as stats_increment
@@ -37,17 +38,21 @@ class AutoPixivHandler:
         cfg = get_config()
         if not cfg.get("auto_parse", True):
             return False
+        if not is_event_allowed(cfg, event):
+            return False
         return bool(extract_pixiv_ids(text))
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
         cfg = get_config()
+        if not is_event_allowed(cfg, event):
+            return
         text = str(event.get_message())
         ids = extract_pixiv_ids(text)
         if not ids:
             return
 
-        # 一条消息最多处理 2 个 Pixiv 链接，防止刷屏
-        ids_to_process = ids[:2]
+        max_links = max(1, int(cfg.get("max_links_per_message", 20)))
+        ids_to_process = ids[:max_links]
         total_found = len(ids)
 
         logger.info(

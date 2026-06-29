@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
@@ -24,7 +25,8 @@ logger = logging.getLogger("HikariBot.MediaParser")
 
 get_config()
 
-_parse_lock = asyncio.Lock()
+_parse_queue: asyncio.Queue["MediaParseQueueItem"] | None = None
+_parse_worker_task: asyncio.Task[None] | None = None
 
 SUPPORTED_LINK_MARKERS = (
     "bilibili.com",
@@ -46,6 +48,15 @@ SUPPORTED_LINK_MARKERS = (
     "twitter.com",
     "x.com",
 )
+
+
+@dataclass
+class MediaParseQueueItem:
+    bot: Bot
+    event: MessageEvent
+    text: str
+    links_with_parser: list[tuple[str, Any]]
+    force: bool = False
 
 
 def _event_text(event: MessageEvent) -> str:
@@ -109,6 +120,114 @@ def _scope_allowed(runtime: MediaParserRuntime, event: MessageEvent) -> bool:
     )
 
 
+def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    raw = cfg.get("parse_queue") if isinstance(cfg.get("parse_queue"), dict) else {}
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "max_size": max(1, int(raw.get("max_size", 100))),
+        "delay_seconds": max(0.0, float(raw.get("delay_seconds", 0.8))),
+    }
+
+
+def _ensure_parse_worker(cfg: dict[str, Any]) -> asyncio.Queue[MediaParseQueueItem]:
+    global _parse_queue, _parse_worker_task
+    settings = _queue_settings(cfg)
+    if _parse_queue is None:
+        _parse_queue = asyncio.Queue(maxsize=settings["max_size"])
+    if _parse_worker_task is None or _parse_worker_task.done():
+        _parse_worker_task = asyncio.create_task(_parse_worker(), name="HikariMediaParserQueue")
+    return _parse_queue
+
+
+async def _parse_worker() -> None:
+    from core.error_notifier import notify_error_to_superuser, send_user_error
+
+    logger.info("[MediaParser] parse queue worker started")
+    while True:
+        assert _parse_queue is not None
+        item = await _parse_queue.get()
+        try:
+            cfg = get_config()
+            await _process_text(
+                item.bot,
+                item.event,
+                item.text,
+                force=item.force,
+                links_with_parser=item.links_with_parser,
+            )
+            delay = _queue_settings(cfg)["delay_seconds"]
+            if delay > 0:
+                await asyncio.sleep(delay)
+        except Exception as e:
+            logger.exception("[MediaParser] queued parse failed: %s", e)
+            try:
+                await send_user_error(item.bot, item.event)
+                await notify_error_to_superuser(item.bot, item.event, e, "MediaParser")
+            except Exception as notify_err:
+                logger.exception("发送错误通知失败: %s", notify_err)
+        finally:
+            _parse_queue.task_done()
+
+
+async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool = False) -> None:
+    runtime = _runtime_from_config()
+    if runtime is None:
+        return
+    if not _scope_allowed(runtime, event):
+        return
+    if not force and not runtime.config_manager.trigger.should_parse(text):
+        return
+
+    links = runtime.parser_manager.extract_all_links(text)
+    if not links:
+        if force:
+            await bot.send(event, Message(msg("media_parser.no_link")))
+        return
+
+    max_links = max(1, int(runtime.config.get("max_links_per_message", 20)))
+    links = links[:max_links]
+    settings = _queue_settings(runtime.config)
+    if not settings["enabled"]:
+        for link_item in links:
+            await _process_text(bot, event, link_item[0], force=force, links_with_parser=[link_item])
+        return
+
+    queue = _ensure_parse_worker(runtime.config)
+    if queue.full():
+        logger.warning(
+            "[MediaParser] parse queue full -> user=%s, size=%d",
+            event.get_user_id(),
+            queue.qsize(),
+        )
+        if force:
+            await bot.send(event, Message(msg("media_parser.rate_limited", reason="解析队列已满，请稍后再试")))
+        return
+
+    queued = 0
+    dropped = 0
+    for link_item in links:
+        if queue.full():
+            dropped += 1
+            continue
+        queue.put_nowait(MediaParseQueueItem(
+            bot=bot,
+            event=event,
+            text=link_item[0],
+            links_with_parser=[link_item],
+            force=force,
+        ))
+        queued += 1
+    if dropped and force:
+        await bot.send(event, Message(msg("media_parser.rate_limited", reason=f"解析队列已满，{dropped} 个链接未入队")))
+    logger.info(
+        "[MediaParser] queued parse jobs -> user=%s, count=%d, dropped=%d, queue_size=%d",
+        event.get_user_id(),
+        queued,
+        dropped,
+        queue.qsize(),
+    )
+
+
 def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
     text_enabled, rich_enabled = runtime.config_manager.message.output_for_metadata(metadata)
     metadata["_enable_text_metadata"] = text_enabled
@@ -128,14 +247,21 @@ def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -
     return False
 
 
-async def _process_text(bot: Bot, event: MessageEvent, text: str, *, force: bool = False) -> None:
+async def _process_text(
+    bot: Bot,
+    event: MessageEvent,
+    text: str,
+    *,
+    force: bool = False,
+    links_with_parser: list[tuple[str, Any]] | None = None,
+) -> None:
     runtime = _runtime_from_config()
     if runtime is None:
         return
     if not _scope_allowed(runtime, event):
         return
 
-    links = runtime.parser_manager.extract_all_links(text)
+    links = list(links_with_parser) if links_with_parser is not None else runtime.parser_manager.extract_all_links(text)
     if not links:
         if force:
             await bot.send(event, Message(msg("media_parser.no_link")))
@@ -144,8 +270,9 @@ async def _process_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
     if not force and not runtime.config_manager.trigger.should_parse(text):
         return
 
-    max_links = max(1, int(runtime.config.get("max_links_per_message", 2)))
-    links = links[:max_links]
+    if links_with_parser is None:
+        max_links = max(1, int(runtime.config.get("max_links_per_message", 20)))
+        links = links[:max_links]
     record_manager = _create_record_manager(runtime)
     if record_manager.enabled:
         links, blocked = record_manager.filter_links(
@@ -245,13 +372,14 @@ class AutoMediaParserHandler:
         runtime = _runtime_from_config()
         if runtime is None:
             return False
+        if not _scope_allowed(runtime, event):
+            return False
         if not runtime.config_manager.trigger.should_parse(parse_text):
             return False
         return bool(runtime.parser_manager.extract_all_links(parse_text))
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
-        async with _parse_lock:
-            await _process_text(bot, event, _event_text(event))
+        await _enqueue_text(bot, event, _event_text(event))
 
 
 @command(
@@ -264,8 +392,7 @@ async def media_parse_command(ctx: CommandContext) -> None:
     if not ctx.args:
         await ctx.send(Message(msg("media_parser.usage")))
         return
-    async with _parse_lock:
-        await _process_text(ctx.bot, ctx.event, ctx.args, force=True)
+    await _enqueue_text(ctx.bot, ctx.event, ctx.args, force=True)
 
 
 register_handler(AutoMediaParserHandler())

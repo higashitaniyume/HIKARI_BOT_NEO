@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 import httpx
 
+from .storage import annotate_price_changes
+
 
 class SteamDealsError(RuntimeError):
     pass
@@ -36,6 +38,7 @@ class SteamDeal:
     promotion_kind: str = ""
     promotion_start: str = ""
     promotion_end: str = ""
+    market_rank: int = 0
     categories: set[str] = field(default_factory=set)
 
     @property
@@ -79,7 +82,10 @@ class SteamDealsClient:
             f"{self.config.get('include_search_results')}|{self.config.get('search_pages')}|"
             f"{self.config.get('search_count_per_page')}|{self.config.get('search_sort_by')}|"
             f"{self.config.get('search_category1')}|"
+            f"{self.config.get('include_market_results')}|{self.config.get('market_filters')}|"
+            f"{self.config.get('market_pages')}|{self.config.get('market_count_per_page')}|"
             f"{self.config.get('daily_filter')}|"
+            f"{self.config.get('price_watch')}|"
             f"{self.config.get('include_steamdb_free_promotions')}|{self.steamdb_free_url}"
         )
         cached = _CACHE.get(cache_key)
@@ -89,10 +95,19 @@ class SteamDealsClient:
 
         async with httpx.AsyncClient(**self._client_kwargs()) as client:
             deals = await self._fetch_featured_deals(client)
+            if self.config.get("include_market_results", True):
+                deals = self._merge_deals(deals, await self._fetch_market_deals(client))
             if self.config.get("include_search_results", True):
                 deals = self._merge_deals(deals, await self._fetch_search_deals(client))
             if self.config.get("include_steamdb_free_promotions", True):
                 deals = self._merge_deals(deals, await self._fetch_steamdb_promotions(client))
+        price_watch = self.config.get("price_watch") or {}
+        annotate_price_changes(
+            deals,
+            enabled=bool(price_watch.get("enabled", True)),
+            mark_first_seen_as_new=bool(price_watch.get("mark_first_seen_as_new", True)),
+            max_entries=max(100, int(price_watch.get("max_entries") or 5000)),
+        )
         _CACHE[cache_key] = (now, deals)
         return list(deals)
 
@@ -152,6 +167,51 @@ class SteamDealsClient:
                 deals.extend(self._fetch_search_deals_from_html(html))
         return deals
 
+    async def _fetch_market_deals(self, client: httpx.AsyncClient) -> list[SteamDeal]:
+        if not self.search_url:
+            return []
+        filters = self.config.get("market_filters") or ["topsellers"]
+        filter_values = [str(filters)] if isinstance(filters, str) else [str(item) for item in filters]
+        pages = max(1, min(int(self.config.get("market_pages") or 1), 5))
+        count = max(10, min(int(self.config.get("market_count_per_page") or 50), 100))
+        search_category = _safe_int(self.config.get("search_category1"))
+
+        deals: list[SteamDeal] = []
+        seen: set[int] = set()
+        for filter_name in filter_values:
+            source = _market_source(filter_name)
+            for page in range(pages):
+                params: dict[str, Any] = {
+                    "query": "",
+                    "start": page * count,
+                    "count": count,
+                    "dynamic_data": "",
+                    "filter": filter_name,
+                    "cc": self.country,
+                    "l": self.language,
+                    "infinite": 1,
+                }
+                if search_category > 0:
+                    params["category1"] = search_category
+                try:
+                    response = await client.get(self.search_url, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                except (httpx.RequestError, httpx.HTTPStatusError, ValueError):
+                    continue
+                html = data.get("results_html") if isinstance(data, dict) else None
+                if not isinstance(html, str) or not html.strip():
+                    continue
+                for deal in self._fetch_search_deals_from_html(html):
+                    if deal.appid in seen:
+                        continue
+                    seen.add(deal.appid)
+                    deal.source = source
+                    deal.market_rank = len(deals) + 1
+                    deal.categories.add(source)
+                    deals.append(deal)
+        return deals
+
     def _fetch_search_deals_from_html(self, html: str) -> list[SteamDeal]:
         return _SearchResultParser().parse(html)
 
@@ -187,6 +247,8 @@ class SteamDealsClient:
             free = deal.is_free
             low = 0 < deal.final_price_cents <= max_low_price
             big_discount = deal.discount_percent >= min_discount
+            changed_discount = _is_changed_discount(deal)
+            market_item = _is_market_item(deal)
             recent_discount = (
                 deal.discount_percent >= min_recent_discount
                 and _is_recent_release(deal, max_search_age_days)
@@ -211,7 +273,7 @@ class SteamDealsClient:
                 filtered.append(deal)
             elif mode == "low" and not free and (low or big_discount):
                 filtered.append(deal)
-            elif mode == "all" and (free or low or big_discount or promoted_free or recent_discount):
+            elif mode == "all" and (market_item or free or low or big_discount or promoted_free or changed_discount or recent_discount):
                 filtered.append(deal)
 
         if mode == "all" and (self.config.get("daily_filter") or {}).get("enabled", True):
@@ -313,6 +375,8 @@ class SteamDealsClient:
                 existing.promotion_end = deal.promotion_end
                 existing.final_price_cents = min(existing.final_price_cents, deal.final_price_cents)
                 existing.categories.update(deal.categories)
+            if deal.market_rank and (not existing.market_rank or deal.market_rank < existing.market_rank):
+                existing.market_rank = deal.market_rank
         return list(merged.values())
 
     def _parse_featured_categories(self, data: Any) -> list[SteamDeal]:
@@ -625,6 +689,15 @@ def _promotion_sort(deal: SteamDeal) -> int:
     return 3
 
 
+def _market_source(filter_name: str) -> str:
+    normalized = filter_name.strip().casefold()
+    if normalized == "popularnew":
+        return "热门"
+    if normalized == "topsellers":
+        return "热卖"
+    return "榜单"
+
+
 def _daily_rank(
     deal: SteamDeal,
     max_low_price: int,
@@ -643,22 +716,28 @@ def _daily_rank(
         return 0
     if deal.promotion_kind == "play_for_free":
         return 1
-    if deal.is_free:
+    if _is_market_item(deal):
         return 2
-    if deal.source == "精选" and (low or big_discount):
+    if deal.is_free:
         return 3
+    if "新打折" in deal.categories:
+        return 4
+    if "折扣加深" in deal.categories:
+        return 5
+    if deal.source == "精选" and (low or big_discount):
+        return 6
     if require_recent_search and deal.source == "搜索" and not recent:
         return 90
     if big_discount and recent_ok and deal.review_count >= min_reviews:
-        return 4
-    if big_discount and recent_ok:
-        return 5
-    if low and recent_ok and (deal.review_count >= min_reviews or deal.discount_percent >= min_low_discount):
-        return 6
-    if recent_ok and deal.discount_percent >= min_recent_discount and deal.review_count >= min_reviews:
         return 7
-    if recent_ok and deal.discount_percent >= min_recent_discount:
+    if big_discount and recent_ok:
         return 8
+    if low and recent_ok and (deal.review_count >= min_reviews or deal.discount_percent >= min_low_discount):
+        return 9
+    if recent_ok and deal.discount_percent >= min_recent_discount and deal.review_count >= min_reviews:
+        return 10
+    if recent_ok and deal.discount_percent >= min_recent_discount:
+        return 11
     return 90
 
 
@@ -671,7 +750,7 @@ def _daily_sort_key(
     min_recent_discount: int,
     max_search_age_days: int,
     require_recent_search: bool,
-) -> tuple[int, int, int, int, int, int, str]:
+) -> tuple[int, int, int, int, int, int, int, str]:
     return (
         _daily_rank(
             deal,
@@ -683,6 +762,7 @@ def _daily_sort_key(
             max_search_age_days,
             require_recent_search,
         ),
+        deal.market_rank or 999999,
         0 if deal.source == "精选" else 1,
         -_release_ordinal(deal),
         -min(deal.review_count, 5000),
@@ -702,6 +782,14 @@ def _is_plain_low_price(
     low = 0 < deal.final_price_cents <= max_low_price
     big_discount = deal.discount_percent >= min_discount
     return low and not big_discount and deal.review_count < min_reviews and deal.discount_percent < min_low_discount
+
+
+def _is_changed_discount(deal: SteamDeal) -> bool:
+    return "新打折" in deal.categories or "折扣加深" in deal.categories
+
+
+def _is_market_item(deal: SteamDeal) -> bool:
+    return deal.source in {"热卖", "热门", "榜单"} or bool({"热卖", "热门", "榜单"} & deal.categories)
 
 
 def _title_family(name: str) -> str:

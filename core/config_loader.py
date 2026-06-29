@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from core.access_control import DEFAULT_ACCESS_RULES
+
 logger = logging.getLogger("HikariBot.ConfigLoader")
 _config_cache_lock = threading.RLock()
 _plugin_config_cache: dict[Path, tuple[int, int, dict[str, Any]]] = {}
@@ -55,6 +57,7 @@ DEFAULT_MAIN_CONFIG: dict[str, Any] = {
 DEFAULT_PIXIV_CONFIG: dict[str, Any] = {
     "cookie": "",
     "auto_parse": True,
+    "max_links_per_message": 20,
     "max_send": 6,
     "max_file_mb": 25,
     "allow_r18": False,
@@ -66,10 +69,12 @@ DEFAULT_PIXIV_CONFIG: dict[str, Any] = {
         "prefer_forward_message": True,
         "fallback_to_separate_images": True,
     },
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
 DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     "auto_parse": True,
+    "max_links_per_message": 20,
     "cobalt_api": "http://192.168.31.2:54257/",
     "api_timeout": 90,
     "max_send": 6,
@@ -83,12 +88,13 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
         "prefer_forward_message": True,
         "fallback_to_separate_media": True,
     },
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
 DEFAULT_YOUTUBE_DOWNLOADER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "auto_parse": True,
-    "max_links_per_message": 1,
+    "max_links_per_message": 20,
     "max_file_mb": 1024,
     "max_height": 720,
     "send_link_info": True,
@@ -98,12 +104,18 @@ DEFAULT_YOUTUBE_DOWNLOADER_CONFIG: dict[str, Any] = {
     "cache_dir": "/tmp/hikari_bot/youtube_downloader",
     "cookiefile": "",
     "format": "",
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
 DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "api_timeout": 120,
-    "max_links_per_message": 2,
+    "max_links_per_message": 20,
+    "parse_queue": {
+        "enabled": True,
+        "max_size": 100,
+        "delay_seconds": 0.8,
+    },
     "max_send": 8,
     "trigger": {
         "auto_parse": True,

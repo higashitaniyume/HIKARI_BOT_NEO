@@ -1,7 +1,12 @@
 {
   "enabled": true,
   "api_timeout": 120,
-  "max_links_per_message": 2,
+  "max_links_per_message": 20,
+  "parse_queue": {
+    "enabled": true,
+    "max_size": 100,
+    "delay_seconds": 0.8
+  },
   "max_send": 8,
   "trigger": {
     "auto_parse": true,

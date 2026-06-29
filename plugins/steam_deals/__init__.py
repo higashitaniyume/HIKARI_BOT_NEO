@@ -104,7 +104,6 @@ async def _send_report_to_context(ctx: CommandContext, mode: DealMode, *, force_
     if not _enabled():
         await ctx.send(Message(msg("steam_deals.disabled")))
         return
-    await ctx.send(Message(msg("steam_deals.fetching")))
     try:
         path, links = await _build_report(mode, force_refresh=force_refresh)
     except SteamDealsError as e:
@@ -119,7 +118,7 @@ async def _send_report_to_context(ctx: CommandContext, mode: DealMode, *, force_
 @command(
     "steam日报",
     aliases=("steam", "Steam日报", "steam喜加一", "steam免费", "steam低价", "喜加一", "steam特惠"),
-    description="查询 Steam 免费和低价游戏日报",
+    description="查询 Steam 热门热卖、免费和低价游戏日报",
     usage="steam日报 [免费|低价|刷新]",
     detail_key="steam_deals.help",
 )

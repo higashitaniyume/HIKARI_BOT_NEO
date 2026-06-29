@@ -11,6 +11,7 @@ import logging
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
+from core.access_control import is_event_allowed
 from core.bot_messages import get_message as msg
 from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.message_pipeline import register_handler
@@ -37,10 +38,14 @@ class AutoYouTubeHandler:
         cfg = get_config()
         if not cfg.get("enabled", True) or not cfg.get("auto_parse", True):
             return False
+        if not is_event_allowed(cfg, event):
+            return False
         return bool(extract_youtube_urls(text))
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
         cfg = get_config()
+        if not is_event_allowed(cfg, event):
+            return
         text = str(event.get_message())
         urls = extract_youtube_urls(text)
         if not urls:

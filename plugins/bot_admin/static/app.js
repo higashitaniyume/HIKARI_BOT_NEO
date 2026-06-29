@@ -14,6 +14,8 @@ const state = {
   ttsConfig: {},
   aiagentConfig: {},
   aiagentPersonas: [],
+  accessRules: [],
+  selectedAccessPlugin: "",
   editingTtsVoiceName: "",
   draggingInboxIds: [],
   pickerInboxIds: [],
@@ -30,6 +32,7 @@ const VIEW_TITLES = {
   voices: "语音",
   settings: "设置",
   aiagent: "AI Agent",
+  access: "权限",
   configs: "配置",
   logs: "日志",
 };
@@ -59,6 +62,9 @@ function setView(view) {
   if (target === "aiagent" && !Object.keys(state.aiagentConfig || {}).length) {
     fetchAiAgentConfig().catch((err) => showToast(err.message, true));
   }
+  if (target === "access" && !state.accessRules.length) {
+    fetchAccessRules().catch((err) => showToast(err.message, true));
+  }
 }
 
 function initNavigation() {
@@ -73,7 +79,6 @@ function setSidebarCollapsed(collapsed) {
   const shell = document.querySelector(".admin-shell");
   shell.classList.toggle("sidebar-collapsed", collapsed);
   const button = $("#sidebarToggle");
-  button.textContent = collapsed ? ">>" : "<<";
   button.setAttribute("aria-label", collapsed ? "展开侧边栏" : "收起侧边栏");
   button.setAttribute("title", collapsed ? "展开侧边栏" : "收起侧边栏");
   button.setAttribute("aria-expanded", String(!collapsed));
@@ -206,6 +211,18 @@ async function fetchAiAgentConfig(shouldRender = true) {
   }
 }
 
+async function fetchAccessRules(shouldRender = true) {
+  const res = await fetch("/api/access-rules", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取权限规则失败");
+  state.accessRules = data.plugins || [];
+  if (!state.selectedAccessPlugin && state.accessRules.length) {
+    state.selectedAccessPlugin = state.accessRules[0].name;
+  }
+  if (shouldRender) {
+    renderAccessRules();
+  }
+}
+
 async function fetchConfigFiles() {
   const res = await fetch("/api/configs", { cache: "no-store" });
   const data = await readJsonResponse(res, "读取配置列表失败");
@@ -247,6 +264,118 @@ function renderConfigFiles() {
     meta.textContent = `${formatBytes(file.size)} / ${formatTime(file.mtime)}`;
     button.append(title, meta);
     list.append(button);
+  }
+}
+
+function currentAccessRule() {
+  return state.accessRules.find((item) => item.name === state.selectedAccessPlugin) || null;
+}
+
+function joinIds(value) {
+  return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function splitIds(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split(/[\s,，;；]+/)
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+}
+
+function renderAccessRules() {
+  const list = $("#accessPluginList");
+  list.replaceChildren();
+  if (!state.accessRules.length) {
+    list.className = "ops-list empty";
+    list.textContent = "暂无可管理插件";
+    $("#accessRulesForm").hidden = true;
+    $("#accessEditorTitle").textContent = "选择一个插件";
+    $("#accessEditorMeta").textContent = "未找到可管理的插件配置文件";
+    return;
+  }
+
+  list.className = "ops-list";
+  for (const plugin of state.accessRules) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ops-list-item";
+    button.classList.toggle("is-active", plugin.name === state.selectedAccessPlugin);
+    button.addEventListener("click", () => {
+      state.selectedAccessPlugin = plugin.name;
+      renderAccessRules();
+    });
+
+    const title = document.createElement("span");
+    title.className = "ops-list-title";
+    title.textContent = plugin.label || plugin.name;
+    const meta = document.createElement("span");
+    meta.className = "ops-list-meta";
+    meta.textContent = plugin.name;
+    button.append(title, meta);
+    list.append(button);
+  }
+
+  const selected = currentAccessRule() || state.accessRules[0];
+  state.selectedAccessPlugin = selected.name;
+  const permissions = selected.permissions || {};
+  const whitelist = permissions.whitelist || {};
+  const blacklist = permissions.blacklist || {};
+  $("#accessRulesForm").hidden = false;
+  $("#accessEditorTitle").textContent = selected.label || selected.name;
+  $("#accessEditorMeta").textContent = `${selected.name} / ${formatTime(selected.mtime || 0)}`;
+  $("#accessWhitelistEnabled").checked = whitelist.enable === true;
+  $("#accessBlacklistEnabled").checked = blacklist.enable === true;
+  $("#accessWhitelistUsers").value = joinIds(whitelist.user);
+  $("#accessWhitelistGroups").value = joinIds(whitelist.group);
+  $("#accessBlacklistUsers").value = joinIds(blacklist.user);
+  $("#accessBlacklistGroups").value = joinIds(blacklist.group);
+}
+
+function buildAccessPayload() {
+  return {
+    plugin: state.selectedAccessPlugin,
+    permissions: {
+      whitelist: {
+        enable: $("#accessWhitelistEnabled").checked,
+        user: splitIds($("#accessWhitelistUsers").value),
+        group: splitIds($("#accessWhitelistGroups").value),
+      },
+      blacklist: {
+        enable: $("#accessBlacklistEnabled").checked,
+        user: splitIds($("#accessBlacklistUsers").value),
+        group: splitIds($("#accessBlacklistGroups").value),
+      },
+    },
+  };
+}
+
+async function saveAccessRules(event) {
+  event.preventDefault();
+  if (!state.selectedAccessPlugin) {
+    showToast("请先选择一个插件。", true);
+    return;
+  }
+  const button = $("#accessSaveBtn");
+  button.disabled = true;
+  try {
+    const res = await fetch("/api/access-rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAccessPayload()),
+    });
+    const data = await readJsonResponse(res, "保存权限规则失败");
+    state.accessRules = data.plugins || [];
+    renderAccessRules();
+    showToast(data.message || "权限规则已保存。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -877,6 +1006,9 @@ function render() {
   renderVoiceKeywords();
   renderTtsConfig();
   renderAiAgentConfig();
+  if (state.accessRules.length) {
+    renderAccessRules();
+  }
 }
 
 function renderTtsConfig() {
@@ -1573,6 +1705,7 @@ $("#voiceUploadForm").addEventListener("submit", uploadVoices);
 $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
 $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
+$("#accessRulesForm").addEventListener("submit", saveAccessRules);
 $("#ttsVoiceForm").addEventListener("submit", saveTtsVoice);
 $("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
@@ -1593,6 +1726,7 @@ $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then((
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());
 $("#logRefreshBtn").addEventListener("click", () => fetchLogFiles().then(() => showToast("日志列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#logReloadBtn").addEventListener("click", () => reloadSelectedLog().catch((err) => showToast(err.message, true)));
+$("#accessRefreshBtn").addEventListener("click", () => fetchAccessRules().then(() => showToast("权限规则已刷新。")).catch((err) => showToast(err.message, true)));
 $("#aiagentPersonaSelect").addEventListener("change", (event) => {
   if (event.currentTarget.value) {
     $("#aiagentPersonaPath").value = event.currentTarget.value;

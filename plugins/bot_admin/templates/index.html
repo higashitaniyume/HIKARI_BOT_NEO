@@ -15,7 +15,9 @@
         <p class="eyebrow">HIKARI Bot</p>
         <h1>后台</h1>
       </div>
-      <button type="button" id="sidebarToggle" class="icon-button sidebar-toggle" aria-label="收起侧边栏" aria-expanded="true" title="收起侧边栏">&lt;&lt;</button>
+      <button type="button" id="sidebarToggle" class="icon-button sidebar-toggle" aria-label="收起侧边栏" aria-expanded="true" title="收起侧边栏">
+        <span class="sidebar-toggle-icon" aria-hidden="true"></span>
+      </button>
     </div>
     <nav class="side-nav" aria-label="后台导航">
       <button type="button" class="nav-item is-active" data-view-target="overview" title="总览"><span class="nav-label">总览</span></button>
@@ -24,6 +26,7 @@
       <button type="button" class="nav-item" data-view-target="voices" title="语音"><span class="nav-label">语音</span></button>
       <button type="button" class="nav-item" data-view-target="settings" title="TTS"><span class="nav-label">TTS</span></button>
       <button type="button" class="nav-item" data-view-target="aiagent" title="AI"><span class="nav-label">AI</span></button>
+      <button type="button" class="nav-item" data-view-target="access" title="权限"><span class="nav-label">权限</span></button>
       <button type="button" class="nav-item" data-view-target="configs" title="配置"><span class="nav-label">配置</span></button>
       <button type="button" class="nav-item" data-view-target="logs" title="日志"><span class="nav-label">日志</span></button>
     </nav>
@@ -577,6 +580,60 @@
 
           <button type="submit" class="primary">保存 AI Agent 设置</button>
         </form>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="access" hidden>
+      <section class="panel access-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>插件黑白名单</h2>
+            <p>每个插件独立维护规则；QQ 号和群号一行一个，或用逗号分隔。</p>
+          </div>
+          <button type="button" id="accessRefreshBtn" class="ghost">刷新权限</button>
+        </div>
+
+        <div class="ops-layout access-layout">
+          <aside class="ops-list" id="accessPluginList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="accessEditorTitle">选择一个插件</h3>
+                <p id="accessEditorMeta">未选择插件</p>
+              </div>
+            </div>
+
+            <form id="accessRulesForm" class="access-form">
+              <label class="checkbox-field">
+                <input id="accessWhitelistEnabled" type="checkbox">
+                <span>启用白名单</span>
+              </label>
+              <label class="checkbox-field">
+                <input id="accessBlacklistEnabled" type="checkbox">
+                <span>启用黑名单</span>
+              </label>
+
+              <label>
+                <span>白名单 QQ 号</span>
+                <textarea id="accessWhitelistUsers" rows="5" placeholder="123456&#10;234567"></textarea>
+              </label>
+              <label>
+                <span>白名单群号</span>
+                <textarea id="accessWhitelistGroups" rows="5" placeholder="987654321"></textarea>
+              </label>
+              <label>
+                <span>黑名单 QQ 号</span>
+                <textarea id="accessBlacklistUsers" rows="5" placeholder="123456"></textarea>
+              </label>
+              <label>
+                <span>黑名单群号</span>
+                <textarea id="accessBlacklistGroups" rows="5" placeholder="987654321"></textarea>
+              </label>
+
+              <button type="submit" id="accessSaveBtn" class="primary">保存权限</button>
+            </form>
+          </section>
+        </div>
       </section>
     </section>
 

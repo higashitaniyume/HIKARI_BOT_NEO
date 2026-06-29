@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
+from plugins.steam_deals import storage as steam_storage
 from plugins.steam_deals.api import SteamDeal, SteamDealsClient
 
 
@@ -295,6 +298,121 @@ class SteamDealsParsingTests(unittest.TestCase):
 
         self.assertEqual([item.name for item in result], ["Recent Mid Discount"])
         self.assertIn("近期", result[0].categories)
+
+    def test_price_snapshot_marks_new_and_deeper_discounts_after_baseline(self) -> None:
+        with TemporaryDirectory() as tmp:
+            original_path = steam_storage.STATE_PATH
+            steam_storage.STATE_PATH = Path(tmp) / "steam_deals_state.json"
+            try:
+                first = [
+                    SteamDeal(
+                        appid=501,
+                        name="Known Discount",
+                        url="https://store.steampowered.com/app/501/",
+                        image_url="",
+                        discount_percent=20,
+                        original_price_cents=5000,
+                        final_price_cents=4000,
+                        currency="",
+                    )
+                ]
+                steam_storage.annotate_price_changes(first)
+
+                self.assertNotIn("新打折", first[0].categories)
+                self.assertNotIn("折扣加深", first[0].categories)
+
+                second = [
+                    SteamDeal(
+                        appid=501,
+                        name="Known Discount",
+                        url="https://store.steampowered.com/app/501/",
+                        image_url="",
+                        discount_percent=50,
+                        original_price_cents=5000,
+                        final_price_cents=2500,
+                        currency="",
+                    ),
+                    SteamDeal(
+                        appid=502,
+                        name="New Discount",
+                        url="https://store.steampowered.com/app/502/",
+                        image_url="",
+                        discount_percent=30,
+                        original_price_cents=6000,
+                        final_price_cents=4200,
+                        currency="",
+                    ),
+                ]
+                steam_storage.annotate_price_changes(second)
+
+                self.assertIn("折扣加深", second[0].categories)
+                self.assertIn("新打折", second[1].categories)
+            finally:
+                steam_storage.STATE_PATH = original_path
+
+    def test_daily_filter_keeps_old_game_when_discount_is_new(self) -> None:
+        cfg = {
+            **SAMPLE_CONFIG,
+            "daily_filter": {
+                "enabled": True,
+                "max_per_title_family": 2,
+                "min_review_count_for_plain_low_price": 20,
+                "min_discount_for_plain_low_price": 80,
+                "min_discount_for_recent_deal": 20,
+                "max_plain_low_price_items": 4,
+                "require_recent_search_results": True,
+                "max_search_release_age_days": 730,
+            },
+        }
+        client = SteamDealsClient(cfg)
+        old_new_discount = SteamDeal(
+            appid=601,
+            name="Old Game Newly Discounted",
+            url="https://store.steampowered.com/app/601/",
+            image_url="",
+            discount_percent=35,
+            original_price_cents=6000,
+            final_price_cents=3900,
+            currency="",
+            source="搜索",
+            released="2017 年 1 月 1 日",
+        )
+        old_new_discount.categories.add("新打折")
+
+        result = client.filter_deals([old_new_discount], "all")
+
+        self.assertEqual([item.name for item in result], ["Old Game Newly Discounted"])
+
+    def test_market_item_enters_daily_but_not_low_mode(self) -> None:
+        client = SteamDealsClient(SAMPLE_CONFIG)
+        market = SteamDeal(
+            appid=701,
+            name="Top Seller",
+            url="https://store.steampowered.com/app/701/",
+            image_url="",
+            discount_percent=0,
+            original_price_cents=6800,
+            final_price_cents=6800,
+            currency="",
+            source="热卖",
+            market_rank=1,
+        )
+        market.categories.add("热卖")
+        normal = SteamDeal(
+            appid=702,
+            name="Normal Full Price",
+            url="https://store.steampowered.com/app/702/",
+            image_url="",
+            discount_percent=0,
+            original_price_cents=6800,
+            final_price_cents=6800,
+            currency="",
+            source="搜索",
+            released="2026 年 6 月 29 日",
+        )
+
+        self.assertEqual([item.name for item in client.filter_deals([normal, market], "all")], ["Top Seller"])
+        self.assertEqual(client.filter_deals([market], "low"), [])
 
 
 if __name__ == "__main__":
