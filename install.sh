@@ -90,7 +90,6 @@ mkdir -p \
   "$DEPLOY_DIR/runtime/tmp/hikari_bot" \
   "$DEPLOY_DIR/napcat/config" \
   "$DEPLOY_DIR/napcat/ntqq" \
-  "$DEPLOY_DIR/astrbot/data" \
   "$DEPLOY_DIR/searxng/core-config" \
   "$DEPLOY_DIR/legacy/pixiv_cache"
 

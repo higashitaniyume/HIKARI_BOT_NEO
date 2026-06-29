@@ -1,0 +1,642 @@
+{
+    "parsers": {
+        "description": "解析器与输出模式",
+        "type": "object",
+        "hint": "关闭=不解析该平台；仅文本=只发送标题/作者/简介等文本；仅富媒体=只发送图片/视频",
+        "items": {
+            "bilibili": {
+                "description": "B站",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "douyin": {
+                "description": "抖音",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "tiktok": {
+                "description": "TikTok",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "kuaishou": {
+                "description": "快手",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "weibo": {
+                "description": "微博",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xiaohongshu": {
+                "description": "小红书",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xianyu": {
+                "description": "闲鱼",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "toutiao": {
+                "description": "今日头条",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "xiaoheihe": {
+                "description": "小黑盒",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            },
+            "twitter": {
+                "description": "Twitter/X",
+                "type": "string",
+                "options": [
+                    "关闭",
+                    "全部发送",
+                    "仅文本",
+                    "仅富媒体"
+                ],
+                "default": "全部发送"
+            }
+        }
+    },
+    "trigger": {
+        "description": "触发设置",
+        "type": "object",
+        "items": {
+            "auto_parse": {
+                "description": "自动解析链接",
+                "type": "bool",
+                "default": true
+            },
+            "reply_trigger": {
+                "description": "回复触发解析",
+                "type": "bool",
+                "hint": "引用含链接的消息并附关键词即可触发解析",
+                "default": false
+            },
+            "keywords": {
+                "description": "手动触发关键词",
+                "type": "list",
+                "hint": "关闭自动解析时，消息含关键词才触发",
+                "default": [
+                    "视频解析",
+                    "解析视频"
+                ]
+            }
+        }
+    },
+    "parse_rate_limit": {
+        "description": "解析频率限制",
+        "type": "object",
+        "hint": "0 = 不限制；记录会持久化到插件运行时目录，并按启用限制中的最大时间窗自动裁剪，避免无限增长。",
+        "items": {
+            "same_link": {
+                "description": "同视频链接限制",
+                "type": "object",
+                "hint": "链接会先清洗为标准链接，过滤分享者、来源和追踪参数后再计数。",
+                "items": {
+                    "max_count": {
+                        "description": "最多解析次数",
+                        "type": "int",
+                        "hint": "同一标准链接在时间窗内最多解析的次数；0 = 不限制",
+                        "default": 0
+                    },
+                    "window_seconds": {
+                        "description": "时间窗秒数",
+                        "type": "int",
+                        "hint": "只统计该秒数内的解析记录；也用于自动裁剪持久化记录",
+                        "default": 3600
+                    }
+                }
+            },
+            "same_user": {
+                "description": "同用户限制",
+                "type": "object",
+                "hint": "按消息发送者 ID 计数；一条消息内解析多个链接会分别计数。",
+                "items": {
+                    "max_count": {
+                        "description": "最多解析次数",
+                        "type": "int",
+                        "hint": "同一用户在时间窗内最多解析的链接数；0 = 不限制",
+                        "default": 0
+                    },
+                    "window_seconds": {
+                        "description": "时间窗秒数",
+                        "type": "int",
+                        "hint": "只统计该秒数内的解析记录；也用于自动裁剪持久化记录",
+                        "default": 3600
+                    }
+                }
+            }
+        }
+    },
+    "message": {
+        "description": "消息与展示",
+        "type": "object",
+        "items": {
+            "opening": {
+                "description": "开场语",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "发送开场语",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "content": {
+                        "description": "开场语内容",
+                        "type": "string",
+                        "default": "流媒体解析bot为您服务 ٩( 'ω' )و"
+                    }
+                }
+            },
+            "packing": {
+                "description": "消息打包",
+                "type": "object",
+                "hint": "Napcat 存在兼容问题，请按需启用",
+                "items": {
+                    "mode": {
+                        "description": "打包模式",
+                        "type": "string",
+                        "options": [
+                            "不打包",
+                            "全部打包",
+                            "按条件打包"
+                        ],
+                        "default": "不打包"
+                    },
+                    "thresholds": {
+                        "description": "按条件打包阈值",
+                        "type": "object",
+                        "hint": "仅在选择“按条件打包”时生效；0 = 不按该项触发",
+                        "items": {
+                            "image_count": {
+                                "description": "图片数量",
+                                "type": "int",
+                                "hint": "图片总数达到该值时打包；0 = 不按图片数触发",
+                                "default": 3
+                            },
+                            "video_count": {
+                                "description": "视频数量",
+                                "type": "int",
+                                "hint": "视频总数达到该值时打包；0 = 不按视频数触发",
+                                "default": 2
+                            },
+                            "node_count": {
+                                "description": "节点数量",
+                                "type": "int",
+                                "hint": "文本、图片和视频节点总数达到该值时打包；0 = 不按节点数触发",
+                                "default": 5
+                            }
+                        }
+                    }
+                }
+            },
+            "media_display": {
+                "description": "媒体展示",
+                "type": "object",
+                "items": {
+                    "video_cover_only": {
+                        "description": "视频仅发送封面",
+                        "type": "bool",
+                        "hint": "开启后不发送视频节点；每个视频会改为发送封面图片。解析结果有封面时直接使用封面，否则尝试截取视频第一帧。",
+                        "default": false
+                    }
+                }
+            },
+            "text_metadata": {
+                "description": "文本元数据",
+                "type": "object",
+                "items": {
+                    "quote_user_message": {
+                        "description": "引用用户消息",
+                        "type": "bool",
+                        "hint": "仅不打包时生效；文本元数据节点会引用对应的用户消息，媒体节点不引用",
+                        "default": false
+                    }
+                }
+            },
+            "hot_comments": {
+                "description": "热评设置",
+                "type": "object",
+                "hint": "仅对输出模式包含文本的支持平台生效",
+                "items": {
+                    "count": {
+                        "description": "热评条数",
+                        "type": "int",
+                        "hint": "0 = 不获取",
+                        "default": 0
+                    },
+                    "bilibili": {
+                        "description": "B站",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "weibo": {
+                        "description": "微博",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "xiaohongshu": {
+                        "description": "小红书",
+                        "type": "bool",
+                        "default": true
+                    }
+                }
+            }
+        }
+    },
+    "translation": {
+        "description": "文本翻译",
+        "type": "object",
+        "hint": "对正文和标题进行大模型翻译；默认关闭，翻译失败不会影响媒体解析",
+        "items": {
+            "enable": {
+                "description": "启用翻译",
+                "type": "bool",
+                "default": false
+            },
+            "content_scope": {
+                "description": "翻译范围",
+                "type": "string",
+                "options": [
+                    "仅正文",
+                    "正文和标题"
+                ],
+                "hint": "仅正文只翻译简介/正文；正文和标题会同时翻译标题和简介/正文；热评不翻译",
+                "default": "正文和标题"
+            },
+            "target_language": {
+                "description": "目标语言",
+                "type": "string",
+                "options": [
+                    "简体中文",
+                    "繁体中文",
+                    "English",
+                    "日本語",
+                    "한국어",
+                    "Español",
+                    "Français",
+                    "Deutsch",
+                    "Русский",
+                    "Português"
+                ],
+                "default": "简体中文"
+            },
+            "llm": {
+                "description": "大模型接口",
+                "type": "object",
+                "items": {
+                    "provider_source": {
+                        "description": "大模型提供商",
+                        "type": "string",
+                        "options": [
+                            "AstrBot 内置提供商",
+                            "插件自定义提供商"
+                        ],
+                        "hint": "选择使用 AstrBot 已配置的 LLM，或使用本插件独立配置的 OpenAI 兼容接口",
+                        "default": "AstrBot 内置提供商"
+                    },
+                    "astrbot_provider": {
+                        "description": "AstrBot 内置提供商",
+                        "type": "object",
+                        "hint": "当“大模型提供商”选择 AstrBot 内置提供商时生效",
+                        "items": {
+                            "provider_id": {
+                                "description": "选择 AstrBot AI",
+                                "type": "string",
+                                "hint": "点击按钮选择 AstrBot 中已配置的 LLM；留空时尝试使用当前会话正在使用的 LLM",
+                                "_special": "select_provider",
+                                "default": ""
+                            }
+                        }
+                    },
+                    "custom_provider": {
+                        "description": "自定义提供商",
+                        "type": "object",
+                        "hint": "当“大模型提供商”选择插件自定义提供商时生效",
+                        "items": {
+                            "provider": {
+                                "description": "厂商/接口类型",
+                                "type": "string",
+                                "options": [
+                                    "自定义 OpenAI 兼容",
+                                    "OpenAI",
+                                    "DeepSeek",
+                                    "Moonshot / Kimi",
+                                    "阿里云百炼 / 通义千问",
+                                    "智谱 AI / GLM",
+                                    "火山引擎方舟 / 豆包",
+                                    "OpenRouter",
+                                    "SiliconFlow",
+                                    "Ollama"
+                                ],
+                                "default": "自定义 OpenAI 兼容"
+                            },
+                            "base_url": {
+                                "description": "Base URL",
+                                "type": "string",
+                                "hint": "预设厂商可留空；自定义 OpenAI 兼容、中转或私有部署请填写对应接口地址",
+                                "default": ""
+                            },
+                            "api_key": {
+                                "description": "API Key",
+                                "type": "string",
+                                "default": ""
+                            },
+                            "model": {
+                                "description": "模型",
+                                "type": "string",
+                                "default": "gpt-5.5"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "download": {
+        "description": "媒体文件缓存目录",
+        "type": "object",
+        "items": {
+            "max_concurrent": {
+                "description": "最大并发下载数",
+                "type": "int",
+                "hint": "建议 3~5",
+                "default": 5
+            },
+            "cache_dir": {
+                "description": "媒体文件缓存目录",
+                "type": "string",
+                "hint": "非 Docker 环境自动使用 AstrBot 插件数据目录；Docker 环境可配置共享挂载目录",
+                "default": "/app/sharedFolder/video_parser/cache"
+            },
+            "max_video_size_mb": {
+                "description": "视频大小上限(MB)",
+                "type": "float",
+                "hint": "普通视频先预检；DASH/M3U8 下载后按实际大小兜底；0 = 不限制",
+                "default": 1000.0
+            },
+            "large_video_threshold_mb": {
+                "description": "大视频阈值(MB)",
+                "type": "float",
+                "hint": "超过阈值单独发送，不放入消息集合，上限100MB，0 = 不限制",
+                "default": 100.0
+            }
+        }
+    },
+    "permissions": {
+        "description": "权限控制",
+        "type": "object",
+        "hint": "优先级：个人白名单 > 个人黑名单 > 群组白名单 > 群组黑名单",
+        "items": {
+            "admin_id": {
+                "description": "管理员ID",
+                "type": "string",
+                "hint": "最高权限，接收私聊通知，自动加入白名单",
+                "default": ""
+            },
+            "whitelist": {
+                "description": "白名单",
+                "type": "object",
+                "hint": "启用但不配置名单会禁止所有用户",
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "user": {
+                        "description": "用户",
+                        "type": "list",
+                        "default": []
+                    },
+                    "group": {
+                        "description": "群组",
+                        "type": "list",
+                        "default": []
+                    }
+                }
+            },
+            "blacklist": {
+                "description": "黑名单",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "user": {
+                        "description": "用户",
+                        "type": "list",
+                        "default": []
+                    },
+                    "group": {
+                        "description": "群组",
+                        "type": "list",
+                        "default": []
+                    }
+                }
+            }
+        }
+    },
+    "bilibili_enhanced": {
+        "description": "B站增强",
+        "type": "object",
+        "items": {
+            "use_cookie": {
+                "description": "携带Cookie解析",
+                "type": "bool",
+                "hint": "缓存目录可用时，将 DASH 视频下载到缓存目录后发送",
+                "default": false
+            },
+            "cookie": {
+                "description": "Cookie",
+                "type": "string",
+                "default": ""
+            },
+            "max_quality": {
+                "description": "最高画质",
+                "type": "string",
+                "options": [
+                    "不限制",
+                    "4K",
+                    "1080P60",
+                    "1080P+",
+                    "1080P",
+                    "720P",
+                    "480P",
+                    "360P"
+                ],
+                "hint": "实际画质取决于账号权限和视频源",
+                "default": "不限制"
+            },
+            "admin_assist": {
+                "description": "管理员协助登录",
+                "type": "object",
+                "hint": "Cookie失效时私聊管理员协助重新登录；媒体文件缓存目录不可用时自动旁路",
+                "items": {
+                    "enable": {
+                        "description": "启用",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "reply_timeout_minutes": {
+                        "description": "回复超时(分钟)",
+                        "type": "int",
+                        "default": 1440
+                    },
+                    "request_cooldown_minutes": {
+                        "description": "请求冷却(分钟)",
+                        "type": "int",
+                        "default": 1440
+                    }
+                }
+            }
+        }
+    },
+    "proxy": {
+        "description": "代理设置",
+        "type": "object",
+        "items": {
+            "address": {
+                "description": "代理地址",
+                "type": "string",
+                "hint": "格式：http://host:port 或 socks5://host:port",
+                "default": ""
+            },
+            "tiktok": {
+                "description": "TikTok解析与下载使用代理",
+                "type": "bool",
+                "default": false
+            },
+            "xiaoheihe_video": {
+                "description": "小黑盒视频下载使用代理",
+                "type": "bool",
+                "default": true
+            },
+            "twitter": {
+                "description": "Twitter代理",
+                "type": "object",
+                "items": {
+                    "parse": {
+                        "description": "解析",
+                        "type": "bool",
+                        "default": false
+                    },
+                    "image": {
+                        "description": "图片下载",
+                        "type": "bool",
+                        "default": true
+                    },
+                    "video": {
+                        "description": "视频下载",
+                        "type": "bool",
+                        "default": true
+                    }
+                }
+            }
+        }
+    },
+    "media_relay": {
+        "description": "媒体中转",
+        "type": "object",
+        "hint": "仅增强已缓存到本地文件的媒体，不会强制下载所有媒体",
+        "items": {
+            "enable": {
+                "description": "启用",
+                "type": "bool",
+                "hint": "由AstrBot HTTP服务中转缓存中的本地媒体文件",
+                "default": false
+            },
+            "callback_url": {
+                "description": "AstrBot回调地址",
+                "type": "string",
+                "hint": "消息平台可达的地址，如 http://host:6185，跨服务器需公网可达",
+                "default": ""
+            },
+            "ttl": {
+                "description": "中转缓存有效期(秒)",
+                "type": "int",
+                "hint": "到期后链接失效并清理缓存，建议 >= 60",
+                "default": 300
+            }
+        }
+    },
+    "admin": {
+        "description": "管理与调试",
+        "type": "object",
+        "items": {
+            "clean_cache_keyword": {
+                "description": "清理缓存关键词",
+                "type": "string",
+                "hint": "管理员发送此关键词清除所有媒体缓存",
+                "default": "清理媒体"
+            },
+            "debug": {
+                "description": "Debug模式",
+                "type": "bool",
+                "hint": "输出完整工作流详细日志",
+                "default": false
+            }
+        }
+    }
+}

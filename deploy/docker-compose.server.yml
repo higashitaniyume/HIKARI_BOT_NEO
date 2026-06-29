@@ -85,20 +85,6 @@ services:
     volumes:
       - searxng_valkey_data:/data
 
-  astrbot:
-    image: soulter/astrbot:latest
-    container_name: astrbot
-    restart: unless-stopped
-    ports:
-      - "${ASTRBOT_WEB_PORT:-6185}:6185"
-      - "${ASTRBOT_PORT:-6199}:6199"
-    environment:
-      TZ: Asia/Shanghai
-    volumes:
-      - ./astrbot/data:/AstrBot/data
-      - ./runtime/shared:/app/sharedFolder
-      - /etc/localtime:/etc/localtime:ro
-
 volumes:
   hikaribot_venv:
   searxng_core_data:

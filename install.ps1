@@ -80,7 +80,6 @@ $runtimeDirs = @(
     "runtime/tmp/hikari_bot",
     "napcat/config",
     "napcat/ntqq",
-    "astrbot/data",
     "searxng/core-config",
     "legacy/pixiv_cache"
 )
