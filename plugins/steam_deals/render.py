@@ -13,16 +13,18 @@ from core.rendering import load_font
 
 from .api import SteamDeal
 
-BG = (245, 247, 250)
-INK = (28, 32, 40)
-MUTED = (91, 101, 117)
-CARD = (255, 255, 255)
-LINE = (221, 226, 234)
-STEAM = (23, 29, 37)
-ACCENT = (18, 126, 177)
-FREE = (35, 142, 75)
-LOW = (184, 93, 12)
-DISCOUNT = (73, 92, 174)
+BG = (16, 28, 39)
+PANEL = (27, 40, 55)
+PANEL_ALT = (37, 54, 72)
+INK = (232, 239, 247)
+MUTED = (135, 160, 181)
+LINE = (55, 78, 100)
+STEAM = (12, 19, 28)
+ACCENT = (102, 192, 244)
+FREE = (105, 185, 75)
+LOW = (190, 226, 93)
+DISCOUNT = (76, 107, 34)
+PRICE_BG = (9, 17, 24)
 
 
 async def render_report(
@@ -46,9 +48,9 @@ async def render_report(
             timeout=float(render_cfg.get("cover_timeout") or 10),
         )
 
-    width = 1120
-    header_h = 176
-    row_h = 154
+    width = 1160
+    header_h = 184
+    row_h = 172
     pad = 34
     footer_h = 58
     height = header_h + max(1, len(deals)) * row_h + footer_h + pad
@@ -63,54 +65,51 @@ async def render_report(
     small_font = load_font(18)
 
     draw.rectangle((0, 0, width, header_h), fill=STEAM)
+    draw.rectangle((0, header_h - 5, width, header_h), fill=ACCENT)
     draw.text((pad, 32), _title_for_mode(mode), font=title_font, fill=(255, 255, 255))
     subtitle = generated_at.strftime("%Y-%m-%d %H:%M")
-    draw.text((pad, 96), f"Steam 官方特惠 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
+    draw.text((pad, 96), f"Steam 官方特惠 + 搜索特惠 + SteamDB 限免 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
     summary = _summary(deals, config)
     draw.text((pad, 133), summary, font=meta_font, fill=(152, 197, 227))
 
     y = header_h + 22
     if not deals:
-        _rounded_rect(draw, (pad, y, width - pad, y + 112), radius=8, fill=CARD, outline=LINE)
+        _rounded_rect(draw, (pad, y, width - pad, y + 112), radius=8, fill=PANEL, outline=LINE)
         draw.text((pad + 28, y + 34), "今天暂时没有筛到符合条件的游戏。", font=name_font, fill=INK)
     for index, deal in enumerate(deals, start=1):
         x0 = pad
         x1 = width - pad
         y0 = y
         y1 = y + row_h - 18
-        _rounded_rect(draw, (x0, y0, x1, y1), radius=8, fill=CARD, outline=LINE)
+        _rounded_rect(draw, (x0, y0, x1, y1), radius=8, fill=PANEL if index % 2 else PANEL_ALT, outline=LINE)
 
-        cover_box = (x0 + 20, y0 + 24, x0 + 250, y0 + 110)
+        cover_box = (x0 + 18, y0 + 24, x0 + 249, y0 + 111)
         _draw_cover(image, draw, cover_box, cover_paths.get(deal.appid))
 
         text_x = x0 + 276
         name = f"{index}. {deal.name}"
-        draw.text((text_x, y0 + 22), _ellipsize(draw, name, name_font, 510), font=name_font, fill=INK)
-        draw.text((text_x, y0 + 60), f"AppID {deal.appid}", font=small_font, fill=MUTED)
-        _draw_tags(draw, text_x, y0 + 88, deal.categories, small_font)
+        draw.text((text_x, y0 + 20), _ellipsize(draw, name, name_font, 530), font=name_font, fill=INK)
+        draw.text((text_x, y0 + 58), _meta_line(deal), font=small_font, fill=MUTED)
+        if deal.review_summary:
+            draw.text((text_x, y0 + 84), _ellipsize(draw, deal.review_summary, small_font, 440), font=small_font, fill=(176, 214, 245))
+        _draw_tags(draw, text_x, y0 + 113, deal.categories, small_font)
 
-        price_text = _price_text(deal, config)
-        price_w = _text_size(draw, price_text, price_font)[0]
-        draw.text((x1 - 32 - price_w, y0 + 30), price_text, font=price_font, fill=_price_color(deal))
-        if deal.discount_percent > 0:
-            discount_text = f"-{deal.discount_percent}%"
-            discount_w = _text_size(draw, discount_text, small_font)[0]
-            _rounded_rect(
-                draw,
-                (x1 - 32 - discount_w - 18, y0 + 72, x1 - 32, y0 + 101),
-                radius=6,
-                fill=(228, 240, 255),
-            )
-            draw.text((x1 - 32 - discount_w - 9, y0 + 77), discount_text, font=small_font, fill=DISCOUNT)
+        _draw_price_panel(draw, (x1 - 260, y0 + 28, x1 - 24, y0 + 112), deal, config, price_font, small_font)
 
         y += row_h
 
-    footer = "数据来自 Steam Store featuredcategories API，限免领取活动可能需要后续数据源增强。"
+    footer = "数据来自 Steam Store 与 SteamDB Free Promotions；限免领取/免费试玩以 SteamDB 标签辅助判断。"
     draw.text((pad, height - 42), footer, font=small_font, fill=MUTED)
 
-    filename = f"steam_deals_{generated_at.strftime('%Y%m%d_%H%M%S')}_{mode}.png"
+    image_format = str(render_cfg.get("image_format") or "JPEG").strip().upper()
+    suffix = ".jpg" if image_format in {"JPEG", "JPG"} else ".png"
+    filename = f"steam_deals_{generated_at.strftime('%Y%m%d_%H%M%S')}_{mode}{suffix}"
     output = cache_dir / filename
-    image.save(output, "PNG", optimize=True)
+    if image_format in {"JPEG", "JPG"}:
+        quality = max(50, min(int(render_cfg.get("jpeg_quality") or 82), 95))
+        image.save(output, "JPEG", quality=quality, optimize=True, progressive=True)
+    else:
+        image.save(output, "PNG", optimize=True)
     return output
 
 
@@ -150,7 +149,7 @@ async def _download_covers(
 
 
 def _draw_cover(image: Image.Image, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], path: Path | None) -> None:
-    _rounded_rect(draw, box, radius=6, fill=(226, 232, 239))
+    _rounded_rect(draw, box, radius=6, fill=(42, 58, 73))
     if path is None or not path.exists():
         draw.text((box[0] + 52, box[1] + 30), "STEAM", font=load_font(22, bold=True), fill=MUTED)
         return
@@ -169,15 +168,58 @@ def _draw_tags(
     categories: set[str],
     font,
 ) -> None:
-    colors = {"免费": FREE, "低价": LOW, "大折扣": DISCOUNT}
+    colors = {
+        "限免领取": (74, 160, 65),
+        "免费试玩": (53, 112, 170),
+        "近期": (85, 154, 206),
+        "免费": FREE,
+        "低价": (93, 123, 37),
+        "大折扣": DISCOUNT,
+        "精选": (42, 96, 134),
+        "搜索": (66, 82, 98),
+        "SteamDB": (36, 76, 108),
+    }
     current_x = x
     for tag in sorted(categories):
         color = colors.get(tag, ACCENT)
         text_w, text_h = _text_size(draw, tag, font)
         rect = (current_x, y, current_x + text_w + 20, y + text_h + 10)
         _rounded_rect(draw, rect, radius=5, fill=color)
-        draw.text((current_x + 10, y + 5), tag, font=font, fill=(255, 255, 255))
+        fill = (255, 255, 255) if tag != "低价" else (20, 30, 18)
+        draw.text((current_x + 10, y + 5), tag, font=font, fill=fill)
         current_x = rect[2] + 8
+
+
+def _draw_price_panel(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    deal: SteamDeal,
+    config: dict[str, Any],
+    price_font,
+    small_font,
+) -> None:
+    x0, y0, x1, y1 = box
+    if deal.discount_percent > 0:
+        discount_box = (x0, y0, x0 + 82, y1)
+        draw.rectangle(discount_box, fill=DISCOUNT)
+        discount_text = f"-{deal.discount_percent}%"
+        dw, dh = _text_size(draw, discount_text, price_font)
+        draw.text((discount_box[0] + (82 - dw) // 2, y0 + (y1 - y0 - dh) // 2 - 2), discount_text, font=price_font, fill=LOW)
+        price_x = x0 + 82
+    else:
+        price_x = x0
+
+    draw.rectangle((price_x, y0, x1, y1), fill=PRICE_BG)
+    price_text = _price_text(deal, config)
+    price_w, _ = _text_size(draw, price_text, price_font)
+    draw.text((x1 - 14 - price_w, y0 + 32), price_text, font=price_font, fill=_price_color(deal))
+    original = _original_price_text(deal, config)
+    if original:
+        ow, oh = _text_size(draw, original, small_font)
+        ox = x1 - 14 - ow
+        oy = y0 + 12
+        draw.text((ox, oy), original, font=small_font, fill=MUTED)
+        draw.line((ox, oy + oh // 2 + 2, ox + ow, oy + oh // 2 + 2), fill=MUTED, width=2)
 
 
 def _rounded_rect(
@@ -199,6 +241,14 @@ def _price_text(deal: SteamDeal, config: dict[str, Any]) -> str:
     return f"{symbol}{value:.2f}".rstrip("0").rstrip(".")
 
 
+def _original_price_text(deal: SteamDeal, config: dict[str, Any]) -> str:
+    if deal.original_price_cents <= deal.final_price_cents or deal.original_price_cents <= 0:
+        return ""
+    symbol = str(config.get("currency_symbol") or "¥")
+    value = deal.original_price_cents / 100
+    return f"{symbol}{value:.2f}".rstrip("0").rstrip(".")
+
+
 def _price_color(deal: SteamDeal) -> tuple[int, int, int]:
     if deal.is_free:
         return FREE
@@ -207,11 +257,27 @@ def _price_color(deal: SteamDeal) -> tuple[int, int, int]:
     return ACCENT
 
 
+def _meta_line(deal: SteamDeal) -> str:
+    parts = [f"AppID {deal.appid}"]
+    if deal.released:
+        parts.append(deal.released)
+    if deal.review_percent and deal.review_count:
+        parts.append(f"好评 {deal.review_percent}%/{deal.review_count}")
+    if deal.promotion_end:
+        parts.append(f"截止 {deal.promotion_end}")
+    if deal.original_price_cents > deal.final_price_cents and deal.original_price_cents:
+        saved = (deal.original_price_cents - deal.final_price_cents) / 100
+        parts.append(f"省 {saved:.2f}".rstrip("0").rstrip("."))
+    return " · ".join(parts)
+
+
 def _summary(deals: list[SteamDeal], config: dict[str, Any]) -> str:
     free_count = sum(1 for item in deals if item.is_free)
     low_count = sum(1 for item in deals if 0 < item.final_price_cents <= int(config.get("max_low_price_cents") or 1000))
     big_count = sum(1 for item in deals if item.discount_percent >= int(config.get("min_discount_percent") or 90))
-    return f"{len(deals)} 款入选 · 免费 {free_count} · 低价 {low_count} · 大折扣 {big_count}"
+    keep_count = sum(1 for item in deals if item.promotion_kind == "free_to_keep")
+    trial_count = sum(1 for item in deals if item.promotion_kind == "play_for_free")
+    return f"{len(deals)} 款入选 · 限免领取 {keep_count} · 免费试玩 {trial_count} · 免费 {free_count} · 低价 {low_count} · 大折扣 {big_count}"
 
 
 def _title_for_mode(mode: str) -> str:

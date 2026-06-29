@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date, timedelta
 
-from plugins.steam_deals.api import SteamDealsClient
+from plugins.steam_deals.api import SteamDeal, SteamDealsClient
 
 
 SAMPLE_CONFIG = {
@@ -77,6 +78,223 @@ class SteamDealsParsingTests(unittest.TestCase):
 
         self.assertEqual([item.appid for item in client.filter_deals(deals, "free")], [10])
         self.assertEqual([item.appid for item in client.filter_deals(deals, "low")], [20])
+
+    def test_parse_search_results_html(self) -> None:
+        client = SteamDealsClient(SAMPLE_CONFIG)
+        deals = client._merge_deals(
+            [],
+            client._fetch_search_deals_from_html(
+                """
+                <a href="https://store.steampowered.com/app/123/Test/" data-ds-appid="123" class="search_result_row">
+                  <div class="search_capsule"><img src="https://cdn.example/app.jpg"></div>
+                  <span class="title">Test Game</span>
+                  <div class="search_released">2024 年 1 月 1 日</div>
+                  <span class="search_review_summary positive" data-tooltip-html="特别好评&lt;br&gt;100 篇评测"></span>
+                  <div class="search_price_discount_combined" data-price-final="480">
+                    <div class="discount_pct">-90%</div>
+                    <div class="discount_original_price">¥48.00</div>
+                    <div class="discount_final_price">¥4.80</div>
+                  </div>
+                </a>
+                """,
+            ),
+        )
+
+        self.assertEqual(len(deals), 1)
+        self.assertEqual(deals[0].appid, 123)
+        self.assertEqual(deals[0].name, "Test Game")
+        self.assertEqual(deals[0].final_price_cents, 480)
+        self.assertEqual(deals[0].original_price_cents, 4800)
+        self.assertEqual(deals[0].discount_percent, 90)
+        self.assertEqual(deals[0].review_summary, "特别好评")
+        self.assertEqual(deals[0].review_percent, 0)
+        self.assertEqual(deals[0].review_count, 100)
+
+    def test_parse_steamdb_free_promotions_html(self) -> None:
+        client = SteamDealsClient(SAMPLE_CONFIG)
+        deals = client._fetch_steamdb_promotions_from_html(
+            """
+            <table>
+              <tr>
+                <td><a href="/app/111/">Keep Game</a></td>
+                <td>Free to Keep</td>
+                <td><time datetime="2026-06-29T00:00:00Z">now</time></td>
+                <td><time datetime="2026-07-01T00:00:00Z">soon</time></td>
+              </tr>
+              <tr>
+                <td><a href="https://store.steampowered.com/app/222/Trial_Game/">Trial Game</a></td>
+                <td>Play For Free</td>
+                <td><time datetime="2026-06-29T00:00:00Z">now</time></td>
+                <td><time datetime="2026-07-02T00:00:00Z">soon</time></td>
+              </tr>
+            </table>
+            """
+        )
+
+        self.assertEqual([deal.appid for deal in deals], [111, 222])
+        self.assertEqual(deals[0].promotion_kind, "free_to_keep")
+        self.assertEqual(deals[0].promotion_end, "2026-07-01T00:00:00Z")
+        self.assertEqual(deals[1].promotion_kind, "play_for_free")
+
+    def test_daily_filter_limits_same_title_family(self) -> None:
+        cfg = {
+            **SAMPLE_CONFIG,
+            "max_items": 10,
+            "daily_filter": {
+                "enabled": True,
+                "max_per_title_family": 2,
+                "min_review_count_for_plain_low_price": 20,
+                "min_discount_for_plain_low_price": 80,
+                "max_plain_low_price_items": 4,
+                "require_recent_search_results": False,
+            },
+        }
+        client = SteamDealsClient(cfg)
+        deals = [
+            SteamDeal(
+                appid=100 + index,
+                name=f"Barro {2020 + index}",
+                url=f"https://store.steampowered.com/app/{100 + index}/",
+                image_url="",
+                discount_percent=90,
+                original_price_cents=3000,
+                final_price_cents=300,
+                currency="",
+                source="搜索",
+                review_summary="特别好评",
+                review_percent=90,
+                review_count=100,
+            )
+            for index in range(5)
+        ]
+        deals.append(
+            SteamDeal(
+                appid=200,
+                name="Different Game",
+                url="https://store.steampowered.com/app/200/",
+                image_url="",
+                discount_percent=95,
+                original_price_cents=6000,
+                final_price_cents=300,
+                currency="",
+                source="搜索",
+                review_summary="好评",
+                review_percent=80,
+                review_count=50,
+            )
+        )
+
+        result = client.filter_deals(deals, "all")
+
+        self.assertLessEqual(sum(1 for item in result if item.name.startswith("Barro")), 2)
+        self.assertIn("Different Game", [item.name for item in result])
+
+    def test_daily_filter_requires_recent_search_results(self) -> None:
+        cfg = {
+            **SAMPLE_CONFIG,
+            "daily_filter": {
+                "enabled": True,
+                "max_per_title_family": 2,
+                "min_review_count_for_plain_low_price": 20,
+                "min_discount_for_plain_low_price": 80,
+                "min_discount_for_recent_deal": 20,
+                "max_plain_low_price_items": 4,
+                "require_recent_search_results": True,
+                "max_search_release_age_days": 730,
+            },
+        }
+        client = SteamDealsClient(cfg)
+        recent = date.today() - timedelta(days=30)
+        deals = [
+            SteamDeal(
+                appid=301,
+                name="Old Discount",
+                url="https://store.steampowered.com/app/301/",
+                image_url="",
+                discount_percent=90,
+                original_price_cents=3000,
+                final_price_cents=300,
+                currency="",
+                source="搜索",
+                released="2018 年 1 月 1 日",
+                review_summary="特别好评",
+                review_percent=90,
+                review_count=1000,
+            ),
+            SteamDeal(
+                appid=302,
+                name="Recent Discount",
+                url="https://store.steampowered.com/app/302/",
+                image_url="",
+                discount_percent=90,
+                original_price_cents=3000,
+                final_price_cents=300,
+                currency="",
+                source="搜索",
+                released=f"{recent.year} 年 {recent.month} 月 {recent.day} 日",
+                review_summary="好评",
+                review_percent=80,
+                review_count=30,
+            ),
+        ]
+
+        result = client.filter_deals(deals, "all")
+
+        self.assertEqual([item.name for item in result], ["Recent Discount"])
+
+    def test_recent_discount_enters_daily_without_being_low_or_big_discount(self) -> None:
+        cfg = {
+            **SAMPLE_CONFIG,
+            "daily_filter": {
+                "enabled": True,
+                "max_per_title_family": 2,
+                "min_review_count_for_plain_low_price": 20,
+                "min_discount_for_plain_low_price": 80,
+                "min_discount_for_recent_deal": 20,
+                "max_plain_low_price_items": 4,
+                "require_recent_search_results": True,
+                "max_search_release_age_days": 730,
+            },
+        }
+        client = SteamDealsClient(cfg)
+        recent = date.today() - timedelta(days=14)
+        deals = [
+            SteamDeal(
+                appid=401,
+                name="Recent Mid Discount",
+                url="https://store.steampowered.com/app/401/",
+                image_url="",
+                discount_percent=25,
+                original_price_cents=6800,
+                final_price_cents=5100,
+                currency="",
+                source="搜索",
+                released=f"{recent.year} 年 {recent.month} 月 {recent.day} 日",
+                review_summary="好评",
+                review_percent=80,
+                review_count=15,
+            ),
+            SteamDeal(
+                appid=402,
+                name="Old Mid Discount",
+                url="https://store.steampowered.com/app/402/",
+                image_url="",
+                discount_percent=25,
+                original_price_cents=6800,
+                final_price_cents=5100,
+                currency="",
+                source="搜索",
+                released="2017 年 1 月 1 日",
+                review_summary="好评",
+                review_percent=80,
+                review_count=1000,
+            ),
+        ]
+
+        result = client.filter_deals(deals, "all")
+
+        self.assertEqual([item.name for item in result], ["Recent Mid Discount"])
+        self.assertIn("近期", result[0].categories)
 
 
 if __name__ == "__main__":

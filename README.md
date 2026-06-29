@@ -421,7 +421,7 @@ uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_medi
 
 配置文件：`BotData/plugin_configs/steam_deals.json`
 
-本插件调用 Steam Store 的 `featuredcategories` 接口，筛选免费、超低价和大折扣游戏，并渲染为图片发送。默认不会主动每日推送；即使开启定时任务，也只会发送到 `push_whitelist` 中列出的群或私聊。手动发送命令查询不受白名单限制。
+本插件调用 Steam Store 的 `featuredcategories` 接口，并用 Steam 搜索特惠结果补充内容，筛选免费、超低价和大折扣游戏后渲染为图片发送。还会尝试读取 SteamDB Free Promotions，为限时免费领取和免费试玩活动打标；SteamDB 抓取失败时会自动降级为普通特惠日报。默认不会主动每日推送；即使开启定时任务，也只会发送到 `push_whitelist` 中列出的群或私聊。手动发送命令查询不受白名单限制。
 
 关键字段：
 
@@ -432,7 +432,24 @@ uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_medi
 | `language` | Steam 商店语言，默认 `schinese` |
 | `max_low_price_cents` | 低价阈值，单位为分；默认 `1000` 即约 `¥10` |
 | `min_discount_percent` | 大折扣阈值，默认 `90` |
-| `max_items` | 单张日报最多展示多少款游戏 |
+| `max_items` | 单张日报最多展示多少款游戏，默认 `18` |
+| `include_search_results` | 是否用 Steam 搜索特惠结果补充日报内容 |
+| `search_pages` | 搜索特惠补充源最多拉取页数 |
+| `search_count_per_page` | 搜索特惠补充源每页条数 |
+| `search_sort_by` | 搜索特惠排序源，默认 `Released_DESC`，优先当前特惠里的近期发布项目 |
+| `search_category1` | Steam 搜索分类，默认 `998` 只取游戏，避免原声带/工具占位 |
+| `daily_filter.enabled` | 是否启用日报筛选，减少老低价和同系列刷屏 |
+| `daily_filter.max_per_title_family` | 同一标题系列最多保留多少条，默认 `2` |
+| `daily_filter.min_review_count_for_plain_low_price` | 纯低价项目进入日报所需最低评价数 |
+| `daily_filter.min_discount_for_plain_low_price` | 纯低价项目进入日报所需最低折扣 |
+| `daily_filter.min_discount_for_recent_deal` | 近期发布项目进入日报所需最低折扣，默认 `20` |
+| `daily_filter.require_recent_search_results` | 搜索特惠结果是否必须是近期发布，默认开启 |
+| `daily_filter.max_search_release_age_days` | 搜索特惠结果最大发布时间跨度，默认 `730` 天 |
+| `include_steamdb_free_promotions` | 是否用 SteamDB Free Promotions 辅助标注限免领取/免费试玩 |
+| `steamdb_free_url` | SteamDB Free Promotions 页面地址 |
+| `render.image_format` | 日报图片格式，默认 `JPEG`，比长 PNG 更适合 QQ/NapCat 发送 |
+| `render.jpeg_quality` | JPEG 压缩质量，默认 `82` |
+| `send_retry_attempts` | NapCat 发送图片/文本超时时的重试次数 |
 | `schedule.enabled` | 是否开启每日主动推送 |
 | `schedule.time` | 每日推送时间，格式 `HH:MM` |
 | `schedule.timezone` | 推送时区，默认 `Asia/Shanghai` |

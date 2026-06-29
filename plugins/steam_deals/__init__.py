@@ -4,10 +4,12 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Awaitable, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nonebot
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
@@ -20,6 +22,7 @@ from .storage import mark_sent, was_sent_today
 logger = logging.getLogger("HikariBot.SteamDeals")
 
 _schedule_task: asyncio.Task[None] | None = None
+T = TypeVar("T")
 
 
 def _enabled() -> bool:
@@ -54,6 +57,49 @@ async def _build_report(mode: DealMode, *, force_refresh: bool = False) -> tuple
     return path, links
 
 
+def _is_send_timeout(error: ActionFailed) -> bool:
+    text = f"{getattr(error, 'message', '')}\n{getattr(error, 'wording', '')}"
+    return getattr(error, "retcode", None) == 1200 or "Timeout" in text
+
+
+async def _send_with_retry(action: Callable[[], Awaitable[T]], label: str) -> T:
+    cfg = get_config()
+    attempts = max(1, int(cfg.get("send_retry_attempts") or 2))
+    delay = max(0.0, float(cfg.get("send_retry_delay_seconds") or 2.0))
+    last_error: ActionFailed | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await action()
+        except ActionFailed as e:
+            last_error = e
+            if not _is_send_timeout(e) or attempt >= attempts:
+                raise
+            logger.warning("[SteamDeals] %s 发送超时，%.1fs 后重试 %d/%d: %s", label, delay, attempt, attempts - 1, e)
+            await asyncio.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+async def _send_image_to_context(ctx: CommandContext, path: Path, links: list[str]) -> bool:
+    uri = path.resolve().as_uri()
+    try:
+        await _send_with_retry(lambda: ctx.send(Message(MessageSegment.image(uri))), "日报图片")
+        return True
+    except ActionFailed as e:
+        if not _is_send_timeout(e):
+            raise
+        logger.warning("[SteamDeals] 日报图片发送超时，改发文本兜底: %s", e)
+        await _try_send_context_text(ctx, msg("steam_deals.image_send_failed", links="\n".join(links) or "暂无链接"))
+        return False
+
+
+async def _try_send_context_text(ctx: CommandContext, text: str) -> None:
+    try:
+        await _send_with_retry(lambda: ctx.send(Message(text)), "日报文本")
+    except Exception as e:
+        logger.warning("[SteamDeals] 日报文本发送失败: %s", e)
+
+
 async def _send_report_to_context(ctx: CommandContext, mode: DealMode, *, force_refresh: bool = False) -> None:
     if not _enabled():
         await ctx.send(Message(msg("steam_deals.disabled")))
@@ -65,9 +111,9 @@ async def _send_report_to_context(ctx: CommandContext, mode: DealMode, *, force_
         logger.warning("[SteamDeals] 查询失败: %s", e)
         await ctx.send(Message(msg("steam_deals.failed", error=e)))
         return
-    await ctx.send(Message(MessageSegment.image(path.resolve().as_uri())))
-    if links:
-        await ctx.send(Message(msg("steam_deals.links", links="\n".join(links))))
+    image_sent = await _send_image_to_context(ctx, path, links)
+    if image_sent and links:
+        await _try_send_context_text(ctx, msg("steam_deals.links", links="\n".join(links)))
 
 
 @command(
@@ -112,9 +158,9 @@ async def _send_daily_push(bot) -> None:
 
     for group_id in pending_groups:
         try:
-            await bot.send_group_msg(group_id=group_id, message=image_message)
+            await _send_with_retry(lambda: bot.send_group_msg(group_id=group_id, message=image_message), f"群 {group_id} 日报图片")
             if link_message is not None:
-                await bot.send_group_msg(group_id=group_id, message=link_message)
+                await _send_with_retry(lambda: bot.send_group_msg(group_id=group_id, message=link_message), f"群 {group_id} 日报链接")
             mark_sent("group", group_id, today)
             logger.info("[SteamDeals] 已推送日报到群 %s", group_id)
         except Exception as e:
@@ -122,9 +168,9 @@ async def _send_daily_push(bot) -> None:
 
     for user_id in pending_privates:
         try:
-            await bot.send_private_msg(user_id=user_id, message=image_message)
+            await _send_with_retry(lambda: bot.send_private_msg(user_id=user_id, message=image_message), f"私聊 {user_id} 日报图片")
             if link_message is not None:
-                await bot.send_private_msg(user_id=user_id, message=link_message)
+                await _send_with_retry(lambda: bot.send_private_msg(user_id=user_id, message=link_message), f"私聊 {user_id} 日报链接")
             mark_sent("private", user_id, today)
             logger.info("[SteamDeals] 已推送日报到私聊 %s", user_id)
         except Exception as e:

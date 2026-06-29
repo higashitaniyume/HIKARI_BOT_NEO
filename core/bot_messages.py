@@ -141,6 +141,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "disabled": "Steam 喜加一日报当前已关闭。",
         "fetching": "正在整理 Steam 免费和低价游戏日报...",
         "failed": "Steam 日报获取失败：{error}",
+        "image_send_failed": "Steam 日报图片已生成，但发送图片超时了。先给你商店链接：\n{links}",
         "links": "商店链接：\n{links}",
         "help": "steam日报：查看免费、低价和大折扣游戏日报。\nsteam日报 免费 / steam免费：只看免费游戏。\nsteam日报 低价 / steam低价：查看低价和大折扣游戏。\nsteam日报 刷新：忽略短期缓存重新获取。\n主动每日推送只发送到 BotData/plugin_configs/steam_deals.json 的 push_whitelist 白名单；手动命令不受白名单限制。",
     },
