@@ -144,6 +144,36 @@
         </section>
       </div>
 
+      <section class="panel pack-detail-panel" id="packDetailPanel">
+        <div class="panel-heading">
+          <div>
+            <h2 id="packDetailTitle">贴纸包内容</h2>
+            <p id="packDetailMeta">选择上方贴纸包后查看和管理具体贴纸。</p>
+          </div>
+          <button type="button" id="packDownloadBtn" class="ghost" hidden>下载 7z</button>
+        </div>
+
+        <form id="packStickerActionForm" class="pack-sticker-toolbar">
+          <label class="checkbox-field">
+            <input id="packStickerSelectAll" type="checkbox">
+            <span>全选当前贴纸包</span>
+          </label>
+          <span id="packStickerSelectedText">已选择 0 张</span>
+          <label>
+            <span>移动到已有包</span>
+            <select id="packStickerMoveTarget"></select>
+          </label>
+          <label>
+            <span>或新建包</span>
+            <input id="packStickerMoveNewPack" placeholder="例如 favorite_memes">
+          </label>
+          <button type="button" id="packStickerMoveBtn" class="primary">移动所选</button>
+          <button type="button" id="packStickerDeleteBtn" class="danger-button">删除所选</button>
+        </form>
+
+        <div id="packStickerList" class="sticker-grid empty">暂无选中的贴纸包</div>
+      </section>
+
       <section class="panel manage-panel">
         <div class="panel-heading">
           <div>

@@ -477,6 +477,10 @@ button:disabled {
   opacity: 0.62;
 }
 
+#packDownloadBtn:disabled {
+  min-width: 116px;
+}
+
 .primary {
   background: var(--accent);
   color: #fff;
@@ -2618,4 +2622,176 @@ button:not(:disabled):active {
   right: auto;
   left: 1px;
   transform: translateY(-50%) rotate(135deg);
+}
+
+.small-button {
+  width: auto;
+  min-width: 58px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-color: var(--border-strong);
+  background: #fff;
+  color: #0f655f;
+  font-size: 13px;
+}
+
+.small-button:hover {
+  border-color: #94a3b8;
+  background: var(--accent-tint);
+}
+
+.pack-card.is-active-pack {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.pack-detail-panel {
+  scroll-margin-top: 18px;
+}
+
+.pack-sticker-toolbar {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) auto minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.pack-sticker-toolbar > span {
+  align-self: center;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+}
+
+.sticker-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.sticker-card:hover {
+  border-color: #a9c9c5;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.08);
+}
+
+.sticker-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.pack-sticker-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  width: 20px;
+  min-height: 20px;
+}
+
+.sticker-frame {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.sticker-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sticker-title,
+.sticker-meta {
+  overflow-wrap: anywhere;
+}
+
+.sticker-title {
+  font-weight: 760;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.sticker-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@media (max-width: 1180px) {
+  .pack-sticker-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .pack-sticker-toolbar,
+  .sticker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pack-sticker-toolbar .primary,
+  .pack-sticker-toolbar .danger-button {
+    width: 100%;
+  }
+}
+
+/* Remove heavy nested control frames; keep focus visible without the harsh boxed look. */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16);
+}
+
+input[type="checkbox"]:focus,
+input[type="checkbox"]:focus-visible {
+  outline: 0;
+  box-shadow: none;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.upload-form,
+.tg-form,
+.voice-upload-form,
+.keyword-form,
+.voice-keyword-form,
+.inbox-form,
+.access-form,
+.pack-sticker-toolbar {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.settings-form .checkbox-field,
+.pack-sticker-toolbar .checkbox-field {
+  border: 0;
+  background: transparent;
+  padding: 0;
 }

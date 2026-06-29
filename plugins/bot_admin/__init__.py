@@ -12,6 +12,8 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -19,7 +21,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from core.access_control import normalize_access_rules
 from plugins import sticker_inbox
@@ -118,6 +120,81 @@ def _html_page(message: str = "") -> bytes:
 
 def _pack_state() -> dict[str, Any]:
     return sticker_library.get_state()
+
+
+def _pack_detail_state(pack_name: str) -> dict[str, Any]:
+    detail = sticker_library.get_pack_detail(pack_name)
+    if detail is None:
+        raise ValueError("没有找到这个贴纸包。")
+    return {"pack": detail}
+
+
+def _archive_download_name(pack_name: str) -> str:
+    safe_name = _safe_pack_name(pack_name) or "stickers"
+    return f"{safe_name}.7z"
+
+
+def _find_7z_command() -> str | None:
+    for command in ("7z", "7zz", "7za"):
+        path = shutil.which(command)
+        if path:
+            return path
+    return None
+
+
+def _stage_archive_file(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
+
+def _create_pack_archive(pack_name: str) -> Path:
+    seven_zip = _find_7z_command()
+    if not seven_zip:
+        raise RuntimeError("服务器缺少 7-Zip 命令行工具，请安装 7z、7zz 或 7za 后重试。")
+    safe_name, archive_files = sticker_library.get_pack_archive_files(pack_name)
+    if not archive_files:
+        raise ValueError("这个贴纸包里没有可下载的贴纸文件。")
+
+    fd, archive_name = tempfile.mkstemp(prefix=f"hikari_{safe_name}_", suffix=".7z")
+    os.close(fd)
+    archive_path = Path(archive_name)
+    archive_path.unlink(missing_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f"hikari_{safe_name}_archive_"))
+    try:
+        for path, arcname in archive_files:
+            _stage_archive_file(path, staging_dir / arcname)
+        command = [
+            seven_zip,
+            "a",
+            "-t7z",
+            "-mx=5",
+            "-mmt=on",
+            str(archive_path),
+            ".",
+        ]
+        result = subprocess.run(
+            command,
+            cwd=staging_dir,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "").strip().splitlines()
+            detail = message[-1] if message else f"退出码 {result.returncode}"
+            raise RuntimeError(f"7-Zip 压缩失败：{detail}")
+        if not archive_path.is_file() or archive_path.stat().st_size <= 0:
+            raise RuntimeError("7-Zip 未生成有效的压缩包。")
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+    return archive_path
 
 
 def _inbox_state() -> dict[str, Any]:
@@ -1028,6 +1105,19 @@ class BotAdminHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self._write_body(body)
 
+    def _send_download_file(self, path: Path, download_name: str, content_type: str = "application/octet-stream") -> None:
+        body = path.read_bytes()
+        encoded_name = quote(download_name)
+        ascii_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", download_name).strip("._") or "download.7z"
+        disposition = f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", disposition)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self._write_body(body)
+
     def _send_static(self, parsed_path: str) -> None:
         relative = unquote(parsed_path.removeprefix("/static/")).replace("\\", "/")
         if not relative or relative.startswith("/") or ".." in Path(relative).parts:
@@ -1071,6 +1161,26 @@ class BotAdminHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "private, max-age=86400")
         self.end_headers()
         self._write_body(body)
+
+    def _send_pack_archive(self, pack_name: str) -> None:
+        archive_path: Path | None = None
+        try:
+            archive_path = _create_pack_archive(pack_name)
+            self._send_download_file(
+                archive_path,
+                _archive_download_name(pack_name),
+                "application/x-7z-compressed",
+            )
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except RuntimeError as e:
+            self._send_json({"error": str(e)}, 500)
+        except Exception as e:
+            logger.exception("生成贴纸包 7z 失败: %s", e)
+            self._send_json({"error": "生成贴纸包 7z 失败，请检查服务日志。"}, 500)
+        finally:
+            if archive_path is not None:
+                archive_path.unlink(missing_ok=True)
 
     def _send_voice_file(self, voice_id: str) -> None:
         safe_id = Path(unquote(voice_id or "")).name
@@ -1146,6 +1256,26 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 self._unauthorized_json()
                 return
             self._send_json(_pack_state())
+            return
+        if parsed.path.startswith("/api/packs/") and parsed.path.endswith("/download"):
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            pack_name = parsed.path.removeprefix("/api/packs/").removesuffix("/download").strip("/")
+            self._send_pack_archive(unquote(pack_name))
+            return
+        if parsed.path.startswith("/api/packs/"):
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            try:
+                pack_name = parsed.path.removeprefix("/api/packs/").strip("/")
+                self._send_json(_pack_detail_state(unquote(pack_name)))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 404)
+            except Exception as e:
+                logger.exception("读取贴纸包详情失败: %s", e)
+                self._send_json({"error": "读取贴纸包详情失败，请检查服务日志。"}, 500)
             return
         if parsed.path == "/api/inbox":
             if not self._is_authenticated():
@@ -1395,6 +1525,41 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("新增贴纸关键词失败: %s", e)
                 self._send_json({"error": "新增贴纸关键词失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/pack-stickers/delete":
+            try:
+                data = self._read_json_body()
+                pack_name = _safe_pack_name(str(data.get("pack", "")))
+                sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
+                result = sticker_library.remove_stickers_from_pack(pack_name, sticker_ids)
+                payload = _pack_state()
+                payload["result"] = result
+                payload["pack_detail"] = sticker_library.get_pack_detail(pack_name)
+                self._send_json(payload)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("删除贴纸失败: %s", e)
+                self._send_json({"error": "删除贴纸失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/pack-stickers/move":
+            try:
+                data = self._read_json_body()
+                source_pack = _safe_pack_name(str(data.get("source_pack", "")))
+                target_pack = _safe_pack_name(str(data.get("target_pack", "")))
+                sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
+                result = sticker_library.move_stickers_between_packs(source_pack, target_pack, sticker_ids)
+                payload = _pack_state()
+                payload["result"] = result
+                payload["pack_detail"] = sticker_library.get_pack_detail(source_pack)
+                self._send_json(payload)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("移动贴纸失败: %s", e)
+                self._send_json({"error": "移动贴纸失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/tg-stickers":

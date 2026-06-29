@@ -103,7 +103,19 @@ def _normalize_index(index: dict[str, Any]) -> dict[str, Any]:
         sticker_ids: list[str] = []
         for sticker_id in pack.get("stickers") or []:
             sticker_id = Path(str(sticker_id)).name
-            if sticker_id in stickers and sticker_id not in sticker_ids:
+            if not sticker_id or Path(sticker_id).suffix.lower() not in MEDIA_EXTS:
+                continue
+            if sticker_id not in stickers:
+                path = _storage_path(sticker_id)
+                if path.is_file() and path.stat().st_size > 0:
+                    stickers[sticker_id] = {
+                        "file": sticker_id,
+                        "sha256": _hash_file(path),
+                        "source": "recovered",
+                        "original_name": sticker_id,
+                        "created_at": int(path.stat().st_mtime),
+                    }
+            if sticker_id not in sticker_ids:
                 sticker_ids.append(sticker_id)
         packs[pack_name] = {"keywords": keywords, "stickers": sticker_ids}
 
@@ -303,9 +315,18 @@ def get_pack_files(pack_name: str) -> list[Path]:
 def get_sticker_path(sticker_id: str) -> Path | None:
     index = load_index()
     safe_id = Path(str(sticker_id or "")).name
-    if not safe_id or safe_id not in (index.get("stickers") or {}):
+    if not safe_id:
         return None
-    path = _file_path_from_meta(index.get("stickers") or {}, safe_id)
+    stickers = index.get("stickers") or {}
+    if safe_id not in stickers:
+        referenced = any(
+            safe_id == Path(str(pack_sticker_id)).name
+            for pack in (index.get("packs") or {}).values()
+            for pack_sticker_id in pack.get("stickers") or []
+        )
+        if not referenced:
+            return None
+    path = _file_path_from_meta(stickers, safe_id)
     if path.is_file() and path.suffix.lower() in MEDIA_EXTS and path.stat().st_size > 0:
         return path
     return None
@@ -333,6 +354,175 @@ def count_pack(pack_name: str) -> int:
     index = load_index()
     pack = (index.get("packs") or {}).get(safe_pack_name(pack_name))
     return len(pack.get("stickers") or []) if pack else 0
+
+
+def _sticker_detail(stickers: dict[str, Any], sticker_id: str) -> dict[str, Any]:
+    meta = stickers.get(sticker_id) or {}
+    path = _file_path_from_meta(stickers, sticker_id)
+    exists = path.is_file() and path.suffix.lower() in MEDIA_EXTS and path.stat().st_size > 0
+    return {
+        "id": sticker_id,
+        "file": Path(str(meta.get("file") or sticker_id)).name,
+        "original_name": str(meta.get("original_name") or sticker_id),
+        "source": str(meta.get("source") or "unknown"),
+        "created_at": int(meta.get("created_at") or 0),
+        "size": path.stat().st_size if exists else 0,
+        "missing": not exists,
+    }
+
+
+def get_pack_detail(pack_name: str) -> dict[str, Any] | None:
+    safe_name = safe_pack_name(pack_name)
+    if not safe_name:
+        raise ValueError("贴纸包名称不能为空。")
+
+    index = load_index()
+    pack = (index.get("packs") or {}).get(safe_name)
+    if not pack:
+        return None
+
+    stickers = index.get("stickers") or {}
+    sticker_ids: list[str] = []
+    for sticker_id in pack.get("stickers") or []:
+        safe_id = Path(str(sticker_id)).name
+        if safe_id and safe_id not in sticker_ids:
+            sticker_ids.append(safe_id)
+    return {
+        "name": safe_name,
+        "count": len(sticker_ids),
+        "keywords": split_keywords(pack.get("keywords") or []),
+        "stickers": [_sticker_detail(stickers, sticker_id) for sticker_id in sticker_ids],
+    }
+
+
+def get_pack_archive_files(pack_name: str) -> tuple[str, list[tuple[Path, str]]]:
+    detail = get_pack_detail(pack_name)
+    if detail is None:
+        raise ValueError("没有找到这个贴纸包。")
+
+    index = load_index()
+    stickers = index.get("stickers") or {}
+    archive_files: list[tuple[Path, str]] = []
+    used_names: set[str] = set()
+    for position, sticker in enumerate(detail["stickers"], start=1):
+        sticker_id = sticker["id"]
+        path = _file_path_from_meta(stickers, sticker_id)
+        if not path.is_file() or path.stat().st_size <= 0:
+            continue
+        base_name = Path(str(sticker.get("original_name") or path.name)).name
+        base_name = re.sub(r"[\\/:*?\"<>|\x00-\x1f]", "_", base_name).strip(" ._") or path.name
+        if Path(base_name).suffix.lower() != ".gif":
+            base_name = f"{base_name}.gif"
+        archive_name = f"{position:03d}_{base_name}"
+        while archive_name.casefold() in used_names:
+            archive_name = f"{position:03d}_{sticker_id}"
+        used_names.add(archive_name.casefold())
+        archive_files.append((path, archive_name))
+    return detail["name"], archive_files
+
+
+def remove_stickers_from_pack(pack_name: str, sticker_ids: list[str]) -> dict[str, Any]:
+    safe_name = safe_pack_name(pack_name)
+    if not safe_name:
+        raise ValueError("贴纸包名称不能为空。")
+    target_ids = [
+        Path(str(sticker_id)).name
+        for sticker_id in sticker_ids
+        if Path(str(sticker_id)).name
+    ]
+    if not target_ids:
+        raise ValueError("请选择要删除的贴纸。")
+
+    with _lock:
+        index = load_index()
+        packs = index.setdefault("packs", {})
+        pack = packs.get(safe_name)
+        if not pack:
+            raise ValueError("没有找到这个贴纸包。")
+
+        target_set = set(target_ids)
+        current_ids = [
+            Path(str(sticker_id)).name
+            for sticker_id in pack.get("stickers") or []
+            if Path(str(sticker_id)).name
+        ]
+        next_ids = [sticker_id for sticker_id in current_ids if sticker_id not in target_set]
+        removed_ids = [sticker_id for sticker_id in current_ids if sticker_id in target_set]
+        if not removed_ids:
+            return {"pack": safe_name, "removed": 0, "deleted_files": 0}
+
+        pack["stickers"] = next_ids
+        still_referenced: set[str] = set()
+        for other_pack in packs.values():
+            for sticker_id in other_pack.get("stickers") or []:
+                safe_id = Path(str(sticker_id)).name
+                if safe_id:
+                    still_referenced.add(safe_id)
+
+        stickers = index.setdefault("stickers", {})
+        deleted_files = 0
+        for sticker_id in removed_ids:
+            if sticker_id in still_referenced:
+                continue
+            path = _file_path_from_meta(stickers, sticker_id)
+            stickers.pop(sticker_id, None)
+            try:
+                if path.is_file():
+                    path.unlink()
+                    deleted_files += 1
+            except Exception as e:
+                logger.warning("[StickerLibrary] 删除贴纸文件失败: %s -> %s", path, e)
+
+        save_index(index)
+        return {"pack": safe_name, "removed": len(removed_ids), "deleted_files": deleted_files}
+
+
+def move_stickers_between_packs(source_pack: str, target_pack: str, sticker_ids: list[str]) -> dict[str, Any]:
+    safe_source = safe_pack_name(source_pack)
+    safe_target = safe_pack_name(target_pack)
+    if not safe_source or not safe_target:
+        raise ValueError("来源和目标贴纸包都不能为空。")
+    if safe_source == safe_target:
+        raise ValueError("目标贴纸包不能和当前贴纸包相同。")
+    target_ids = [
+        Path(str(sticker_id)).name
+        for sticker_id in sticker_ids
+        if Path(str(sticker_id)).name
+    ]
+    if not target_ids:
+        raise ValueError("请选择要移动的贴纸。")
+
+    with _lock:
+        index = load_index()
+        packs = index.setdefault("packs", {})
+        source = packs.get(safe_source)
+        if not source:
+            raise ValueError("没有找到来源贴纸包。")
+        target = _ensure_pack(index, safe_target)
+
+        selected = set(target_ids)
+        current_source_ids = [
+            Path(str(sticker_id)).name
+            for sticker_id in source.get("stickers") or []
+            if Path(str(sticker_id)).name
+        ]
+        moved_ids = [sticker_id for sticker_id in current_source_ids if sticker_id in selected]
+        if not moved_ids:
+            return {"source": safe_source, "target": safe_target, "moved": 0}
+
+        source["stickers"] = [sticker_id for sticker_id in current_source_ids if sticker_id not in selected]
+        target_ids_existing = [
+            Path(str(sticker_id)).name
+            for sticker_id in target.get("stickers") or []
+            if Path(str(sticker_id)).name
+        ]
+        for sticker_id in moved_ids:
+            if sticker_id not in target_ids_existing:
+                target_ids_existing.append(sticker_id)
+        target["stickers"] = target_ids_existing
+
+        save_index(index)
+        return {"source": safe_source, "target": safe_target, "moved": len(moved_ids)}
 
 
 def get_keyword_map() -> dict[str, list[str]]:

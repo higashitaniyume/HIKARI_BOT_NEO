@@ -11,7 +11,7 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
 fi
 
 SYSTEM_DEPS_READY=1
-for package in ffmpeg libcairo2 libpango-1.0-0 fonts-noto-cjk; do
+for package in ffmpeg libcairo2 libpango-1.0-0 fonts-noto-cjk 7zip; do
   if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -qx 'install ok installed'; then
     SYSTEM_DEPS_READY=0
     break
@@ -27,7 +27,8 @@ if [ "$SYSTEM_DEPS_READY" -eq 0 ]; then
     libpangocairo-1.0-0 \
     libgdk-pixbuf-2.0-0 \
     shared-mime-info \
-    fonts-noto-cjk
+    fonts-noto-cjk \
+    7zip
   rm -rf /var/lib/apt/lists/*
 fi
 

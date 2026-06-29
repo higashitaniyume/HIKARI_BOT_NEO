@@ -1,6 +1,8 @@
 const state = {
   packs: [],
   keywords: [],
+  selectedPackName: "",
+  selectedPackDetail: null,
   inbox: [],
   voices: [],
   voiceKeywords: [],
@@ -168,6 +170,12 @@ async function fetchState() {
   await fetchTtsConfig(false);
   await fetchAiAgentConfig(false);
   await fetchInbox(false);
+  if (state.selectedPackName && state.packs.some((pack) => pack.name === state.selectedPackName)) {
+    await fetchPackDetail(state.selectedPackName, false);
+  } else if (state.selectedPackName) {
+    state.selectedPackName = "";
+    state.selectedPackDetail = null;
+  }
   render();
 }
 
@@ -189,6 +197,23 @@ async function fetchInbox(shouldRender = true) {
   state.inbox = data.items || [];
   if (shouldRender) {
     render();
+  }
+}
+
+async function fetchPackDetail(packName, shouldRender = true) {
+  const safeName = String(packName || "").trim();
+  if (!safeName) {
+    state.selectedPackName = "";
+    state.selectedPackDetail = null;
+    if (shouldRender) renderPackDetail();
+    return;
+  }
+  const res = await fetch(`/api/packs/${encodeURIComponent(safeName)}`, { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取贴纸包详情失败");
+  state.selectedPackName = data.pack?.name || safeName;
+  state.selectedPackDetail = data.pack || null;
+  if (shouldRender) {
+    renderPackDetail();
   }
 }
 
@@ -467,16 +492,21 @@ function renderSelects() {
   const uploadSelect = $("#existing_pack");
   const keywordSelect = $("#keywordPack");
   const inboxSelect = $("#inboxPack");
+  const packMoveSelect = $("#packStickerMoveTarget");
   const voiceKeywordSelect = $("#voiceKeywordVoice");
   uploadSelect.replaceChildren(option("", "新建贴纸包"));
   keywordSelect.replaceChildren();
   inboxSelect.replaceChildren(option("", "选择已有贴纸包"));
+  packMoveSelect.replaceChildren(option("", "选择目标贴纸包"));
   voiceKeywordSelect.replaceChildren();
 
   for (const pack of state.packs) {
     uploadSelect.append(option(pack.name, packLabel(pack)));
     keywordSelect.append(option(pack.name, packLabel(pack)));
     inboxSelect.append(option(pack.name, packLabel(pack)));
+    if (pack.name !== state.selectedPackName) {
+      packMoveSelect.append(option(pack.name, packLabel(pack)));
+    }
   }
 
   for (const voice of state.voices) {
@@ -567,6 +597,7 @@ function renderPacks() {
   for (const pack of state.packs) {
     const item = document.createElement("article");
     item.className = "pack-card";
+    item.classList.toggle("is-active-pack", pack.name === state.selectedPackName);
     item.addEventListener("dragenter", enterPackDrop);
     item.addEventListener("dragover", overPackDrop);
     item.addEventListener("dragleave", leavePackDrop);
@@ -589,7 +620,12 @@ function renderPacks() {
     deleteButton.setAttribute("aria-label", `删除贴纸包 ${pack.name}`);
     deleteButton.textContent = "×";
     deleteButton.addEventListener("click", () => deletePack(pack));
-    actions.append(badge, deleteButton);
+    const manageButton = document.createElement("button");
+    manageButton.type = "button";
+    manageButton.className = "small-button";
+    manageButton.textContent = "管理";
+    manageButton.addEventListener("click", () => fetchPackDetail(pack.name).catch((err) => showToast(err.message, true)));
+    actions.append(badge, manageButton, deleteButton);
     head.append(title, actions);
 
     const chips = document.createElement("div");
@@ -608,6 +644,168 @@ function renderPacks() {
     item.append(renderPreviewStrip(pack), head, chips);
     list.append(item);
   }
+}
+
+function packDownloadUrl(packName) {
+  return `/api/packs/${encodeURIComponent(packName)}/download`;
+}
+
+function packArchiveFileName(packName) {
+  return `${String(packName || "stickers").trim() || "stickers"}.7z`;
+}
+
+function downloadBlob(blob, filename) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
+
+function filenameFromDisposition(disposition, fallback) {
+  const value = String(disposition || "");
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return fallback;
+    }
+  }
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+  return asciiMatch ? asciiMatch[1] : fallback;
+}
+
+async function downloadSelectedPackArchive() {
+  const packName = state.selectedPackDetail?.name || state.selectedPackName;
+  if (!packName) {
+    showToast("请先选择一个贴纸包。", true);
+    return;
+  }
+
+  const button = $("#packDownloadBtn");
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在打包...";
+  showToast("正在打包贴纸包，请稍等。");
+
+  try {
+    const res = await fetch(packDownloadUrl(packName), { cache: "no-store" });
+    if (res.status === 401) {
+      window.location.href = "/login";
+      throw new Error("请先登录。");
+    }
+    if (!res.ok) {
+      let message = "下载贴纸包失败";
+      try {
+        const data = await res.json();
+        message = data.error || message;
+      } catch {
+        message = await res.text() || message;
+      }
+      throw new Error(message);
+    }
+
+    button.textContent = "正在下载...";
+    const blob = await res.blob();
+    const filename = filenameFromDisposition(res.headers.get("Content-Disposition"), packArchiveFileName(packName));
+    downloadBlob(blob, filename);
+    showToast("贴纸包下载已开始。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = previousText || "下载 7z";
+  }
+}
+
+function getSelectedPackStickerIds() {
+  return Array.from(document.querySelectorAll(".pack-sticker-check:checked")).map((input) => input.value);
+}
+
+function updatePackStickerSelectionText() {
+  const selected = getSelectedPackStickerIds();
+  const selectedSet = new Set(selected);
+  for (const card of document.querySelectorAll(".sticker-card")) {
+    card.classList.toggle("is-selected", selectedSet.has(card.dataset.stickerId));
+  }
+  $("#packStickerSelectedText").textContent = `已选择 ${selected.length} 张`;
+  const stickers = state.selectedPackDetail?.stickers || [];
+  const allBox = $("#packStickerSelectAll");
+  allBox.checked = Boolean(stickers.length) && selected.length === stickers.length;
+  allBox.indeterminate = selected.length > 0 && selected.length < stickers.length;
+}
+
+function renderPackDetail() {
+  const detail = state.selectedPackDetail;
+  const list = $("#packStickerList");
+  const downloadButton = $("#packDownloadBtn");
+  list.replaceChildren();
+
+  if (!detail) {
+    $("#packDetailTitle").textContent = "贴纸包内容";
+    $("#packDetailMeta").textContent = "选择上方贴纸包后查看和管理具体贴纸。";
+    downloadButton.hidden = true;
+    list.className = "sticker-grid empty";
+    list.textContent = "暂无选中的贴纸包";
+    updatePackStickerSelectionText();
+    return;
+  }
+
+  $("#packDetailTitle").textContent = detail.name;
+  $("#packDetailMeta").textContent = `${detail.count || 0} 张贴纸 / ${detail.keywords?.length || 0} 个关键词`;
+  downloadButton.hidden = false;
+  downloadButton.disabled = false;
+  downloadButton.textContent = "下载 7z";
+
+  const stickers = detail.stickers || [];
+  if (!stickers.length) {
+    list.className = "sticker-grid empty";
+    list.textContent = "这个贴纸包里暂无贴纸";
+    updatePackStickerSelectionText();
+    return;
+  }
+
+  list.className = "sticker-grid";
+  for (const sticker of stickers) {
+    const card = document.createElement("article");
+    card.className = "sticker-card";
+    card.dataset.stickerId = sticker.id;
+
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "pack-sticker-check";
+    check.value = sticker.id;
+    check.setAttribute("aria-label", `选择贴纸 ${sticker.original_name || sticker.id}`);
+    check.addEventListener("change", updatePackStickerSelectionText);
+
+    const frame = document.createElement("a");
+    frame.className = "sticker-frame";
+    frame.href = previewUrl(sticker.id);
+    frame.target = "_blank";
+    frame.rel = "noopener";
+    const image = document.createElement("img");
+    image.src = previewUrl(sticker.id);
+    image.alt = sticker.original_name || sticker.id;
+    image.loading = "lazy";
+    image.decoding = "async";
+    frame.append(image);
+
+    const title = document.createElement("div");
+    title.className = "sticker-title";
+    title.textContent = sticker.original_name || sticker.file || sticker.id;
+
+    const meta = document.createElement("div");
+    meta.className = "sticker-meta";
+    meta.textContent = `${formatBytes(sticker.size)} / ${formatTime(sticker.created_at)}${sticker.missing ? " / 文件缺失" : ""}`;
+
+    card.append(check, frame, title, meta);
+    list.append(card);
+  }
+  updatePackStickerSelectionText();
 }
 
 function renderKeywords() {
@@ -1001,6 +1199,7 @@ function render() {
   renderSelects();
   renderInbox();
   renderPacks();
+  renderPackDetail();
   renderKeywords();
   renderVoices();
   renderVoiceKeywords();
@@ -1562,6 +1761,10 @@ async function deleteKeyword(pack, keyword) {
     state.packs = data.packs || [];
     state.keywords = data.keywords || [];
     state.totalStickers = Number(data.total_stickers || 0);
+    if (state.selectedPackName === pack.name) {
+      state.selectedPackName = "";
+      state.selectedPackDetail = null;
+    }
     render();
     showToast("关键词关联已删除。");
   } catch (err) {
@@ -1603,6 +1806,100 @@ async function deletePack(pack) {
     showToast(`已删除 ${result.pack || pack.name}，移除 ${result.removed_stickers || 0} 个关联，删除 ${result.deleted_files || 0} 个本地文件。`);
   } catch (err) {
     showToast(err.message, true);
+  }
+}
+
+function togglePackStickerSelection(event) {
+  const checked = event.currentTarget.checked;
+  for (const input of document.querySelectorAll(".pack-sticker-check")) {
+    input.checked = checked;
+  }
+  updatePackStickerSelectionText();
+}
+
+async function deleteSelectedPackStickers() {
+  const packName = state.selectedPackDetail?.name || state.selectedPackName;
+  const stickerIds = getSelectedPackStickerIds();
+  if (!packName) {
+    showToast("请先选择一个贴纸包。", true);
+    return;
+  }
+  if (!stickerIds.length) {
+    showToast("请选择要删除的贴纸。", true);
+    return;
+  }
+  const confirmed = window.confirm(`确定从「${packName}」删除 ${stickerIds.length} 张贴纸吗？\n如果这些贴纸没有被其他贴纸包引用，本地文件也会被删除。`);
+  if (!confirmed) {
+    return;
+  }
+
+  const button = $("#packStickerDeleteBtn");
+  button.disabled = true;
+  try {
+    const res = await fetch("/api/pack-stickers/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pack: packName, stickers: stickerIds }),
+    });
+    const data = await readJsonResponse(res, "删除贴纸失败");
+    state.packs = data.packs || [];
+    state.keywords = data.keywords || [];
+    state.totalStickers = Number(data.total_stickers || 0);
+    state.selectedPackDetail = data.pack_detail || null;
+    state.selectedPackName = state.selectedPackDetail?.name || packName;
+    render();
+    const result = data.result || {};
+    showToast(`已删除 ${result.removed || 0} 张贴纸，删除 ${result.deleted_files || 0} 个本地文件。`);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function moveSelectedPackStickers() {
+  const sourcePack = state.selectedPackDetail?.name || state.selectedPackName;
+  const targetPack = $("#packStickerMoveNewPack").value.trim() || $("#packStickerMoveTarget").value;
+  const stickerIds = getSelectedPackStickerIds();
+  if (!sourcePack) {
+    showToast("请先选择一个贴纸包。", true);
+    return;
+  }
+  if (!stickerIds.length) {
+    showToast("请选择要移动的贴纸。", true);
+    return;
+  }
+  if (!targetPack) {
+    showToast("请选择目标贴纸包，或输入新贴纸包名称。", true);
+    return;
+  }
+
+  const button = $("#packStickerMoveBtn");
+  button.disabled = true;
+  try {
+    const res = await fetch("/api/pack-stickers/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source_pack: sourcePack,
+        target_pack: targetPack,
+        stickers: stickerIds,
+      }),
+    });
+    const data = await readJsonResponse(res, "移动贴纸失败");
+    state.packs = data.packs || [];
+    state.keywords = data.keywords || [];
+    state.totalStickers = Number(data.total_stickers || 0);
+    state.selectedPackDetail = data.pack_detail || null;
+    state.selectedPackName = state.selectedPackDetail?.name || sourcePack;
+    $("#packStickerMoveNewPack").value = "";
+    render();
+    const result = data.result || {};
+    showToast(`已移动 ${result.moved || 0} 张贴纸到 ${result.target || targetPack}。`);
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -1699,6 +1996,7 @@ function toggleInboxSelection(event) {
 }
 
 $("#keywordForm").addEventListener("submit", addKeyword);
+$("#packStickerActionForm").addEventListener("submit", (event) => event.preventDefault());
 $("#uploadForm").addEventListener("submit", uploadStickers);
 $("#tgForm").addEventListener("submit", importTelegramStickers);
 $("#voiceUploadForm").addEventListener("submit", uploadVoices);
@@ -1711,6 +2009,10 @@ $("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
 $("#inboxForm").addEventListener("submit", assignInboxItems);
 $("#inboxDeleteBtn").addEventListener("click", deleteInboxItems);
 $("#inboxSelectAll").addEventListener("change", toggleInboxSelection);
+$("#packStickerSelectAll").addEventListener("change", togglePackStickerSelection);
+$("#packStickerMoveBtn").addEventListener("click", moveSelectedPackStickers);
+$("#packStickerDeleteBtn").addEventListener("click", deleteSelectedPackStickers);
+$("#packDownloadBtn").addEventListener("click", downloadSelectedPackArchive);
 $("#packPickerClose").addEventListener("click", closePackPicker);
 $("#packPickerSearch").addEventListener("input", renderPackPicker);
 $("#packPickerDialog").addEventListener("click", (event) => {

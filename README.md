@@ -148,7 +148,7 @@ NAPCAT_ACCOUNT=你的QQ号
 .\deploy.ps1 -ServerIP 你的服务器IP -ServerUser root -DeployPath /opt/hikaribot-docker -NapcatAccount 你的QQ号
 ```
 
-`deploy.ps1` 会用 `7z` 将本地源码打包后上传，运行脚本的机器和服务器都需要能执行 `7z` 命令。
+`deploy.ps1` 会用 `7z` 将本地源码打包后上传，运行脚本的机器和服务器都需要能执行 `7z` 命令。Bot 后台下载贴纸包时也会调用容器内的 7-Zip 命令行工具；Docker 启动脚本会自动安装 Debian 的 `7zip` 包。
 
 这个脚本会：
 
