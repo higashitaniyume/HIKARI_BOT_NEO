@@ -888,6 +888,18 @@ HIKARI_BOT_NEO/
 
 使用本项目解析、下载或转发第三方平台内容时，请自行确认相关平台服务条款和内容版权要求。
 
+## 参考与致谢
+
+本项目开发和实现过程中参考或使用了这些开源项目：
+
+- [NoneBot 2](https://github.com/nonebot/nonebot2)：机器人框架。
+- [NapCatQQ](https://github.com/NapNeko/NapCatQQ)：QQ / OneBot V11 接入。
+- [drdon1234/astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser)：抖音、B站、小红书、小黑盒等聚合媒体解析能力。
+- [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)：YouTube 等站点的视频信息提取与下载能力。
+- [imputnet/cobalt](https://github.com/imputnet/cobalt)：Instagram / Facebook 等媒体解析 API。
+- [searxng/searxng](https://github.com/searxng/searxng)：AI Agent 搜索工具的元搜索服务。
+- [valkey-io/valkey](https://github.com/valkey-io/valkey)：SearXNG 缓存服务。
+
 ## 用户协议与隐私政策
 
 仓库提供了面向自部署场景的 [用户协议模板](USER_AGREEMENT.md) 和 [隐私政策模板](PRIVACY_POLICY.md)。实际部署前，请将服务运营者、联系方式、数据保存期限和第三方服务配置补充为你的真实情况。
