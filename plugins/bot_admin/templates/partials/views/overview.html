@@ -1,0 +1,60 @@
+    <section class="view-panel is-active" data-view="overview">
+      <section class="statline" aria-live="polite">
+        <span><strong id="stickerCount">0</strong> 张贴纸</span>
+        <span><strong id="packCount">0</strong> 个贴纸包</span>
+        <span><strong id="keywordCount">0</strong> 个贴纸关键词</span>
+        <span><strong id="voiceCount">0</strong> 条语音</span>
+        <span><strong id="voiceKeywordCount">0</strong> 个语音关键词</span>
+      </section>
+
+      <section class="overview-panel">
+        <div>
+          <h2>内容入口</h2>
+          <p>左侧切换贴纸、待整理表情和语音管理。关键词关系会同步给机器人触发。</p>
+        </div>
+      </section>
+
+      <section class="panel overview-probe-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>系统性能探针</h2>
+            <p id="probeCapturedAt">等待刷新</p>
+          </div>
+          <button type="button" id="systemProbeRefreshBtn" class="ghost">刷新探针</button>
+        </div>
+
+        <div id="systemProbeError" class="toast error" hidden></div>
+
+        <div class="probe-grid">
+          <article class="probe-card">
+            <h3>运行环境</h3>
+            <dl>
+              <div><dt>主机</dt><dd id="probeHostName">未知主机</dd></div>
+              <div><dt>系统</dt><dd id="probePlatform">未知系统</dd></div>
+              <div><dt>Python</dt><dd id="probePython">未知</dd></div>
+            </dl>
+          </article>
+
+          <article class="probe-card">
+            <h3>资源占用</h3>
+            <dl>
+              <div><dt>CPU</dt><dd><span id="probeCpuPercent">未知</span><small id="probeCpuCount">未知</small></dd></div>
+              <div><dt>负载</dt><dd id="probeLoadAverage">不可用</dd></div>
+              <div><dt>内存</dt><dd><span id="probeMemoryPercent">未知</span><small id="probeMemoryUsed">未知</small></dd></div>
+              <div><dt>磁盘</dt><dd><span id="probeDiskPercent">未知</span><small id="probeDiskUsed">未知</small></dd></div>
+            </dl>
+          </article>
+
+          <article class="probe-card">
+            <h3>进程状态</h3>
+            <dl>
+              <div><dt>PID</dt><dd id="probePid">未知</dd></div>
+              <div><dt>系统运行</dt><dd id="probeSystemUptime">未知</dd></div>
+              <div><dt>Bot 进程</dt><dd id="probeProcessUptime">未知</dd></div>
+              <div><dt>进程内存</dt><dd id="probeProcessRss">未知</dd></div>
+              <div><dt>线程数</dt><dd id="probeProcessThreads">未知</dd></div>
+            </dl>
+          </article>
+        </div>
+      </section>
+    </section>

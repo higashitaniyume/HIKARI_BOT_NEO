@@ -1,0 +1,197 @@
+    <section class="view-panel" data-view="settings" hidden>
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Fish Audio TTS</h2>
+            <p>保存后下一次“说话”命令生效。</p>
+          </div>
+        </div>
+
+        <form id="ttsConfigForm" class="settings-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="ttsEnabled" type="checkbox">
+            <span>启用说话命令</span>
+          </label>
+
+          <label>
+            <span>当前音色</span>
+            <select id="ttsSelectedVoice" required></select>
+          </label>
+
+          <label>
+            <span>代理</span>
+            <input id="ttsProxy" placeholder="http://127.0.0.1:7890">
+          </label>
+
+          <label>
+            <span>连接超时（秒）</span>
+            <input id="ttsConnectTimeout" type="number" min="1" max="300" step="1">
+          </label>
+
+          <label>
+            <span>接收超时（秒）</span>
+            <input id="ttsReceiveTimeout" type="number" min="1" max="600" step="1">
+          </label>
+
+          <label>
+            <span>最大字符数</span>
+            <input id="ttsMaxChars" type="number" min="1" max="1000" step="1">
+          </label>
+
+          <label>
+            <span>用户冷却（秒）</span>
+            <input id="ttsCooldown" type="number" min="0" max="3600" step="1">
+          </label>
+
+          <label>
+            <span>缓存目录</span>
+            <input id="ttsCacheDir" placeholder="/tmp/hikari_bot/tts">
+          </label>
+
+          <label>
+            <span>缓存保留（分钟）</span>
+            <input id="ttsCacheTtl" type="number" min="1" max="10080" step="1">
+          </label>
+
+          <label>
+            <span>Fish Audio API Key</span>
+            <input id="fishApiKey" type="password" autocomplete="new-password" placeholder="留空表示不修改已有 Key">
+            <small id="fishApiKeyHint">未配置</small>
+          </label>
+
+          <label>
+            <span>Fish 模型</span>
+            <select id="fishModel">
+              <option value="s2-pro">s2-pro</option>
+              <option value="s1">s1</option>
+              <option value="s2.1-pro">s2.1-pro</option>
+              <option value="s2.1-pro-free">s2.1-pro-free</option>
+            </select>
+          </label>
+
+          <label>
+            <span>备用模型</span>
+            <select id="fishBackupModel">
+              <option value="">不使用备用模型</option>
+              <option value="s2-pro">s2-pro</option>
+              <option value="s1">s1</option>
+              <option value="s2.1-pro">s2.1-pro</option>
+              <option value="s2.1-pro-free">s2.1-pro-free</option>
+            </select>
+          </label>
+
+          <label>
+            <span>主模型重试次数</span>
+            <input id="fishRetryCount" type="number" min="0" max="5" step="1">
+          </label>
+
+          <label>
+            <span>重试间隔（秒）</span>
+            <input id="fishRetryDelay" type="number" min="0.1" max="30" step="0.1">
+          </label>
+
+          <label>
+            <span>Fish 输出格式</span>
+            <select id="fishFormat">
+              <option value="mp3">mp3</option>
+              <option value="wav">wav</option>
+              <option value="opus">opus</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Fish 延迟模式</span>
+            <select id="fishLatency">
+              <option value="low">low</option>
+              <option value="normal">normal</option>
+              <option value="balanced">balanced</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Fish 语速倍率</span>
+            <input id="fishSpeed" type="number" min="0.5" max="2" step="0.05">
+          </label>
+
+          <label>
+            <span>响度（dB）</span>
+            <input id="fishVolume" type="number" min="-24" max="24" step="0.5">
+          </label>
+
+          <label>
+            <span>音高（半音）</span>
+            <input id="fishPitch" type="number" min="-12" max="12" step="0.5">
+            <small>生成后由本机 FFmpeg 处理。</small>
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="fishNormalizeLoudness" type="checkbox">
+            <span>响度归一化</span>
+          </label>
+
+          <label>
+            <span>表现力</span>
+            <input id="fishTemperature" type="number" min="0" max="1" step="0.05">
+          </label>
+
+          <label>
+            <span>多样性</span>
+            <input id="fishTopP" type="number" min="0" max="1" step="0.05">
+          </label>
+
+          <label>
+            <span>分段长度</span>
+            <input id="fishChunkLength" type="number" min="100" max="300" step="1">
+          </label>
+
+          <label>
+            <span>MP3 比特率</span>
+            <select id="fishMp3Bitrate">
+              <option value="64">64 kbps</option>
+              <option value="128">128 kbps</option>
+              <option value="192">192 kbps</option>
+            </select>
+          </label>
+
+          <label>
+            <span>采样率</span>
+            <select id="fishSampleRate">
+              <option value="">自动</option>
+              <option value="24000">24000 Hz</option>
+              <option value="44100">44100 Hz</option>
+              <option value="48000">48000 Hz</option>
+            </select>
+          </label>
+
+          <label>
+            <span>重复惩罚</span>
+            <input id="fishRepetitionPenalty" type="number" min="0" max="3" step="0.05">
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="fishNormalize" type="checkbox">
+            <span>文本规范化</span>
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="fishConditionPrevious" type="checkbox">
+            <span>保持分段上下文</span>
+          </label>
+
+          <button type="submit" class="primary">保存 TTS 设置</button>
+        </form>
+
+        <section class="tts-voice-manager" aria-label="音色库">
+          <div class="panel-heading compact-heading">
+            <div><h3>音色库</h3></div>
+          </div>
+          <form id="ttsVoiceForm" class="voice-edit-form">
+            <input id="ttsVoiceEditName" maxlength="40" placeholder="音色名称" required>
+            <input id="ttsVoiceEditReferenceId" maxlength="128" placeholder="Fish 模型 ID" required>
+            <button type="submit" id="ttsVoiceEditSubmit" class="primary">添加音色</button>
+            <button type="button" id="ttsVoiceEditCancel" class="ghost" hidden>取消编辑</button>
+          </form>
+          <div id="ttsVoiceList" class="list empty">加载中...</div>
+        </section>
+      </section>
+    </section>

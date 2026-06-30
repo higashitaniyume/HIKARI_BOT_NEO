@@ -1,0 +1,106 @@
+    <section class="view-panel" data-view="aiagent" hidden>
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>AI Agent</h2>
+            <p>配置兼容 OpenAI Chat Completions 的模型；未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
+          </div>
+        </div>
+
+        <form id="aiagentConfigForm" class="settings-form aiagent-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="aiagentEnabled" type="checkbox">
+            <span>启用聊天 Agent</span>
+          </label>
+
+          <label>
+            <span>API 地址</span>
+            <input id="aiagentBaseUrl" placeholder="https://api.deepseek.com/v1" required>
+          </label>
+
+          <label>
+            <span>模型名称</span>
+            <input id="aiagentModel" placeholder="deepseek-chat" required>
+          </label>
+
+          <label>
+            <span>API Key</span>
+            <input id="aiagentApiKey" type="password" autocomplete="new-password" placeholder="留空表示不修改已有 Key">
+            <small id="aiagentApiKeyHint">未配置</small>
+          </label>
+
+          <label>
+            <span>代理</span>
+            <input id="aiagentProxy" placeholder="http://127.0.0.1:7890">
+          </label>
+
+          <label>
+            <span>请求超时（秒）</span>
+            <input id="aiagentTimeout" type="number" min="5" max="600" step="1">
+          </label>
+
+          <label>
+            <span>温度</span>
+            <input id="aiagentTemperature" type="number" min="0" max="2" step="0.05">
+          </label>
+
+          <label>
+            <span>Top P</span>
+            <input id="aiagentTopP" type="number" min="0" max="1" step="0.05">
+          </label>
+
+          <label>
+            <span>最大输出 Tokens</span>
+            <input id="aiagentMaxTokens" type="number" min="1" max="32000" step="1">
+          </label>
+
+          <label>
+            <span>人格 skill</span>
+            <select id="aiagentPersonaSelect"></select>
+            <small>只扫描 BotData/agent_personas 下的目录或文件。</small>
+          </label>
+
+          <label>
+            <span>人格 skill 路径</span>
+            <input id="aiagentPersonaPath" placeholder="BotData/agent_personas/default">
+          </label>
+
+          <label>
+            <span>人格读取上限</span>
+            <input id="aiagentPersonaMaxChars" type="number" min="1000" max="80000" step="500">
+          </label>
+
+          <label>
+            <span>用户输入上限</span>
+            <input id="aiagentMaxUserChars" type="number" min="1" max="20000" step="1">
+          </label>
+
+          <label>
+            <span>回复长度上限</span>
+            <input id="aiagentMaxReplyChars" type="number" min="100" max="12000" step="100">
+          </label>
+
+          <label>
+            <span>历史消息数</span>
+            <input id="aiagentMaxHistory" type="number" min="0" max="40" step="1">
+          </label>
+
+          <label>
+            <span>用户冷却（秒）</span>
+            <input id="aiagentCooldown" type="number" min="0" max="3600" step="1">
+          </label>
+
+          <label class="wide-field">
+            <span>默认人格提示词</span>
+            <textarea id="aiagentFallbackPrompt" rows="4" placeholder="当人格 skill 不存在或为空时使用"></textarea>
+          </label>
+
+          <label class="wide-field">
+            <span>额外系统提示词</span>
+            <textarea id="aiagentSystemExtra" rows="4" placeholder="可选，会追加在人格 skill 后"></textarea>
+          </label>
+
+          <button type="submit" class="primary">保存 AI Agent 设置</button>
+        </form>
+      </section>
+    </section>

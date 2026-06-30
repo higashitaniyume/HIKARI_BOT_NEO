@@ -1,0 +1,59 @@
+    <section class="view-panel" data-view="voices" hidden>
+      <section class="panel voice-upload-panel">
+        <div class="panel-heading">
+          <h2>上传语音</h2>
+          <p>建议使用 silk 或 amr；也可上传 mp3、wav、ogg 等常见音频格式。</p>
+        </div>
+        <form id="voiceUploadForm" class="voice-upload-form" enctype="multipart/form-data">
+          <label>
+            <span>语音名称</span>
+            <input id="voiceName" name="voice_name" placeholder="例如 goodnight">
+          </label>
+
+          <label>
+            <span>触发关键词</span>
+            <input id="voiceKeyword" name="voice_keyword" placeholder="晚安；睡觉">
+          </label>
+
+          <label class="file-field">
+            <span>语音文件</span>
+            <input id="voiceFile" name="voice_file" type="file" accept=".silk,.amr,.mp3,.wav,.ogg,.m4a,.aac,.flac,.opus" multiple required>
+            <small id="voiceFileHint">可多选，单次最多 20 个文件。</small>
+          </label>
+
+          <button type="submit" class="primary">上传语音</button>
+        </form>
+      </section>
+
+      <section class="panel voice-manage-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>语音关键词</h2>
+            <p>纯文本消息完全匹配关键词时，机器人会随机发送关联语音。</p>
+          </div>
+        </div>
+
+        <form id="voiceKeywordForm" class="voice-keyword-form">
+          <label>
+            <span>语音</span>
+            <select id="voiceKeywordVoice" required></select>
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="voiceKeywordInput" placeholder="例如 晚安；睡觉" required>
+          </label>
+          <button type="submit" class="primary">添加关联</button>
+        </form>
+
+        <div class="library-grid voice-library-grid">
+          <section class="library-section">
+            <h3>语音列表</h3>
+            <div id="voiceList" class="list empty">加载中...</div>
+          </section>
+          <section class="library-section">
+            <h3>按关键词</h3>
+            <div id="voiceKeywordList" class="list empty">加载中...</div>
+          </section>
+        </div>
+      </section>
+    </section>

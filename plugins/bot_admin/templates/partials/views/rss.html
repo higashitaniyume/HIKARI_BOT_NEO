@@ -1,0 +1,126 @@
+    <section class="view-panel" data-view="rss" hidden>
+      <section class="panel rss-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>RSS 订阅</h2>
+            <p>维护可被命令和推送任务引用的 RSS/Atom 源。</p>
+          </div>
+          <button type="button" id="rssRefreshBtn" class="ghost">刷新 RSS</button>
+        </div>
+
+        <div class="ops-layout rss-layout">
+          <aside class="ops-list" id="rssSubscriptionList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="rssEditorTitle">选择一个订阅</h3>
+                <p id="rssEditorMeta">未选择订阅</p>
+              </div>
+              <div class="panel-actions">
+                <button type="button" id="rssAddSubscriptionBtn" class="ghost">添加订阅</button>
+                <button type="button" id="rssDeleteSubscriptionBtn" class="danger-button">删除订阅</button>
+              </div>
+            </div>
+
+            <form id="rssConfigForm" class="settings-form rss-config-form">
+              <label class="checkbox-field settings-toggle">
+                <input id="rssEnabled" type="checkbox">
+                <span>启用 RSS 插件</span>
+              </label>
+
+              <label>
+                <span>请求超时（秒）</span>
+                <input id="rssTimeout" type="number" min="1" max="300" step="1">
+              </label>
+
+              <label>
+                <span>代理</span>
+                <input id="rssProxy" placeholder="http://127.0.0.1:7890">
+              </label>
+
+              <label>
+                <span>User-Agent</span>
+                <input id="rssUserAgent" placeholder="HIKARI_BOT_NEO RSS Reader">
+              </label>
+
+              <label>
+                <span>默认条目数</span>
+                <input id="rssMaxItems" type="number" min="1" max="50" step="1">
+              </label>
+
+              <label>
+                <span>摘要长度</span>
+                <input id="rssSummaryMaxChars" type="number" min="0" max="2000" step="10">
+              </label>
+
+              <label>
+                <span>消息长度上限</span>
+                <input id="rssMaxMessageChars" type="number" min="500" max="12000" step="100">
+              </label>
+
+              <label>
+                <span>Feed 大小上限（bytes）</span>
+                <input id="rssMaxFeedBytes" type="number" min="65536" max="10485760" step="1024">
+              </label>
+
+              <label>
+                <span>去重状态上限</span>
+                <input id="rssMaxStateEntries" type="number" min="100" max="20000" step="100">
+              </label>
+
+              <div class="wide-field inline-heading push-job-heading">
+                <h3>订阅设置</h3>
+                <p id="rssSubscriptionSummary">添加订阅后可编辑具体来源。</p>
+              </div>
+
+              <label class="checkbox-field settings-toggle">
+                <input id="rssSubscriptionEnabled" type="checkbox">
+                <span>启用当前订阅</span>
+              </label>
+
+              <label>
+                <span>订阅 ID</span>
+                <input id="rssSubscriptionId" maxlength="80" placeholder="news_daily">
+              </label>
+
+              <label>
+                <span>标题</span>
+                <input id="rssSubscriptionTitle" maxlength="120" placeholder="新闻订阅">
+              </label>
+
+              <label class="wide-field">
+                <span>Feed URL</span>
+                <input id="rssSubscriptionUrl" placeholder="https://example.com/feed.xml">
+              </label>
+
+              <label>
+                <span>推送条目数</span>
+                <input id="rssSubscriptionMaxItems" type="number" min="1" max="50" step="1">
+              </label>
+
+              <label>
+                <span>订阅摘要长度</span>
+                <input id="rssSubscriptionSummaryMaxChars" type="number" min="0" max="2000" step="10">
+              </label>
+
+              <label class="checkbox-field settings-toggle">
+                <input id="rssSubscriptionIncludeSummary" type="checkbox">
+                <span>包含摘要</span>
+              </label>
+
+              <label class="checkbox-field settings-toggle">
+                <input id="rssSubscriptionOnlyNew" type="checkbox">
+                <span>推送时只发新条目</span>
+              </label>
+
+              <label class="checkbox-field settings-toggle">
+                <input id="rssSubscriptionSendFirstRun" type="checkbox">
+                <span>首次推送发送最新条目</span>
+              </label>
+
+              <button type="submit" id="rssSaveBtn" class="primary">保存 RSS 设置</button>
+            </form>
+          </section>
+        </div>
+      </section>
+    </section>

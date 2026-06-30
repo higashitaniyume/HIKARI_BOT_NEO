@@ -1,0 +1,40 @@
+    <section class="view-panel" data-view="inbox" hidden>
+      <section class="panel inbox-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>待整理表情</h2>
+            <p>机器人会静默收集群聊和私聊里的图片表情；这里确认后再分配到正式贴纸包。</p>
+          </div>
+          <div class="panel-count"><strong id="inboxCount">0</strong> 个待整理</div>
+        </div>
+
+        <form id="inboxForm" class="inbox-form">
+          <label>
+            <span>目标贴纸包</span>
+            <select id="inboxPack">
+              <option value="">选择已有贴纸包</option>
+            </select>
+          </label>
+          <label>
+            <span>或新建贴纸包</span>
+            <input id="inboxNewPack" placeholder="例如 collected_memes">
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="inboxKeyword" placeholder="猫猫虫；capoo;可爱">
+          </label>
+          <button type="submit" class="primary">加入贴纸包</button>
+          <button type="button" id="inboxDeleteBtn" class="danger-button">删除所选</button>
+        </form>
+
+        <div class="inbox-toolbar">
+          <label class="checkbox-field">
+            <input id="inboxSelectAll" type="checkbox">
+            <span>全选当前列表</span>
+          </label>
+          <span id="inboxSelectedText">已选择 0 个</span>
+        </div>
+
+        <div id="inboxList" class="inbox-list empty">暂无待整理表情</div>
+      </section>
+    </section>

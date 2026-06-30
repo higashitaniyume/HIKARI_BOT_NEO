@@ -319,7 +319,7 @@ async def _handle_tts_command(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("tts.failed")))
 
 
-@command("说话", aliases=("tts", "TTS"), description="使用当前 Fish Audio 音色生成语音", usage="说话 <文本>")
+@command("说话", aliases=("tts", "TTS","说"), description="使用当前 Fish Audio 音色生成语音", usage="说话 <文本>")
 async def cmd_say(ctx: CommandContext) -> None:
     await _handle_tts_command(ctx)
 

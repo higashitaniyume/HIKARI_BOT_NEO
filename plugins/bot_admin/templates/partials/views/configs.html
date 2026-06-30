@@ -1,0 +1,25 @@
+    <section class="view-panel" data-view="configs" hidden>
+      <section class="panel config-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>插件配置</h2>
+            <p>在线编辑 BotData/plugin_configs 里的 JSON 配置；保存前会校验 JSON 格式。</p>
+          </div>
+          <button type="button" id="configRefreshBtn" class="ghost">刷新配置</button>
+        </div>
+
+        <div class="ops-layout">
+          <aside class="ops-list" id="configFileList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="configEditorTitle">选择一个配置文件</h3>
+                <p id="configEditorMeta">暂无文件</p>
+              </div>
+              <button type="button" id="configSaveBtn" class="primary">保存配置</button>
+            </div>
+            <textarea id="configEditor" class="code-editor" spellcheck="false" placeholder="选择左侧配置文件后编辑 JSON"></textarea>
+          </section>
+        </div>
+      </section>
+    </section>

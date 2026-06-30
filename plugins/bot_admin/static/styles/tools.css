@@ -1,0 +1,346 @@
+.sidebar-toggle {
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar-toggle-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 16px;
+}
+
+.sidebar-toggle-icon::before {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 1px;
+  width: 6px;
+  border: 2px solid currentColor;
+  border-right: 0;
+  border-radius: 3px 0 0 3px;
+  opacity: 0.9;
+  content: "";
+}
+
+.sidebar-toggle-icon::after {
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateY(-50%) rotate(-45deg);
+  transform-origin: center;
+  content: "";
+}
+
+.admin-shell.sidebar-collapsed .sidebar-toggle-icon::before {
+  left: 10px;
+  border-right: 2px solid currentColor;
+  border-left: 0;
+  border-radius: 0 3px 3px 0;
+}
+
+.admin-shell.sidebar-collapsed .sidebar-toggle-icon::after {
+  right: auto;
+  left: 1px;
+  transform: translateY(-50%) rotate(135deg);
+}
+
+.small-button {
+  width: auto;
+  min-width: 58px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-color: var(--border-strong);
+  background: #fff;
+  color: #0f655f;
+  font-size: 13px;
+}
+
+.small-button:hover {
+  border-color: #94a3b8;
+  background: var(--accent-tint);
+}
+
+.overview-probe-panel .panel-heading {
+  align-items: start;
+}
+
+.overview-probe-panel .ghost {
+  width: auto;
+}
+
+.overview-probe-panel .toast {
+  position: static;
+  margin: 0 0 12px;
+  box-shadow: none;
+}
+
+.probe-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.probe-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 14px;
+}
+
+.probe-card h3 {
+  margin-bottom: 0;
+}
+
+.probe-card dl {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.probe-card dl > div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.probe-card dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.probe-card dd {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-weight: 760;
+  overflow-wrap: anywhere;
+}
+
+.probe-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 520;
+  overflow-wrap: anywhere;
+}
+
+.pack-card.is-active-pack {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+
+.pack-detail-panel {
+  scroll-margin-top: 18px;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.panel-actions .ghost {
+  width: auto;
+}
+
+.pack-sticker-toolbar {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.9fr) auto minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.pack-sticker-toolbar > span {
+  align-self: center;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 12px;
+}
+
+.sticker-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.sticker-card:hover {
+  border-color: #a9c9c5;
+  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.08);
+}
+
+.sticker-card.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.pack-sticker-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  width: 20px;
+  min-height: 20px;
+}
+
+.sticker-frame {
+  display: grid;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.sticker-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.sticker-title,
+.sticker-meta {
+  overflow-wrap: anywhere;
+}
+
+.sticker-title {
+  font-weight: 760;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.sticker-meta {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sticker-download-button {
+  align-self: end;
+  width: 100%;
+}
+
+.push-config-form {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.push-config-form textarea {
+  min-height: 96px;
+  font-family: inherit;
+}
+
+#pushJobOptions {
+  min-height: 210px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.push-job-heading {
+  align-items: end;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.push-job-heading h3 {
+  margin-bottom: 0;
+}
+
+.panel-actions .danger-button {
+  width: auto;
+}
+
+@media (max-width: 1180px) {
+  .probe-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pack-sticker-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .probe-grid,
+  .pack-sticker-toolbar,
+  .sticker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-probe-panel .ghost,
+  .pack-sticker-toolbar .primary,
+  .pack-sticker-toolbar .danger-button,
+  .panel-actions .danger-button,
+  .panel-actions .ghost {
+    width: 100%;
+  }
+}
+
+/* Remove heavy nested control frames; keep focus visible without the harsh boxed look. */
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16);
+}
+
+input[type="checkbox"]:focus,
+input[type="checkbox"]:focus-visible {
+  outline: 0;
+  box-shadow: none;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.upload-form,
+.tg-form,
+.voice-upload-form,
+.keyword-form,
+.voice-keyword-form,
+.inbox-form,
+.access-form,
+.pack-sticker-toolbar {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.settings-form .checkbox-field,
+.pack-sticker-toolbar .checkbox-field {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}

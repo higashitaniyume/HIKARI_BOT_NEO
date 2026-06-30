@@ -1,0 +1,147 @@
+    <section class="view-panel" data-view="stickers" hidden>
+      <div class="action-grid sticker-action-grid">
+        <section class="panel upload-panel">
+          <div class="panel-heading">
+            <h2>上传贴纸</h2>
+            <p>素材会统一转换为 GIF。支持一次选择多个文件，最多 99 个。</p>
+          </div>
+          <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data" class="upload-form">
+            <label>
+              <span>已有贴纸包</span>
+              <select id="existing_pack" name="existing_pack">
+                <option value="">新建贴纸包</option>
+              </select>
+            </label>
+
+            <label>
+              <span>新贴纸包名称</span>
+              <input id="new_pack" name="new_pack" placeholder="例如 capoo_gif">
+            </label>
+
+            <label>
+              <span>额外关键词</span>
+              <input id="keyword" name="keyword" placeholder="猫猫虫；capoo;可爱">
+            </label>
+
+            <label class="file-field">
+              <span>贴纸文件</span>
+              <input id="file" name="file" type="file" accept=".gif,.jpg,.jpeg,.png,.webp,.mp4,.webm,.mov,.mkv,.tgs" multiple required>
+              <small id="fileHint">可多选，单次最多 99 个文件。</small>
+            </label>
+
+            <button type="submit" class="primary">上传</button>
+          </form>
+          <div id="uploadProgress" class="upload-progress" hidden>
+            <div class="progress-head">
+              <strong id="uploadProgressText">等待上传...</strong>
+              <span id="uploadProgressCount">0/0</span>
+            </div>
+            <progress id="uploadProgressBar" value="0" max="100"></progress>
+            <p id="uploadProgressDetail">选择文件后开始上传。</p>
+          </div>
+        </section>
+
+        <section class="panel tg-panel">
+          <div class="panel-heading">
+            <h2>导入 Telegram 贴纸包</h2>
+            <p>粘贴 t.me/addstickers 链接，复用机器人解析逻辑保存为本地 GIF 贴纸包。</p>
+          </div>
+          <form id="tgForm" class="tg-form">
+            <label>
+              <span>贴纸包链接</span>
+              <input id="tgUrl" name="url" placeholder="https://t.me/addstickers/StickerSetName" required>
+            </label>
+
+            <label>
+              <span>保存为贴纸包</span>
+              <input id="tgPack" name="pack" placeholder="默认使用 Telegram 贴纸包名">
+            </label>
+
+            <label>
+              <span>关键词</span>
+              <input id="tgKeyword" name="keyword" placeholder="猫猫虫；capoo;可爱">
+            </label>
+
+            <label class="checkbox-field">
+              <input id="tgRefresh" name="refresh" type="checkbox">
+              <span>强制重新拉取</span>
+            </label>
+
+            <button type="submit" class="primary">导入</button>
+          </form>
+          <div id="tgProgress" class="upload-progress" hidden>
+            <div class="progress-head">
+              <strong id="tgProgressText">等待导入...</strong>
+              <span id="tgProgressCount">0/0</span>
+            </div>
+            <progress id="tgProgressBar" value="0" max="100"></progress>
+            <p id="tgProgressDetail">粘贴链接后开始导入。</p>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel pack-detail-panel" id="packDetailPanel">
+        <div class="panel-heading">
+          <div>
+            <h2 id="packDetailTitle">贴纸包内容</h2>
+            <p id="packDetailMeta">选择上方贴纸包后查看和管理具体贴纸。</p>
+          </div>
+          <div class="panel-actions">
+            <button type="button" id="packClearBtn" class="ghost" hidden>取消选择</button>
+            <button type="button" id="packDownloadBtn" class="ghost" hidden>下载 7z</button>
+          </div>
+        </div>
+
+        <form id="packStickerActionForm" class="pack-sticker-toolbar">
+          <label class="checkbox-field">
+            <input id="packStickerSelectAll" type="checkbox">
+            <span>全选当前贴纸包</span>
+          </label>
+          <span id="packStickerSelectedText">已选择 0 张</span>
+          <label>
+            <span>移动到已有包</span>
+            <select id="packStickerMoveTarget"></select>
+          </label>
+          <label>
+            <span>或新建包</span>
+            <input id="packStickerMoveNewPack" placeholder="例如 favorite_memes">
+          </label>
+          <button type="button" id="packStickerMoveBtn" class="primary">移动所选</button>
+          <button type="button" id="packStickerDeleteBtn" class="danger-button">删除所选</button>
+        </form>
+
+        <div id="packStickerList" class="sticker-grid empty">暂无选中的贴纸包</div>
+      </section>
+
+      <section class="panel manage-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>关键词关系</h2>
+            <p>同一个关键词可以挂到多个贴纸包；触发、拼图和批量发送时会合并这些贴纸包。</p>
+          </div>
+        </div>
+
+        <form id="keywordForm" class="keyword-form">
+          <label>
+            <span>贴纸包</span>
+            <select id="keywordPack" required></select>
+          </label>
+          <label>
+            <span>关键词</span>
+            <input id="keywordInput" placeholder="例如 猫猫虫；capoo;可爱" required>
+          </label>
+          <button type="submit" class="primary">添加关联</button>
+        </form>
+
+        <div class="library-grid">
+          <section class="library-section">
+            <h3>按贴纸包</h3>
+            <div id="packList" class="list empty">加载中...</div>
+          </section>
+          <section class="library-section">
+            <h3>按关键词</h3>
+            <div id="keywordList" class="list empty">加载中...</div>
+          </section>
+        </div>
+      </section>
+    </section>

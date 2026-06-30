@@ -1,0 +1,25 @@
+    <section class="view-panel" data-view="logs" hidden>
+      <section class="panel logs-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>运行日志</h2>
+            <p>查看 BotData/logs 中的日志文件尾部内容。</p>
+          </div>
+          <button type="button" id="logRefreshBtn" class="ghost">刷新日志</button>
+        </div>
+
+        <div class="ops-layout">
+          <aside class="ops-list" id="logFileList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="logViewerTitle">选择一个日志文件</h3>
+                <p id="logViewerMeta">暂无文件</p>
+              </div>
+              <button type="button" id="logReloadBtn" class="ghost">重新载入</button>
+            </div>
+            <pre id="logViewer" class="log-viewer">选择左侧日志文件后查看内容</pre>
+          </section>
+        </div>
+      </section>
+    </section>
