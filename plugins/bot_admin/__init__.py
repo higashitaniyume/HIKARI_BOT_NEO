@@ -35,6 +35,8 @@ from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_
 from plugins.push_framework import submit_manual_push
 from plugins.push_framework.config import get_config as get_push_config
 from plugins.push_framework.registry import iter_push_sources
+from plugins.rss_subscriber.config import get_config as get_rss_config
+from plugins.rss_subscriber.config import save_config as save_rss_config
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
 from plugins.tg_sticker_parser.config import get_config as get_tg_config
 from plugins.tg_sticker_parser.tg_api import extract_sticker_set_names
@@ -583,6 +585,23 @@ def _push_config_state() -> dict[str, Any]:
         "sources": _push_sources_state(),
         "file": _file_meta(path) if path.is_file() else None,
     }
+
+
+def _rss_config_state() -> dict[str, Any]:
+    cfg = get_rss_config()
+    path = _PLUGIN_CONFIG_DIR / "rss_subscriber.json"
+    return {
+        "config": cfg,
+        "file": _file_meta(path) if path.is_file() else None,
+    }
+
+
+def _write_rss_config(data: dict[str, Any]) -> dict[str, Any]:
+    saved = save_rss_config(data)
+    payload = _rss_config_state()
+    payload["config"] = saved
+    payload["message"] = "RSS 订阅设置已保存。"
+    return payload
 
 
 def _parse_push_time(value: Any, *, default: str = "09:00") -> str:
@@ -1521,6 +1540,18 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 logger.exception("读取推送配置失败: %s", e)
                 self._send_json({"error": "读取推送配置失败，请检查服务日志。"}, 500)
             return
+        if parsed.path == "/api/rss-config":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            try:
+                self._send_json(_rss_config_state())
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("读取 RSS 订阅配置失败: %s", e)
+                self._send_json({"error": "读取 RSS 订阅配置失败，请检查服务日志。"}, 500)
+            return
         if parsed.path == "/api/access-rules":
             if not self._is_authenticated():
                 self._unauthorized_json()
@@ -1691,6 +1722,17 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("保存推送配置失败: %s", e)
                 self._send_json({"error": "保存推送配置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/rss-config":
+            try:
+                data = self._read_json_body()
+                self._send_json(_write_rss_config(data))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("保存 RSS 订阅配置失败: %s", e)
+                self._send_json({"error": "保存 RSS 订阅配置失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/push-run":

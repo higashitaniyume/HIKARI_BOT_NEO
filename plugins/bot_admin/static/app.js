@@ -19,6 +19,8 @@ const state = {
   pushConfig: {},
   pushSources: [],
   selectedPushJobId: "",
+  rssConfig: {},
+  selectedRssSubscriptionId: "",
   accessRules: [],
   selectedAccessPlugin: "",
   editingTtsVoiceName: "",
@@ -38,6 +40,7 @@ const VIEW_TITLES = {
   settings: "设置",
   aiagent: "AI Agent",
   push: "推送",
+  rss: "RSS",
   access: "权限",
   configs: "配置",
   logs: "日志",
@@ -70,6 +73,9 @@ function setView(view) {
   }
   if (target === "push" && !Object.keys(state.pushConfig || {}).length) {
     fetchPushConfig().catch((err) => showToast(err.message, true));
+  }
+  if (target === "rss" && !Object.keys(state.rssConfig || {}).length) {
+    fetchRssConfig().catch((err) => showToast(err.message, true));
   }
   if (target === "access" && !state.accessRules.length) {
     fetchAccessRules().catch((err) => showToast(err.message, true));
@@ -254,6 +260,19 @@ async function fetchPushConfig(shouldRender = true) {
   }
   if (shouldRender) {
     renderPushConfig();
+  }
+}
+
+async function fetchRssConfig(shouldRender = true) {
+  const res = await fetch("/api/rss-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取 RSS 订阅设置失败");
+  state.rssConfig = data.config || {};
+  const subscriptions = Array.isArray(state.rssConfig.subscriptions) ? state.rssConfig.subscriptions : [];
+  if (!state.selectedRssSubscriptionId || !subscriptions.some((item) => item.id === state.selectedRssSubscriptionId)) {
+    state.selectedRssSubscriptionId = subscriptions[0]?.id || "";
+  }
+  if (shouldRender) {
+    renderRssConfig();
   }
 }
 
@@ -1288,6 +1307,9 @@ function render() {
   if (Object.keys(state.pushConfig || {}).length) {
     renderPushConfig();
   }
+  if (Object.keys(state.rssConfig || {}).length) {
+    renderRssConfig();
+  }
   if (state.accessRules.length) {
     renderAccessRules();
   }
@@ -1712,6 +1734,206 @@ async function runSelectedPushJob() {
   } finally {
     button.textContent = originalText;
     renderPushJobDetail();
+  }
+}
+
+function rssSubscriptions() {
+  if (!Array.isArray(state.rssConfig.subscriptions)) {
+    state.rssConfig.subscriptions = [];
+  }
+  return state.rssConfig.subscriptions;
+}
+
+function currentRssSubscription() {
+  return rssSubscriptions().find((item) => item.id === state.selectedRssSubscriptionId) || null;
+}
+
+function newRssSubscriptionId() {
+  const used = new Set(rssSubscriptions().map((item) => item.id));
+  let index = rssSubscriptions().length + 1;
+  let id = `rss_feed_${index}`;
+  while (used.has(id)) {
+    index += 1;
+    id = `rss_feed_${index}`;
+  }
+  return id;
+}
+
+function buildDefaultRssSubscription() {
+  const id = newRssSubscriptionId();
+  return {
+    id,
+    enabled: true,
+    title: id,
+    url: "",
+    max_items: 3,
+    include_summary: true,
+    summary_max_chars: Number(state.rssConfig.summary_max_chars || 220),
+    only_new: true,
+    send_first_run: true,
+  };
+}
+
+function collectRssFormToState() {
+  const cfg = state.rssConfig || {};
+  cfg.enabled = $("#rssEnabled").checked;
+  cfg.timeout_seconds = Number($("#rssTimeout").value || 20);
+  cfg.proxy = $("#rssProxy").value.trim();
+  cfg.user_agent = $("#rssUserAgent").value.trim() || "HIKARI_BOT_NEO RSS Reader";
+  cfg.max_items = Number($("#rssMaxItems").value || 5);
+  cfg.summary_max_chars = Number($("#rssSummaryMaxChars").value || 220);
+  cfg.max_message_chars = Number($("#rssMaxMessageChars").value || 3500);
+  cfg.max_feed_bytes = Number($("#rssMaxFeedBytes").value || 2097152);
+  cfg.max_state_entries = Number($("#rssMaxStateEntries").value || 1000);
+  cfg.subscriptions = rssSubscriptions();
+
+  const subscription = currentRssSubscription();
+  if (subscription) {
+    subscription.enabled = $("#rssSubscriptionEnabled").checked;
+    subscription.id = $("#rssSubscriptionId").value.trim();
+    state.selectedRssSubscriptionId = subscription.id;
+    subscription.title = $("#rssSubscriptionTitle").value.trim() || subscription.id;
+    subscription.url = $("#rssSubscriptionUrl").value.trim();
+    subscription.max_items = Number($("#rssSubscriptionMaxItems").value || 3);
+    subscription.include_summary = $("#rssSubscriptionIncludeSummary").checked;
+    subscription.summary_max_chars = Number($("#rssSubscriptionSummaryMaxChars").value || 220);
+    subscription.only_new = $("#rssSubscriptionOnlyNew").checked;
+    subscription.send_first_run = $("#rssSubscriptionSendFirstRun").checked;
+  }
+
+  state.rssConfig = cfg;
+  return cfg;
+}
+
+function renderRssConfig() {
+  const cfg = state.rssConfig || {};
+  $("#rssEnabled").checked = cfg.enabled !== false;
+  $("#rssTimeout").value = cfg.timeout_seconds ?? 20;
+  $("#rssProxy").value = cfg.proxy || "";
+  $("#rssUserAgent").value = cfg.user_agent || "HIKARI_BOT_NEO RSS Reader";
+  $("#rssMaxItems").value = cfg.max_items ?? 5;
+  $("#rssSummaryMaxChars").value = cfg.summary_max_chars ?? 220;
+  $("#rssMaxMessageChars").value = cfg.max_message_chars ?? 3500;
+  $("#rssMaxFeedBytes").value = cfg.max_feed_bytes ?? 2097152;
+  $("#rssMaxStateEntries").value = cfg.max_state_entries ?? 1000;
+  renderRssSubscriptions();
+  renderRssSubscriptionDetail();
+}
+
+function renderRssSubscriptions() {
+  const list = $("#rssSubscriptionList");
+  const subscriptions = rssSubscriptions();
+  list.replaceChildren();
+  if (!subscriptions.length) {
+    list.className = "ops-list empty";
+    list.textContent = "暂无 RSS 订阅";
+    return;
+  }
+
+  list.className = "ops-list";
+  for (const subscription of subscriptions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ops-list-item";
+    button.classList.toggle("is-active", subscription.id === state.selectedRssSubscriptionId);
+    button.addEventListener("click", () => {
+      collectRssFormToState();
+      state.selectedRssSubscriptionId = subscription.id;
+      renderRssConfig();
+    });
+
+    const title = document.createElement("span");
+    title.className = "ops-list-title";
+    title.textContent = subscription.id || "<未命名订阅>";
+    const meta = document.createElement("span");
+    meta.className = "ops-list-meta";
+    meta.textContent = `${subscription.enabled === false ? "关闭" : "开启"} / ${subscription.title || subscription.id || "RSS"} / ${subscription.max_items || 3} 条`;
+    button.append(title, meta);
+    list.append(button);
+  }
+}
+
+function renderRssSubscriptionDetail() {
+  const subscription = currentRssSubscription();
+  $("#rssDeleteSubscriptionBtn").disabled = !subscription;
+  if (!subscription) {
+    $("#rssEditorTitle").textContent = "全局设置";
+    $("#rssEditorMeta").textContent = "添加订阅后可编辑具体来源";
+    $("#rssSubscriptionEnabled").checked = false;
+    $("#rssSubscriptionId").value = "";
+    $("#rssSubscriptionTitle").value = "";
+    $("#rssSubscriptionUrl").value = "";
+    $("#rssSubscriptionMaxItems").value = 3;
+    $("#rssSubscriptionSummaryMaxChars").value = state.rssConfig.summary_max_chars ?? 220;
+    $("#rssSubscriptionIncludeSummary").checked = true;
+    $("#rssSubscriptionOnlyNew").checked = true;
+    $("#rssSubscriptionSendFirstRun").checked = true;
+    $("#rssSubscriptionSummary").textContent = "暂无选中的 RSS 订阅";
+    return;
+  }
+
+  $("#rssEditorTitle").textContent = subscription.id || "未命名订阅";
+  $("#rssEditorMeta").textContent = `${subscription.enabled === false ? "关闭" : "开启"} / ${subscription.title || subscription.id || "RSS"}`;
+  $("#rssSubscriptionEnabled").checked = subscription.enabled !== false;
+  $("#rssSubscriptionId").value = subscription.id || "";
+  $("#rssSubscriptionTitle").value = subscription.title || "";
+  $("#rssSubscriptionUrl").value = subscription.url || "";
+  $("#rssSubscriptionMaxItems").value = subscription.max_items ?? 3;
+  $("#rssSubscriptionSummaryMaxChars").value = subscription.summary_max_chars ?? state.rssConfig.summary_max_chars ?? 220;
+  $("#rssSubscriptionIncludeSummary").checked = subscription.include_summary !== false;
+  $("#rssSubscriptionOnlyNew").checked = subscription.only_new !== false;
+  $("#rssSubscriptionSendFirstRun").checked = subscription.send_first_run !== false;
+  $("#rssSubscriptionSummary").textContent = subscription.url || "请填写 RSS/Atom Feed URL";
+}
+
+function addRssSubscription() {
+  try {
+    if (Object.keys(state.rssConfig || {}).length) {
+      collectRssFormToState();
+    }
+  } catch (err) {
+    showToast(err.message, true);
+    return;
+  }
+  const subscription = buildDefaultRssSubscription();
+  rssSubscriptions().push(subscription);
+  state.selectedRssSubscriptionId = subscription.id;
+  renderRssConfig();
+}
+
+function deleteSelectedRssSubscription() {
+  const subscription = currentRssSubscription();
+  if (!subscription) return;
+  const confirmed = window.confirm(`确定删除 RSS 订阅「${subscription.id}」吗？`);
+  if (!confirmed) return;
+  state.rssConfig.subscriptions = rssSubscriptions().filter((item) => item !== subscription);
+  state.selectedRssSubscriptionId = state.rssConfig.subscriptions[0]?.id || "";
+  renderRssConfig();
+}
+
+async function saveRssConfig(event) {
+  event.preventDefault();
+  const button = $("#rssSaveBtn");
+  button.disabled = true;
+  try {
+    const payload = collectRssFormToState();
+    const res = await fetch("/api/rss-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await readJsonResponse(res, "保存 RSS 订阅设置失败");
+    state.rssConfig = data.config || {};
+    const subscriptions = rssSubscriptions();
+    if (!subscriptions.some((item) => item.id === state.selectedRssSubscriptionId)) {
+      state.selectedRssSubscriptionId = subscriptions[0]?.id || "";
+    }
+    renderRssConfig();
+    showToast(data.message || "RSS 订阅设置已保存。");
+  } catch (err) {
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2389,6 +2611,7 @@ $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
 $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
 $("#pushConfigForm").addEventListener("submit", savePushConfig);
+$("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);
 $("#ttsVoiceForm").addEventListener("submit", saveTtsVoice);
 $("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
@@ -2420,6 +2643,9 @@ $("#pushRefreshBtn").addEventListener("click", () => fetchPushConfig().then(() =
 $("#pushAddJobBtn").addEventListener("click", addPushJob);
 $("#pushRunJobBtn").addEventListener("click", runSelectedPushJob);
 $("#pushDeleteJobBtn").addEventListener("click", deleteSelectedPushJob);
+$("#rssRefreshBtn").addEventListener("click", () => fetchRssConfig().then(() => showToast("RSS 订阅已刷新。")).catch((err) => showToast(err.message, true)));
+$("#rssAddSubscriptionBtn").addEventListener("click", addRssSubscription);
+$("#rssDeleteSubscriptionBtn").addEventListener("click", deleteSelectedRssSubscription);
 $("#pushJobSource").addEventListener("change", () => {
   const source = (state.pushSources || []).find((item) => item.name === $("#pushJobSource").value);
   $("#pushSourceSummary").textContent = source?.description || "当前消息源未提供说明";

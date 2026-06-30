@@ -113,6 +113,7 @@ docker compose up -d
 | `BotData/plugin_configs/osu_info.json` | osu! OAuth 客户端 ID 和客户端密钥，按需填写 |
 | `BotData/plugin_configs/steam_deals.json` | 无必填项；每日主动推送需开启 `schedule.enabled` 并填写 `push_whitelist` |
 | `BotData/plugin_configs/push_framework.json` | 无必填项；通用推送需启用对应 `jobs` 并填写目标 |
+| `BotData/plugin_configs/rss_subscriber.json` | 无必填项；RSS 主动推送需在 `subscriptions` 中添加订阅，并在推送任务里引用 |
 | `BotData/plugin_configs/bot_admin.json` | `password` |
 | `BotData/plugin_configs/tg_sticker_parser.json` | Telegram Bot Token，按需开启 |
 | `BotData/plugin_configs/stardew_wiki.json` | 无必填项，默认使用中文 Wiki |
@@ -226,6 +227,7 @@ cp BotData/plugin_configs/media_transcoder.example.json BotData/plugin_configs/m
 cp BotData/plugin_configs/osu_info.example.json BotData/plugin_configs/osu_info.json
 cp BotData/plugin_configs/steam_deals.example.json BotData/plugin_configs/steam_deals.json
 cp BotData/plugin_configs/push_framework.example.json BotData/plugin_configs/push_framework.json
+cp BotData/plugin_configs/rss_subscriber.example.json BotData/plugin_configs/rss_subscriber.json
 cp BotData/plugin_configs/voice_trigger.example.json BotData/plugin_configs/voice_trigger.json
 cp BotData/plugin_configs/tts_speaker.example.json BotData/plugin_configs/tts_speaker.json
 cp BotData/plugin_configs/aiagent.example.json BotData/plugin_configs/aiagent.json
@@ -540,6 +542,7 @@ uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_medi
 |--------|------|------------------------|
 | `static_text` | 发送固定文本，用于测试链路 | `text` |
 | `steam_deals` | 发送 Steam 热门热卖、免费和低价游戏日报图片 | `mode`: `all`/`free`/`low`；`include_links`: `true`/`false`；`force_refresh`: `true`/`false` |
+| `rss_feed` | 发送 RSS/Atom 订阅更新 | `subscription_id`: 订阅 ID；`url`: 临时 Feed URL；`max_items`: 条数；`only_new`: `true`/`false`；`mark_seen`: 显式写入去重状态 |
 
 Steam 原插件自己的 `BotData/plugin_configs/steam_deals.json` 定时白名单仍然保留兼容；新建推送任务时推荐走 `push_framework.json`，也就是 source 写 `steam_deals`。
 
@@ -634,6 +637,63 @@ return [
 ```
 
 然后在 `push_framework.json` 的任务中写 `"source": "my_source"`，并通过 `source_options` 传入该源需要的参数。
+
+### RSS 订阅
+
+配置文件：`BotData/plugin_configs/rss_subscriber.json`
+
+后台“RSS”页面可以维护同一份订阅配置；命令和推送任务都可以通过订阅 ID 复用这些 Feed。支持常见 RSS 2.0 和 Atom，不需要额外账号。
+
+关键字段：
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 RSS 插件 |
+| `timeout_seconds` | 拉取 Feed 的请求超时 |
+| `proxy` | 可选 HTTP 代理 |
+| `max_items` | 默认读取条目数 |
+| `summary_max_chars` | 单条摘要截断长度，`0` 表示不显示摘要 |
+| `max_message_chars` | 单条机器人消息最大长度 |
+| `max_state_entries` | 每个订阅保留多少去重状态 |
+| `subscriptions[].id` | 订阅 ID，命令和推送任务引用它 |
+| `subscriptions[].url` | RSS/Atom Feed URL |
+| `subscriptions[].only_new` | 推送时是否只发送状态中未见过的条目 |
+| `subscriptions[].send_first_run` | 第一次推送时是否发送最新条目；关闭后第一次只建立基线 |
+
+可用指令：
+
+| 消息 | 效果 |
+|------|------|
+| `rss 列表` | 查看已配置订阅 |
+| `rss 看 <订阅ID|URL> [数量]` | 读取最新条目，不写入去重状态 |
+| `rss 测试 <订阅ID|URL> [数量]` | 超级管理员试读订阅 |
+| `rss 添加 <订阅ID> <URL> [标题]` | 超级管理员新增订阅 |
+| `rss 删除 <订阅ID>` | 超级管理员删除订阅 |
+| `rss 开启 <订阅ID>` / `rss 关闭 <订阅ID>` | 超级管理员启停订阅 |
+
+RSS 推送任务示例：
+
+```json
+{
+  "id": "rss_news_daily",
+  "enabled": true,
+  "trigger": "schedule",
+  "source": "rss_feed",
+  "time": "09:30",
+  "timezone": "Asia/Shanghai",
+  "targets": {
+    "group_ids": [123456789],
+    "private_user_ids": []
+  },
+  "source_options": {
+    "subscription_id": "example_news",
+    "max_items": 3,
+    "include_summary": true,
+    "only_new": true,
+    "send_first_run": true
+  }
+}
+```
 
 ### 星露谷物语 Wiki
 
@@ -1087,6 +1147,7 @@ HIKARI_BOT_NEO/
     jmcomic_api/                 # JMComic PDF 下载上传
     steam_deals/                 # Steam 免费和低价游戏日报
     push_framework/              # 通用定时推送框架
+    rss_subscriber/              # RSS/Atom 订阅命令和推送消息源
     stardew_wiki/                # 星露谷物语 Wiki 查询
     mc_wiki/                     # Minecraft Wiki 查询
   BotData/

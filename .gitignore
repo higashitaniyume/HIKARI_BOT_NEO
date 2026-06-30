@@ -51,6 +51,7 @@ BotData/logs/*.log
 UserData/private/*.jsonl
 UserData/group/*.jsonl
 UserData/stats/
+UserData/rss_subscriber_state.json
 !UserData/.gitkeep
 
 # Local deployment legal documents

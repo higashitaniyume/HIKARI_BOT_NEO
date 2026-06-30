@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "timeout_seconds": 20,
+  "proxy": "",
+  "user_agent": "HIKARI_BOT_NEO RSS Reader",
+  "max_items": 5,
+  "summary_max_chars": 220,
+  "max_message_chars": 3500,
+  "max_feed_bytes": 2097152,
+  "max_state_entries": 1000,
+  "subscriptions": [
+    {
+      "id": "example_news",
+      "enabled": false,
+      "title": "示例订阅",
+      "url": "https://example.com/feed.xml",
+      "max_items": 3,
+      "include_summary": true,
+      "summary_max_chars": 220,
+      "only_new": true,
+      "send_first_run": true
+    }
+  ]
+}
