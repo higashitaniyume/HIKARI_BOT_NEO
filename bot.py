@@ -15,6 +15,7 @@ HIKARI_BOT_NEO — NoneBot QQ 机器人入口。
 """
 
 import sys
+import time
 from pathlib import Path
 
 # 确保项目根目录在 sys.path 上，方便绝对导入
@@ -33,10 +34,24 @@ init_directories(_config)
 # ---- Step 3: 初始化日志 ----
 from core.logger_setup import setup_logging
 
-setup_logging(_config)
+_log_file = setup_logging(_config)
 
 # ---- Step 4: 初始化 NoneBot ----
+import logging
+
 import nonebot
+
+from core.lifecycle_logging import (
+    log_plugin_load_result,
+    log_startup_summary,
+    mask_identifier,
+    redact_url,
+    register_driver_lifecycle_logs,
+)
+
+_startup_started_at = time.monotonic()
+logger = logging.getLogger("HikariBot.Lifecycle")
+log_startup_summary(_config, _log_file)
 
 # 从配置中提取 NapCat 连接参数
 napcat_cfg = _config.get("napcat", {})
@@ -48,11 +63,10 @@ bot_cfg = _config.get("bot", {})
 superuser_id = bot_cfg.get("superuser_id", "3433559280")
 log_level = bot_cfg.get("log_level", "INFO")
 
-logger = nonebot.logger  # NoneBot 初始化前的临时 logger
-
 logger.info("========================================")
 logger.info(f"  {bot_cfg.get('name', 'HikariBotNeo')} 启动中...")
 logger.info("========================================")
+logger.info("[Startup] 开始初始化 NoneBot driver=~websockets")
 
 nonebot.init(
     # 驱动：使用 websockets 驱动（Bot 主动连接 NapCat WebSocket）
@@ -76,10 +90,13 @@ nonebot.init(
     api_timeout=bot_cfg.get("api_timeout", 120),
 )
 
-logger.info(f"NoneBot 初始化完成")
-logger.info(f"  NapCat WebSocket: {ws_url}")
-logger.info(f"  SuperUser: {superuser_id}")
-logger.info(f"  Log Level: {log_level}")
+logger.info(
+    "[Startup] NoneBot 初始化完成 napcat_ws=%s token_configured=%s superuser=%s log_level=%s",
+    redact_url(ws_url),
+    bool(token),
+    mask_identifier(superuser_id),
+    log_level,
+)
 
 # ---- Step 5: 注册适配器 ----
 
@@ -88,24 +105,41 @@ from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 
 # 注册适配器实例（这会触发 Adapter.__init__ → _setup → _start_forward → 连接 NapCat）
 driver = nonebot.get_driver()
+register_driver_lifecycle_logs(driver, _startup_started_at)
 driver.register_adapter(OneBotV11Adapter)
-logger.info("OneBot V11 适配器已注册，将在 Driver 就绪后连接 NapCat")
+logger.info("[Startup] OneBot V11 适配器已注册，将在 Driver 就绪后连接 NapCat")
 
 # ---- Step 6: 加载插件 ----
 
 # 加载明确命令路由（必须在加载插件之前）
+logger.info("[Startup] 开始加载核心路由与消息管线")
 from core.command_router import command_matcher  # noqa: F401 — 触发 on_message 注册
 
 # 加载消息处理管道（必须在加载其他插件之前）
 from core.message_pipeline import msg_pipeline  # noqa: F401 — 触发 on_message 注册
+logger.info("[Startup] 核心路由与消息管线加载完成")
 
 # 加载 plugins 目录下的所有插件
 # 这将自动发现并加载 plugins/pixiv_parser/ 等
-nonebot.load_plugins("plugins")
+logger.info("[Startup] 开始加载插件目录: plugins")
+_plugin_load_started_at = time.monotonic()
+try:
+    _loaded_plugins = nonebot.load_plugins("plugins")
+except Exception:
+    logger.exception("[Startup] 插件目录加载失败: plugins")
+    raise
+log_plugin_load_result(
+    _loaded_plugins,
+    time.monotonic() - _plugin_load_started_at,
+)
+logger.info("[Startup] 启动准备完成 elapsed=%.2fs", time.monotonic() - _startup_started_at)
 
 # ---- Step 6: 启动 ----
 
 # nb run 会自动调用 nonebot.run()，这里不需要显式调用
 # 但如果直接 python bot.py 运行，则需要：
 if __name__ == "__main__":
+    logger.info("[Lifecycle] 直接运行 bot.py，调用 nonebot.run()")
     nonebot.run()
+else:
+    logger.info("[Lifecycle] bot.py 已作为 NoneBot 应用加载，等待运行器接管")

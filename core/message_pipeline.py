@@ -21,10 +21,13 @@ Handler 接口：
 """
 
 import logging
+import time
 from typing import Protocol, runtime_checkable
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
+
+from core.lifecycle_logging import describe_event, elapsed_ms
 
 logger = logging.getLogger("HikariBot.MessagePipeline")
 
@@ -60,7 +63,7 @@ def register_handler(handler: URLHandler) -> None:
     """
     if handler not in _handlers:
         _handlers.append(handler)
-        logger.info(f"已注册消息处理器: {handler.name}")
+        logger.info("已注册消息处理器: %s total=%d", handler.name, len(_handlers))
 
 
 # =========================
@@ -78,12 +81,15 @@ async def _pipeline_handle(bot: Bot, event: MessageEvent):
     from core.error_notifier import notify_error_to_superuser, send_user_error
 
     if is_command_handled(event):
+        logger.debug("[Pipeline] 跳过已由命令处理的消息 %s", describe_event(event))
         return
 
     if not _handlers:
+        logger.debug("[Pipeline] 无已注册消息处理器，跳过消息 %s", describe_event(event))
         return
 
     text = str(event.get_message())
+    matched_any = False
 
     for handler in _handlers:
         try:
@@ -95,16 +101,42 @@ async def _pipeline_handle(bot: Bot, event: MessageEvent):
         if not matched:
             continue
 
-        logger.info(f"Handler [{handler.name}] 匹配成功，开始处理")
+        matched_any = True
+        logger.info(
+            "[Pipeline] Handler 匹配成功 handler=%s registered_handlers=%d %s",
+            handler.name,
+            len(_handlers),
+            describe_event(event, text),
+        )
         mark_event_handled(event)
+        started_at = time.monotonic()
         try:
             await handler.handle(bot, event)
         except Exception as e:
-            logger.exception(f"Handler [{handler.name}] 处理异常: {e}")
+            logger.exception(
+                "[Pipeline] Handler 处理异常 handler=%s elapsed=%.1fms: %s",
+                handler.name,
+                elapsed_ms(started_at),
+                e,
+            )
             try:
                 await send_user_error(bot, event)
                 await notify_error_to_superuser(bot, event, e, handler.name)
             except Exception as notify_err:
                 logger.exception(f"发送错误通知失败: {notify_err}")
+        else:
+            logger.info(
+                "[Pipeline] Handler 处理完成 handler=%s elapsed=%.1fms %s",
+                handler.name,
+                elapsed_ms(started_at),
+                describe_event(event),
+            )
 
         # 当前设计：一个消息可命中多个 handler（不 break）
+
+    if not matched_any:
+        logger.debug(
+            "[Pipeline] 未命中任何消息处理器 registered_handlers=%d %s",
+            len(_handlers),
+            describe_event(event, text),
+        )

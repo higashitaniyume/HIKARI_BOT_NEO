@@ -15,6 +15,8 @@ from typing import Awaitable, Callable, Iterable
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
 
+from core.lifecycle_logging import describe_event, elapsed_ms, preview_text
+
 logger = logging.getLogger("HikariBot.CommandRouter")
 
 
@@ -82,7 +84,12 @@ def command(
             group_only=group_only,
         )
         _commands.append(spec)
-        logger.info("已注册命令: %s", name)
+        logger.info(
+            "已注册命令: %s aliases=%s scope=%s",
+            name,
+            ",".join(spec.aliases) if spec.aliases else "-",
+            _scope_label(spec),
+        )
         return func
 
     return decorator
@@ -189,6 +196,12 @@ async def _handle_command(bot: Bot, event: MessageEvent) -> None:
 
     spec, matched_name, args = matched
     if not _scope_allowed(spec, event):
+        logger.info(
+            "[Command] 作用域拦截 command=%s matched=%r %s",
+            spec.name,
+            matched_name,
+            describe_event(event, text),
+        )
         return
 
     ctx = CommandContext(
@@ -200,14 +213,27 @@ async def _handle_command(bot: Bot, event: MessageEvent) -> None:
         matched=matched_name,
     )
 
-    logger.info("[Command] 命中 %s args=%r", spec.name, args)
+    logger.info(
+        "[Command] 命中 command=%s matched=%r args_len=%d args_preview=%r %s",
+        spec.name,
+        matched_name,
+        len(args),
+        preview_text(args),
+        describe_event(event, text),
+    )
     _mark_command_handled(event)
+    started_at = time.monotonic()
     try:
         result = spec.handler(ctx)
         if inspect.isawaitable(result):
             await result
     except Exception as e:
-        logger.exception("[Command] 命令 %s 处理异常: %s", spec.name, e)
+        logger.exception(
+            "[Command] 命令 %s 处理异常 elapsed=%.1fms: %s",
+            spec.name,
+            elapsed_ms(started_at),
+            e,
+        )
         try:
             from core.error_notifier import notify_error_to_superuser, send_user_error
 
@@ -215,3 +241,21 @@ async def _handle_command(bot: Bot, event: MessageEvent) -> None:
             await notify_error_to_superuser(bot, event, e, f"Command:{spec.name}")
         except Exception as notify_err:
             logger.exception("[Command] 发送错误通知失败: %s", notify_err)
+    else:
+        logger.info(
+            "[Command] 完成 command=%s elapsed=%.1fms %s",
+            spec.name,
+            elapsed_ms(started_at),
+            describe_event(event),
+        )
+
+
+def _scope_label(spec: CommandSpec) -> str:
+    scopes: list[str] = []
+    if spec.private_only:
+        scopes.append("private_only")
+    if spec.group_only:
+        scopes.append("group_only")
+    if spec.require_tome:
+        scopes.append("require_tome")
+    return ",".join(scopes) if scopes else "any"
