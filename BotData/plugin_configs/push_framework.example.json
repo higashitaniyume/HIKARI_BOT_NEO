@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "startup_delay_seconds": 15,
+  "check_interval_seconds": 60,
+  "send_retry_attempts": 2,
+  "send_retry_delay_seconds": 2.0,
+  "jobs": [
+    {
+      "id": "example_daily_text",
+      "enabled": false,
+      "trigger": "schedule",
+      "source": "static_text",
+      "time": "09:00",
+      "timezone": "Asia/Shanghai",
+      "days": [],
+      "late_grace_seconds": 7200,
+      "dedupe": "daily",
+      "targets": {
+        "group_ids": [],
+        "private_user_ids": []
+      },
+      "source_options": {
+        "text": "这是一条定时推送示例。"
+      }
+    }
+  ]
+}

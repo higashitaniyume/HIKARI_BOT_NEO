@@ -139,6 +139,21 @@
     "links": "商店链接：\n{links}",
     "help": "steam日报：查看 Steam 热门热卖日报。\nsteam日报 免费 / steam免费：只看免费游戏。\nsteam日报 低价 / steam低价：查看低价、大折扣、新打折和折扣加深游戏。\nsteam日报 刷新：忽略短期缓存重新获取。\n主动每日推送只发送到 BotData/plugin_configs/steam_deals.json 的 push_whitelist 白名单；手动命令不受白名单限制。"
   },
+  "push_framework": {
+    "help": "推送框架用法：\n推送 状态：查看框架、任务和消息源状态。\n推送 源：查看已注册消息源。\n推送 触发 <任务ID>：立即按配置目标试发一次，不写入定时去重状态。\n任务配置位于 BotData/plugin_configs/push_framework.json；trigger 支持 schedule、startup、shutdown、manual；新消息源可在插件中调用 register_push_source() 注册。",
+    "permission_denied": "只有超级管理员可以管理推送框架。",
+    "test_usage": "用法：推送 触发 <任务ID>",
+    "job_not_found": "没有找到推送任务：{job_id}",
+    "status_header": "推送框架：{enabled}",
+    "status_sources": "已注册消息源：{count} 个",
+    "status_jobs": "任务：{count} 个",
+    "status_job_line": "- {job_id}：{enabled} / trigger={trigger} / source={source}({state}) / time={time} / targets={targets}",
+    "source_empty": "暂无已注册推送源。",
+    "source_header": "已注册推送源：",
+    "source_line": "- {name}{description}",
+    "run_result": "推送任务 {job_id} 执行完成：尝试 {attempted}，成功 {sent}，跳过 {skipped}，空内容 {empty}，失败 {failed}。",
+    "run_errors": "错误：\n{errors}"
+  },
   "osu": {
     "needs_binding_title": "需要先绑定 osu! 账号",
     "needs_binding": "用法：osu 绑定 <用户名/ID> [模式]\n也可以直接查询：osu <用户名/ID> 或 osu mania <用户名/ID>",

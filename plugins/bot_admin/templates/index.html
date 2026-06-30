@@ -26,6 +26,7 @@
       <button type="button" class="nav-item" data-view-target="voices" title="语音"><span class="nav-label">语音</span></button>
       <button type="button" class="nav-item" data-view-target="settings" title="TTS"><span class="nav-label">TTS</span></button>
       <button type="button" class="nav-item" data-view-target="aiagent" title="AI"><span class="nav-label">AI</span></button>
+      <button type="button" class="nav-item" data-view-target="push" title="推送"><span class="nav-label">推送</span></button>
       <button type="button" class="nav-item" data-view-target="access" title="权限"><span class="nav-label">权限</span></button>
       <button type="button" class="nav-item" data-view-target="configs" title="配置"><span class="nav-label">配置</span></button>
       <button type="button" class="nav-item" data-view-target="logs" title="日志"><span class="nav-label">日志</span></button>
@@ -613,6 +614,142 @@
 
           <button type="submit" class="primary">保存 AI Agent 设置</button>
         </form>
+      </section>
+    </section>
+
+    <section class="view-panel" data-view="push" hidden>
+      <section class="panel push-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>定时推送</h2>
+            <p>配置通用推送框架的任务、消息源和群/私聊目标。</p>
+          </div>
+          <button type="button" id="pushRefreshBtn" class="ghost">刷新推送</button>
+        </div>
+
+        <div class="ops-layout push-layout">
+          <aside class="ops-list" id="pushJobList">加载中...</aside>
+          <section class="ops-detail">
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="pushEditorTitle">选择一个任务</h3>
+                <p id="pushEditorMeta">未选择任务</p>
+              </div>
+              <div class="panel-actions">
+                <button type="button" id="pushAddJobBtn" class="ghost">添加任务</button>
+                <button type="button" id="pushRunJobBtn" class="ghost">立即推送当前任务</button>
+                <button type="button" id="pushDeleteJobBtn" class="danger-button">删除任务</button>
+              </div>
+            </div>
+
+            <form id="pushConfigForm" class="settings-form push-config-form">
+              <label class="checkbox-field settings-toggle">
+                <input id="pushEnabled" type="checkbox">
+                <span>启用推送框架</span>
+              </label>
+
+              <label>
+                <span>启动延迟（秒）</span>
+                <input id="pushStartupDelay" type="number" min="0" max="3600" step="1">
+              </label>
+
+              <label>
+                <span>检查间隔（秒）</span>
+                <input id="pushCheckInterval" type="number" min="10" max="86400" step="1">
+              </label>
+
+              <label>
+                <span>发送重试次数</span>
+                <input id="pushRetryAttempts" type="number" min="1" max="10" step="1">
+              </label>
+
+              <label>
+                <span>重试间隔（秒）</span>
+                <input id="pushRetryDelay" type="number" min="0" max="120" step="0.5">
+              </label>
+
+              <div class="wide-field inline-heading push-job-heading">
+                <h3>任务设置</h3>
+                <p id="pushSourceSummary">暂无消息源信息</p>
+              </div>
+
+              <label class="checkbox-field settings-toggle">
+                <input id="pushJobEnabled" type="checkbox">
+                <span>启用当前任务</span>
+              </label>
+
+              <label>
+                <span>任务 ID</span>
+                <input id="pushJobId" maxlength="80" placeholder="daily_text">
+              </label>
+
+              <label>
+                <span>消息源</span>
+                <select id="pushJobSource"></select>
+              </label>
+
+              <label>
+                <span>触发器</span>
+                <select id="pushJobTrigger">
+                  <option value="schedule">schedule 定时</option>
+                  <option value="startup">startup 启动</option>
+                  <option value="shutdown">shutdown 关闭</option>
+                  <option value="manual">manual 手动</option>
+                </select>
+              </label>
+
+              <label>
+                <span>单次时间</span>
+                <input id="pushJobTime" placeholder="09:00">
+              </label>
+
+              <label>
+                <span>多个时间</span>
+                <textarea id="pushJobTimes" rows="3" placeholder="09:00&#10;18:30"></textarea>
+              </label>
+
+              <label>
+                <span>时区</span>
+                <input id="pushJobTimezone" placeholder="Asia/Shanghai">
+              </label>
+
+              <label>
+                <span>星期限制</span>
+                <input id="pushJobDays" placeholder="留空表示每天；如 mon,wed 或 周一">
+              </label>
+
+              <label>
+                <span>补发窗口（秒）</span>
+                <input id="pushJobLateGrace" type="number" min="0" max="86400" step="1">
+              </label>
+
+              <label>
+                <span>去重</span>
+                <select id="pushJobDedupe">
+                  <option value="daily">daily</option>
+                  <option value="none">none</option>
+                </select>
+              </label>
+
+              <label>
+                <span>群号</span>
+                <textarea id="pushJobGroups" rows="4" placeholder="123456789&#10;987654321"></textarea>
+              </label>
+
+              <label>
+                <span>私聊 QQ 号</span>
+                <textarea id="pushJobPrivates" rows="4" placeholder="123456"></textarea>
+              </label>
+
+              <label class="wide-field">
+                <span>消息源参数 JSON</span>
+                <textarea id="pushJobOptions" rows="8" spellcheck="false" placeholder="{&#10;  &quot;text&quot;: &quot;早上好&quot;&#10;}"></textarea>
+              </label>
+
+              <button type="submit" id="pushSaveBtn" class="primary">保存推送配置</button>
+            </form>
+          </section>
+        </div>
       </section>
     </section>
 

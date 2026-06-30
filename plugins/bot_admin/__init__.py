@@ -32,6 +32,9 @@ from plugins.aiagent.config import list_persona_skills as list_aiagent_persona_s
 from plugins.aiagent.config import resolve_persona_path as resolve_aiagent_persona_path
 from plugins.aiagent.config import save_config as save_aiagent_config
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
+from plugins.push_framework import submit_manual_push
+from plugins.push_framework.config import get_config as get_push_config
+from plugins.push_framework.registry import iter_push_sources
 from plugins.tg_sticker_parser import find_saved_gifs, parse_sticker_set_to_gifs, save_gifs_to_pack
 from plugins.tg_sticker_parser.config import get_config as get_tg_config
 from plugins.tg_sticker_parser.tg_api import extract_sticker_set_names
@@ -559,6 +562,211 @@ def _write_plugin_config(name: str, content: str) -> dict[str, Any]:
     tmp_path.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp_path, path)
     return _read_plugin_config(path.name)
+
+
+def _push_sources_state() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": source.name,
+            "description": source.description,
+            "default_options": source.default_options or {},
+        }
+        for source in iter_push_sources()
+    ]
+
+
+def _push_config_state() -> dict[str, Any]:
+    cfg = get_push_config()
+    path = _PLUGIN_CONFIG_DIR / "push_framework.json"
+    return {
+        "config": cfg,
+        "sources": _push_sources_state(),
+        "file": _file_meta(path) if path.is_file() else None,
+    }
+
+
+def _parse_push_time(value: Any, *, default: str = "09:00") -> str:
+    text = str(value or default).strip()
+    match = re.fullmatch(r"(\d{1,2}):(\d{1,2})", text)
+    if not match:
+        raise ValueError(f"推送时间格式无效：{text}")
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError(f"推送时间超出范围：{text}")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _parse_push_string_list(value: Any, *, max_items: int = 31, max_length: int = 24) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\s,，;；]+", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        if len(text) > max_length:
+            raise ValueError(f"列表项过长：{text[:20]}...")
+        seen.add(text)
+        result.append(text)
+        if len(result) > max_items:
+            raise ValueError("列表项过多。")
+    return result
+
+
+def _parse_push_id_list(value: Any) -> list[int]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[\s,，;；]+", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    result: list[int] = []
+    seen: set[int] = set()
+    for item in raw_items:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        try:
+            target_id = int(text)
+        except ValueError as e:
+            raise ValueError(f"推送目标 ID 无效：{text}") from e
+        if target_id <= 0:
+            raise ValueError(f"推送目标 ID 必须大于 0：{text}")
+        if target_id in seen:
+            continue
+        seen.add(target_id)
+        result.append(target_id)
+        if len(result) > 200:
+            raise ValueError("单个任务最多配置 200 个推送目标。")
+    return result
+
+
+def _normalize_push_job(raw_job: Any, index: int) -> dict[str, Any]:
+    if not isinstance(raw_job, dict):
+        raise ValueError(f"第 {index + 1} 个推送任务必须是 JSON 对象。")
+
+    job_id = _parse_str(raw_job.get("id"), max_length=80)
+    if not job_id:
+        raise ValueError(f"第 {index + 1} 个推送任务缺少 ID。")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", job_id):
+        raise ValueError(f"推送任务 ID 只能包含字母、数字、下划线、短横线和点：{job_id}")
+
+    source = _parse_str(raw_job.get("source"), max_length=80)
+    if not source:
+        raise ValueError(f"推送任务 {job_id} 缺少消息源。")
+
+    trigger = str(raw_job.get("trigger") or "schedule").strip().casefold()
+    if trigger not in {"schedule", "startup", "shutdown", "manual"}:
+        raise ValueError(f"推送任务 {job_id} 的 trigger 只能是 schedule、startup、shutdown 或 manual。")
+
+    times = [_parse_push_time(item) for item in _parse_push_string_list(raw_job.get("times"), max_items=24)]
+    time_value = _parse_push_time(raw_job.get("time") or (times[0] if times else "09:00"))
+    days = _parse_push_string_list(raw_job.get("days"), max_items=7, max_length=16)
+    targets = raw_job.get("targets") if isinstance(raw_job.get("targets"), dict) else {}
+    source_options = raw_job.get("source_options")
+    if source_options is None:
+        source_options = {}
+    if not isinstance(source_options, dict):
+        raise ValueError(f"推送任务 {job_id} 的 source_options 必须是 JSON 对象。")
+
+    dedupe = str(raw_job.get("dedupe") or "daily").strip().casefold()
+    if dedupe not in {"daily", "none"}:
+        raise ValueError(f"推送任务 {job_id} 的 dedupe 只能是 daily 或 none。")
+
+    return {
+        "id": job_id,
+        "enabled": _parse_bool(raw_job.get("enabled", True)),
+        "trigger": trigger,
+        "source": source,
+        "time": time_value,
+        "times": times,
+        "timezone": _parse_str(raw_job.get("timezone", "Asia/Shanghai"), "Asia/Shanghai", max_length=80)
+        or "Asia/Shanghai",
+        "days": days,
+        "late_grace_seconds": _parse_int(
+            raw_job.get("late_grace_seconds", 7200),
+            7200,
+            minimum=0,
+            maximum=86400,
+        ),
+        "dedupe": dedupe,
+        "targets": {
+            "group_ids": _parse_push_id_list(targets.get("group_ids")),
+            "private_user_ids": _parse_push_id_list(targets.get("private_user_ids")),
+        },
+        "source_options": source_options,
+    }
+
+
+def _normalize_push_config(data: dict[str, Any]) -> dict[str, Any]:
+    current = get_push_config()
+    raw_jobs = data.get("jobs", current.get("jobs", []))
+    if not isinstance(raw_jobs, list):
+        raise ValueError("jobs 必须是数组。")
+    jobs = [_normalize_push_job(job, index) for index, job in enumerate(raw_jobs)]
+    seen_ids: set[str] = set()
+    for job in jobs:
+        if job["id"] in seen_ids:
+            raise ValueError(f"推送任务 ID 重复：{job['id']}")
+        seen_ids.add(job["id"])
+
+    return {
+        "enabled": _parse_bool(data.get("enabled", current.get("enabled", True))),
+        "startup_delay_seconds": _parse_int(
+            data.get("startup_delay_seconds", current.get("startup_delay_seconds", 15)),
+            15,
+            minimum=0,
+            maximum=3600,
+        ),
+        "check_interval_seconds": _parse_int(
+            data.get("check_interval_seconds", current.get("check_interval_seconds", 60)),
+            60,
+            minimum=10,
+            maximum=86400,
+        ),
+        "send_retry_attempts": _parse_int(
+            data.get("send_retry_attempts", current.get("send_retry_attempts", 2)),
+            2,
+            minimum=1,
+            maximum=10,
+        ),
+        "send_retry_delay_seconds": _parse_float(
+            data.get("send_retry_delay_seconds", current.get("send_retry_delay_seconds", 2.0)),
+            2.0,
+            minimum=0,
+            maximum=120,
+        ),
+        "jobs": jobs,
+    }
+
+
+def _write_push_config(data: dict[str, Any]) -> dict[str, Any]:
+    _PLUGIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    get_push_config()
+    normalized = _normalize_push_config(data)
+    _write_plugin_config("push_framework.json", json.dumps(normalized, ensure_ascii=False, indent=2))
+    payload = _push_config_state()
+    payload["message"] = "推送配置已保存。"
+    return payload
+
+
+def _push_run_payload(result: Any) -> dict[str, Any]:
+    return {
+        "job_id": result.job_id,
+        "source": result.source,
+        "attempted": result.attempted,
+        "sent": result.sent,
+        "skipped": result.skipped,
+        "empty": result.empty,
+        "failed": result.failed,
+        "errors": result.errors,
+    }
 
 
 def _access_rule_item(path: Path) -> dict[str, Any]:
@@ -1301,6 +1509,18 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(_aiagent_config_state())
             return
+        if parsed.path == "/api/push-config":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            try:
+                self._send_json(_push_config_state())
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("读取推送配置失败: %s", e)
+                self._send_json({"error": "读取推送配置失败，请检查服务日志。"}, 500)
+            return
         if parsed.path == "/api/access-rules":
             if not self._is_authenticated():
                 self._unauthorized_json()
@@ -1460,6 +1680,50 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("保存 AI Agent 设置失败: %s", e)
                 self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/push-config":
+            try:
+                data = self._read_json_body()
+                self._send_json(_write_push_config(data))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("保存推送配置失败: %s", e)
+                self._send_json({"error": "保存推送配置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/push-run":
+            try:
+                data = self._read_json_body()
+                job_id = _parse_str(data.get("job_id"), max_length=80)
+                if not job_id:
+                    raise ValueError("推送任务 ID 不能为空。")
+                timeout_seconds = _parse_float(
+                    data.get("timeout_seconds", 300),
+                    300.0,
+                    minimum=1.0,
+                    maximum=1800.0,
+                )
+                result = submit_manual_push(job_id, timeout_seconds=timeout_seconds)
+                if result is None:
+                    self._send_json({"error": f"没有找到推送任务：{job_id}"}, 404)
+                    return
+                self._send_json(
+                    {
+                        "result": _push_run_payload(result),
+                        "message": "推送任务已执行。",
+                    }
+                )
+            except TimeoutError as e:
+                self._send_json({"error": str(e)}, 504)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except RuntimeError as e:
+                self._send_json({"error": str(e)}, 409)
+            except Exception as e:
+                logger.exception("手动触发推送失败: %s", e)
+                self._send_json({"error": "手动触发推送失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/access-rules":

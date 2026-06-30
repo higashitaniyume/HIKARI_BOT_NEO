@@ -13,6 +13,7 @@ from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from plugins.push_framework.registry import PushContext, PushMessage, register_push_source
 
 from .api import DealMode, SteamDealsClient, SteamDealsError
 from .config import get_config
@@ -113,6 +114,51 @@ async def _send_report_to_context(ctx: CommandContext, mode: DealMode, *, force_
     image_sent = await _send_image_to_context(ctx, path, links)
     if image_sent and links:
         await _try_send_context_text(ctx, msg("steam_deals.links", links="\n".join(links)))
+
+
+async def _steam_deals_push_source(ctx: PushContext) -> list[PushMessage]:
+    if not _enabled():
+        return []
+
+    mode = _normalize_push_mode(ctx.options.get("mode"))
+    force_refresh = _parse_push_bool(ctx.options.get("force_refresh"), default=False)
+    include_links = _parse_push_bool(ctx.options.get("include_links"), default=True)
+    path, links = await _build_report(mode, force_refresh=force_refresh)
+    messages = [
+        PushMessage(Message(MessageSegment.image(path.resolve().as_uri())), "Steam 日报图片"),
+    ]
+    if include_links and links:
+        messages.append(PushMessage(Message(msg("steam_deals.links", links="\n".join(links))), "Steam 商店链接"))
+    return messages
+
+
+def _normalize_push_mode(value) -> DealMode:
+    mode = str(value or "all").strip().casefold()
+    if mode in {"free", "免费", "喜加一"}:
+        return "free"
+    if mode in {"low", "低价", "特惠"}:
+        return "low"
+    return "all"
+
+
+def _parse_push_bool(value, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().casefold() in {"1", "true", "yes", "on", "启用", "是"}
+
+
+register_push_source(
+    "steam_deals",
+    _steam_deals_push_source,
+    description="推送 Steam 热门热卖、免费和低价游戏日报。",
+    default_options={
+        "mode": "all",
+        "include_links": True,
+        "force_refresh": False,
+    },
+)
 
 
 @command(
