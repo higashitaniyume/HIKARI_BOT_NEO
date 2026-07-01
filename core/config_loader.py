@@ -107,6 +107,19 @@ DEFAULT_YOUTUBE_DOWNLOADER_CONFIG: dict[str, Any] = {
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
+DEFAULT_MEDIA_DETAIL_WEB_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "host": "0.0.0.0",
+    "port": 53123,
+    "max_links_per_request": 8,
+    "auto_download": True,
+    "token_ttl_seconds": 3600,
+    "max_registry_entries": 512,
+    "max_remote_proxy_mb": 1024,
+    "operation_timeout_seconds": 1800,
+    "request_body_limit_bytes": 1048576,
+}
+
 DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "api_timeout": 120,

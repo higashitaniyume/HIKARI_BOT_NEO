@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "host": "0.0.0.0",
+  "port": 53123,
+  "max_links_per_request": 8,
+  "auto_download": true,
+  "token_ttl_seconds": 3600,
+  "max_registry_entries": 512,
+  "max_remote_proxy_mb": 1024,
+  "operation_timeout_seconds": 1800,
+  "request_body_limit_bytes": 1048576
+}

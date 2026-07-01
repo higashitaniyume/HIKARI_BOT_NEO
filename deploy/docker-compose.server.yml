@@ -17,6 +17,7 @@ services:
       UV_LINK_MODE: copy
     ports:
       - "${HIKARI_BOT_ADMIN_PORT:-${HIKARI_STICKER_WEB_PORT:-54213}}:54213"
+      - "${HIKARI_MEDIA_DETAIL_WEB_PORT:-53123}:53123"
     working_dir: /app
     entrypoint: ["sh", "/app/docker/entrypoint.sh"]
     command: ["python", "bot.py"]

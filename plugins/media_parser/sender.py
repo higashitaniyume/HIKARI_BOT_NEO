@@ -179,7 +179,7 @@ async def send_metadata_result(
 def _node(bot: Bot, content: Message) -> MessageSegment:
     return MessageSegment.node_custom(
         user_id=int(bot.self_id),
-        nickname="HikariBotNeo",
+        nickname="HIKARI",
         content=content,
     )
 

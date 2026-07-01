@@ -429,7 +429,7 @@ async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
         uri = shared.resolve().as_uri()
         nodes.append(MessageSegment.node_custom(
             user_id=int(bot.self_id),
-            nickname="HikariBotNeo",
+            nickname="HIKARI",
             content=Message(MessageSegment.image(uri)),
         ))
 
@@ -488,7 +488,7 @@ async def _send_text_forward(bot: Bot, event: MessageEvent, texts: list[str]) ->
     nodes: list[MessageSegment] = [
         MessageSegment.node_custom(
             user_id=int(bot.self_id),
-            nickname="HikariBotNeo",
+            nickname="HIKARI",
             content=Message(text),
         )
         for text in texts

@@ -198,7 +198,7 @@ async def _try_send_forward(
     try:
         # 构建转发节点
         bot_self_id = int(bot.self_id)
-        bot_nickname = "HikariBotNeo"
+        bot_nickname = "HIKARI"
 
         nodes: list[MessageSegment] = []
 

@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>媒体详情解析</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-soft: #eef3f1;
+      --text: #17211d;
+      --muted: #60706a;
+      --line: #d8dfdc;
+      --accent: #0f766e;
+      --accent-strong: #0b5e57;
+      --warn: #a15c00;
+      --error: #b42318;
+      --shadow: 0 12px 30px rgba(27, 38, 33, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+    .app {
+      width: min(1180px, calc(100% - 28px));
+      margin: 0 auto;
+      padding: 26px 0 48px;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 44px);
+      line-height: 1.05;
+      font-weight: 800;
+    }
+    .subtitle {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .platforms {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+      max-width: 560px;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: #33413c;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(300px, 420px) 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .panel,
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    .panel { padding: 16px; position: sticky; top: 16px; }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #2c3834;
+      font-size: 13px;
+      font-weight: 650;
+    }
+    textarea {
+      width: 100%;
+      min-height: 190px;
+      resize: vertical;
+      border: 1px solid #cbd5d1;
+      border-radius: 8px;
+      padding: 12px;
+      font: 14px/1.5 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      color: var(--text);
+      background: #fbfcfc;
+      outline: none;
+    }
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, .14);
+    }
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      user-select: none;
+    }
+    .toggle input { width: 17px; height: 17px; accent-color: var(--accent); }
+    button {
+      min-height: 38px;
+      border: 0;
+      border-radius: 8px;
+      padding: 0 14px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-strong); }
+    button:disabled { opacity: .62; cursor: wait; }
+    .status {
+      min-height: 22px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .messages {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .notice {
+      border: 1px solid #e3d3ad;
+      border-radius: 8px;
+      background: #fff8e8;
+      color: var(--warn);
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+    .results {
+      display: grid;
+      gap: 14px;
+    }
+    .empty {
+      min-height: 280px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed #c8d1ce;
+      border-radius: 8px;
+      color: var(--muted);
+      background: rgba(255,255,255,.5);
+      text-align: center;
+      padding: 22px;
+    }
+    .result-card { overflow: hidden; }
+    .result-head {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 16px 16px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .platform {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .title {
+      margin: 3px 0 0;
+      font-size: 20px;
+      line-height: 1.25;
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+    .byline {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      align-content: start;
+    }
+    .summary span {
+      min-height: 28px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      color: #35433e;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .result-body { padding: 14px 16px 16px; }
+    .error {
+      border: 1px solid #f1b8b4;
+      border-radius: 8px;
+      background: #fff1f0;
+      color: var(--error);
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .warns {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .warn {
+      color: var(--warn);
+      background: #fff8e8;
+      border: 1px solid #ead9af;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+    }
+    .description {
+      white-space: pre-wrap;
+      color: #30413b;
+      font-size: 14px;
+      line-height: 1.55;
+      max-height: 220px;
+      overflow: auto;
+      margin-bottom: 12px;
+    }
+    .details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .detail {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #fbfcfc;
+    }
+    .detail b {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 3px;
+    }
+    .detail span {
+      display: block;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .tag {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #eef1f5;
+      color: #44515d;
+      font-size: 12px;
+    }
+    .media-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+    }
+    .media-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fdfefe;
+    }
+    .media-preview {
+      aspect-ratio: 16 / 11;
+      background: #e6ece9;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .media-preview img,
+    .media-preview video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #101715;
+    }
+    .media-preview audio {
+      width: calc(100% - 24px);
+    }
+    .media-missing {
+      padding: 16px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .media-meta {
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+    }
+    .media-label {
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    .media-size {
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+    .media-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .small-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: #26332f;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .small-link:hover { border-color: var(--accent); color: var(--accent); }
+    @media (max-width: 860px) {
+      .topbar { display: block; }
+      .platforms { justify-content: flex-start; margin-top: 12px; }
+      .workspace { grid-template-columns: 1fr; }
+      .panel { position: static; }
+      .result-head { grid-template-columns: 1fr; }
+      .summary { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div>
+        <h1>媒体详情解析</h1>
+        <p class="subtitle">HIKARI BOT NEO</p>
+      </div>
+      <div class="platforms" id="platforms"></div>
+    </header>
+
+    <div class="workspace">
+      <section class="panel">
+        <form id="parseForm">
+          <label for="urlInput">URL</label>
+          <textarea id="urlInput" name="url" spellcheck="false"></textarea>
+          <div class="controls">
+            <label class="toggle"><input id="downloadInput" type="checkbox" checked> 自动下载媒体</label>
+            <button id="parseButton" type="submit">解析</button>
+          </div>
+          <div class="status" id="status"></div>
+        </form>
+      </section>
+
+      <section>
+        <div class="messages" id="messages"></div>
+        <div class="results" id="results">
+          <div class="empty">等待 URL</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('parseForm');
+    const urlInput = document.getElementById('urlInput');
+    const downloadInput = document.getElementById('downloadInput');
+    const parseButton = document.getElementById('parseButton');
+    const statusEl = document.getElementById('status');
+    const messagesEl = document.getElementById('messages');
+    const resultsEl = document.getElementById('results');
+    const platformsEl = document.getElementById('platforms');
+
+    function text(value) {
+      return value === null || value === undefined ? '' : String(value);
+    }
+
+    function make(tag, className, value) {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (value !== undefined) el.textContent = text(value);
+      return el;
+    }
+
+    function setStatus(value) {
+      statusEl.textContent = value || '';
+    }
+
+    function formatBytes(size) {
+      if (!size) return '';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = Number(size);
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+      }
+      return `${value.toFixed(unit ? 1 : 0)}${units[unit]}`;
+    }
+
+    function renderPlatforms(groups) {
+      platformsEl.replaceChildren();
+      (groups || []).forEach(group => {
+        (group.platforms || []).forEach(name => {
+          platformsEl.appendChild(make('span', 'chip', name));
+        });
+      });
+    }
+
+    function renderMessages(messages) {
+      messagesEl.replaceChildren();
+      (messages || []).forEach(message => {
+        messagesEl.appendChild(make('div', 'notice', message));
+      });
+    }
+
+    function renderResults(items) {
+      resultsEl.replaceChildren();
+      if (!items || !items.length) {
+        resultsEl.appendChild(make('div', 'empty', '没有结果'));
+        return;
+      }
+      items.forEach(item => resultsEl.appendChild(renderItem(item)));
+    }
+
+    function renderItem(item) {
+      const card = make('article', 'result-card');
+      const head = make('div', 'result-head');
+      const titleWrap = make('div');
+      titleWrap.appendChild(make('div', 'platform', item.platform || item.source || 'Media'));
+      titleWrap.appendChild(make('h2', 'title', item.title || item.source_url || '未命名媒体'));
+      const byline = [];
+      if (item.author) byline.push(item.author);
+      if (item.timestamp) byline.push(item.timestamp);
+      if (item.source_url) byline.push(item.source_url);
+      titleWrap.appendChild(make('div', 'byline', byline.join(' · ')));
+
+      const summary = make('div', 'summary');
+      const sum = item.summary || {};
+      summary.appendChild(make('span', '', `视频 ${sum.videos || 0}`));
+      summary.appendChild(make('span', '', `图片 ${sum.images || 0}`));
+      summary.appendChild(make('span', '', `可下载 ${sum.downloaded || 0}`));
+      (item.flags || []).forEach(flag => summary.appendChild(make('span', '', flag)));
+      head.append(titleWrap, summary);
+      card.appendChild(head);
+
+      const body = make('div', 'result-body');
+      if (item.error) body.appendChild(make('div', 'error', item.error));
+
+      if (item.warnings && item.warnings.length) {
+        const warns = make('div', 'warns');
+        item.warnings.forEach(value => warns.appendChild(make('div', 'warn', value)));
+        body.appendChild(warns);
+      }
+
+      if (item.description) body.appendChild(make('div', 'description', item.description));
+
+      const details = make('div', 'details');
+      (item.details || []).forEach(detail => {
+        if (!detail || !detail.value) return;
+        const row = make('div', 'detail');
+        row.appendChild(make('b', '', detail.label || '字段'));
+        row.appendChild(make('span', '', detail.value));
+        details.appendChild(row);
+      });
+      if (details.childElementCount) body.appendChild(details);
+
+      if (item.tags && item.tags.length) {
+        const tags = make('div', 'tags');
+        item.tags.forEach(tag => tags.appendChild(make('span', 'tag', `#${tag}`)));
+        body.appendChild(tags);
+      }
+
+      const mediaGrid = make('div', 'media-grid');
+      (item.media || []).forEach(media => mediaGrid.appendChild(renderMedia(media)));
+      if (mediaGrid.childElementCount) body.appendChild(mediaGrid);
+      card.appendChild(body);
+      return card;
+    }
+
+    function renderMedia(media) {
+      const box = make('div', 'media-item');
+      const preview = make('div', 'media-preview');
+      if (media.preview_url && media.kind === 'image') {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = media.preview_url;
+        img.alt = media.label || media.filename || 'image';
+        preview.appendChild(img);
+      } else if (media.preview_url && media.kind === 'video') {
+        const video = document.createElement('video');
+        video.controls = true;
+        video.preload = 'metadata';
+        video.src = media.preview_url;
+        preview.appendChild(video);
+      } else if (media.preview_url && media.kind === 'audio') {
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = media.preview_url;
+        preview.appendChild(audio);
+      } else {
+        preview.appendChild(make('div', 'media-missing', media.skip_reason || '媒体不可预览'));
+      }
+      box.appendChild(preview);
+
+      const meta = make('div', 'media-meta');
+      meta.appendChild(make('div', 'media-label', media.label || media.filename || media.kind || 'media'));
+      const bits = [media.filename, formatBytes(media.size_bytes), media.mode].filter(Boolean);
+      if (bits.length) meta.appendChild(make('div', 'media-size', bits.join(' · ')));
+      if (media.skip_reason) meta.appendChild(make('div', 'media-size', media.skip_reason));
+
+      const actions = make('div', 'media-actions');
+      if (media.download_url) {
+        const dl = make('a', 'small-link', '下载');
+        dl.href = media.download_url;
+        dl.download = media.filename || '';
+        actions.appendChild(dl);
+      }
+      if (media.source_url) {
+        const open = make('a', 'small-link', '源地址');
+        open.href = media.source_url;
+        open.target = '_blank';
+        open.rel = 'noreferrer';
+        actions.appendChild(open);
+      }
+      if (actions.childElementCount) meta.appendChild(actions);
+      box.appendChild(meta);
+      return box;
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      parseButton.disabled = true;
+      messagesEl.replaceChildren();
+      resultsEl.replaceChildren(make('div', 'empty', '解析中'));
+      setStatus(downloadInput.checked ? '正在解析并下载媒体...' : '正在解析媒体详情...');
+      try {
+        const response = await fetch('/api/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: urlInput.value,
+            download: downloadInput.checked
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        renderPlatforms(payload.platform_groups);
+        renderMessages(payload.messages);
+        renderResults(payload.items);
+        setStatus(`完成：${(payload.items || []).length} 条结果`);
+      } catch (error) {
+        renderMessages([error.message || String(error)]);
+        renderResults([]);
+        setStatus('解析失败');
+      } finally {
+        parseButton.disabled = false;
+      }
+    });
+
+    fetch('/api/platforms')
+      .then(response => response.json())
+      .then(payload => {
+        renderPlatforms(payload.platform_groups);
+        downloadInput.checked = Boolean(payload.auto_download);
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>
