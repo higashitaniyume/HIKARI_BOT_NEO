@@ -108,10 +108,6 @@ function renderPacks() {
     const item = document.createElement("article");
     item.className = "pack-card";
     item.classList.toggle("is-active-pack", pack.name === state.selectedPackName);
-    item.addEventListener("dragenter", enterPackDrop);
-    item.addEventListener("dragover", overPackDrop);
-    item.addEventListener("dragleave", leavePackDrop);
-    item.addEventListener("drop", (event) => dropInboxOnPack(event, pack));
 
     const head = document.createElement("div");
     head.className = "pack-head";

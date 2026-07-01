@@ -478,8 +478,7 @@ button:not(:disabled):active {
   box-shadow: 0 12px 24px rgba(45, 61, 103, 0.1);
 }
 
-.inbox-card.is-selected,
-.pack-card.is-drop-target {
+.inbox-card.is-selected {
   border-color: #6976e2;
   background: #f5f6ff;
   box-shadow: 0 0 0 3px rgba(89, 102, 217, 0.12);

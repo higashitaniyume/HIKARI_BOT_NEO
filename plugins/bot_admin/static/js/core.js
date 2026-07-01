@@ -26,7 +26,6 @@ const state = {
   systemProbe: null,
   systemProbeError: "",
   editingTtsVoiceName: "",
-  draggingInboxIds: [],
   pickerInboxIds: [],
 };
 const MAX_UPLOAD_FILES = 99;
