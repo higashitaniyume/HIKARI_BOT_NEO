@@ -26,7 +26,9 @@ logger = logging.getLogger("HikariBot.MediaParser")
 get_config()
 
 _parse_queue: asyncio.Queue["MediaParseQueueItem"] | None = None
-_parse_worker_task: asyncio.Task[None] | None = None
+_parse_worker_tasks: set[asyncio.Task[None]] = set()
+_send_queues: dict[str, asyncio.Queue["MediaSendQueueItem"]] = {}
+_send_worker_tasks: dict[str, asyncio.Task[None]] = {}
 
 SUPPORTED_LINK_MARKERS = (
     "bilibili.com",
@@ -56,6 +58,15 @@ class MediaParseQueueItem:
     event: MessageEvent
     text: str
     links_with_parser: list[tuple[str, Any]]
+    force: bool = False
+
+
+@dataclass
+class MediaSendQueueItem:
+    bot: Bot
+    event: MessageEvent
+    processed: list[dict[str, Any]]
+    config: dict[str, Any]
     force: bool = False
 
 
@@ -125,17 +136,27 @@ def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": bool(raw.get("enabled", True)),
         "max_size": max(1, int(raw.get("max_size", 100))),
+        "max_concurrent": max(1, int(raw.get("max_concurrent", 2))),
         "delay_seconds": max(0.0, float(raw.get("delay_seconds", 0.8))),
     }
 
 
-def _ensure_parse_worker(cfg: dict[str, Any]) -> asyncio.Queue[MediaParseQueueItem]:
-    global _parse_queue, _parse_worker_task
+def _ensure_parse_workers(cfg: dict[str, Any]) -> asyncio.Queue[MediaParseQueueItem]:
+    global _parse_queue
     settings = _queue_settings(cfg)
     if _parse_queue is None:
         _parse_queue = asyncio.Queue(maxsize=settings["max_size"])
-    if _parse_worker_task is None or _parse_worker_task.done():
-        _parse_worker_task = asyncio.create_task(_parse_worker(), name="HikariMediaParserQueue")
+    alive_workers = {task for task in _parse_worker_tasks if not task.done()}
+    _parse_worker_tasks.clear()
+    _parse_worker_tasks.update(alive_workers)
+    while len(_parse_worker_tasks) < settings["max_concurrent"]:
+        worker_no = len(_parse_worker_tasks) + 1
+        task = asyncio.create_task(
+            _parse_worker(),
+            name=f"HikariMediaParserParseQueue-{worker_no}",
+        )
+        _parse_worker_tasks.add(task)
+        task.add_done_callback(_parse_worker_tasks.discard)
     return _parse_queue
 
 
@@ -148,13 +169,7 @@ async def _parse_worker() -> None:
         item = await _parse_queue.get()
         try:
             cfg = get_config()
-            await _process_text(
-                item.bot,
-                item.event,
-                item.text,
-                force=item.force,
-                links_with_parser=item.links_with_parser,
-            )
+            await _process_parse_item(item)
             delay = _queue_settings(cfg)["delay_seconds"]
             if delay > 0:
                 await asyncio.sleep(delay)
@@ -189,10 +204,16 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
     settings = _queue_settings(runtime.config)
     if not settings["enabled"]:
         for link_item in links:
-            await _process_text(bot, event, link_item[0], force=force, links_with_parser=[link_item])
+            await _process_parse_item(MediaParseQueueItem(
+                bot=bot,
+                event=event,
+                text=link_item[0],
+                links_with_parser=[link_item],
+                force=force,
+            ))
         return
 
-    queue = _ensure_parse_worker(runtime.config)
+    queue = _ensure_parse_workers(runtime.config)
     if queue.full():
         logger.warning(
             "[MediaParser] parse queue full -> user=%s, size=%d",
@@ -247,28 +268,119 @@ def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -
     return False
 
 
-async def _process_text(
+def _conversation_key(bot: Bot, event: MessageEvent) -> str:
+    bot_id = getattr(bot, "self_id", "bot")
+    if isinstance(event, GroupMessageEvent):
+        return f"{bot_id}:group:{event.group_id}"
+    return f"{bot_id}:private:{event.get_user_id()}"
+
+
+def _ensure_send_worker(key: str) -> asyncio.Queue[MediaSendQueueItem]:
+    queue = _send_queues.get(key)
+    if queue is None:
+        queue = asyncio.Queue()
+        _send_queues[key] = queue
+    task = _send_worker_tasks.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(_send_worker(key), name=f"HikariMediaParserSendQueue-{key}")
+        _send_worker_tasks[key] = task
+        task.add_done_callback(lambda done_task: _clear_send_worker(key, done_task))
+    return queue
+
+
+def _clear_send_worker(key: str, task: asyncio.Task[None]) -> None:
+    if _send_worker_tasks.get(key) is task:
+        _send_worker_tasks.pop(key, None)
+
+
+async def _enqueue_send(item: MediaSendQueueItem) -> None:
+    key = _conversation_key(item.bot, item.event)
+    queue = _ensure_send_worker(key)
+    queue.put_nowait(item)
+    logger.info(
+        "[MediaParser] queued send job -> target=%s, items=%d, queue_size=%d",
+        key,
+        len(item.processed),
+        queue.qsize(),
+    )
+
+
+async def _send_worker(key: str) -> None:
+    from core.error_notifier import notify_error_to_superuser, send_user_error
+
+    logger.info("[MediaParser] send queue worker started -> target=%s", key)
+    while True:
+        queue = _send_queues.get(key)
+        if queue is None:
+            return
+        item = await queue.get()
+        try:
+            await _send_processed_item(item)
+        except Exception as e:
+            logger.exception("[MediaParser] queued send failed: %s", e)
+            try:
+                if item.force:
+                    await send_user_error(item.bot, item.event)
+                await notify_error_to_superuser(item.bot, item.event, e, "MediaParser")
+            except Exception as notify_err:
+                logger.exception("发送错误通知失败: %s", notify_err)
+        finally:
+            queue.task_done()
+
+
+async def _send_processed_item(item: MediaSendQueueItem) -> None:
+    total_sent = 0
+    for metadata in item.processed:
+        total_sent += await send_metadata_result(item.bot, item.event, metadata, item.config)
+        await asyncio.sleep(0.8)
+
+    if total_sent == 0 and not any(metadata.get("_enable_text_metadata") for metadata in item.processed):
+        await item.bot.send(item.event, Message(msg("media_parser.no_media")))
+    stats_increment(item.event, "media_parser_parsed", len(item.processed))
+
+
+async def _process_parse_item(item: MediaParseQueueItem) -> None:
+    result = await _prepare_text(
+        item.bot,
+        item.event,
+        item.text,
+        force=item.force,
+        links_with_parser=item.links_with_parser,
+    )
+    if result is None:
+        return
+    processed, config = result
+    await _enqueue_send(MediaSendQueueItem(
+        bot=item.bot,
+        event=item.event,
+        processed=processed,
+        config=config,
+        force=item.force,
+    ))
+
+
+async def _prepare_text(
     bot: Bot,
     event: MessageEvent,
     text: str,
     *,
     force: bool = False,
     links_with_parser: list[tuple[str, Any]] | None = None,
-) -> None:
+) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     runtime = _runtime_from_config()
     if runtime is None:
-        return
+        return None
     if not _scope_allowed(runtime, event):
-        return
+        return None
 
     links = list(links_with_parser) if links_with_parser is not None else runtime.parser_manager.extract_all_links(text)
     if not links:
         if force:
             await bot.send(event, Message(msg("media_parser.no_link")))
-        return
+        return None
 
     if not force and not runtime.config_manager.trigger.should_parse(text):
-        return
+        return None
 
     if links_with_parser is None:
         max_links = max(1, int(runtime.config.get("max_links_per_message", 20)))
@@ -282,7 +394,7 @@ async def _process_text(
         if blocked and force:
             await bot.send(event, Message(msg("media_parser.rate_limited", reason=blocked[0].reason)))
         if not links:
-            return
+            return None
     logger.info(
         "[MediaParser] parse triggered -> user=%s, links=%d",
         event.get_user_id(),
@@ -300,14 +412,16 @@ async def _process_text(
         if not metadata_list:
             if force:
                 await bot.send(event, Message(msg("media_parser.empty")))
-            return
+            return None
         metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
         processed: list[dict[str, Any]] = []
+        max_send = max(1, int(runtime.config.get("max_send", 8)))
         for metadata in metadata_list:
             if not _apply_output_modes(runtime, metadata):
                 continue
             if metadata.get("_enable_rich_media") and not metadata.get("error"):
+                metadata = _limit_metadata_for_send(metadata, max_send=max_send)
                 metadata = await runtime.download_manager.process_metadata(
                     session=session,
                     metadata=metadata,
@@ -318,16 +432,41 @@ async def _process_text(
         if not processed:
             if force:
                 await bot.send(event, Message(msg("media_parser.empty")))
-            return
+            return None
 
-        total_sent = 0
-        for metadata in processed:
-            total_sent += await send_metadata_result(bot, event, metadata, runtime.config)
-            await asyncio.sleep(0.8)
+        return processed, runtime.config
 
-        if total_sent == 0 and not any(item.get("_enable_text_metadata") for item in processed):
-            await bot.send(event, Message(msg("media_parser.no_media")))
-        stats_increment(event, "media_parser_parsed", len(processed))
+
+def _limit_metadata_for_send(metadata: dict[str, Any], *, max_send: int) -> dict[str, Any]:
+    video_urls = list(metadata.get("video_urls") or [])
+    image_urls = list(metadata.get("image_urls") or [])
+    total_count = len(video_urls) + len(image_urls)
+    if total_count <= max_send:
+        return metadata
+
+    keep_video_count = min(len(video_urls), max_send)
+    keep_image_count = max(0, max_send - keep_video_count)
+    limited = dict(metadata)
+    limited["_original_video_count"] = len(video_urls)
+    limited["_original_image_count"] = len(image_urls)
+    limited["video_urls"] = video_urls[:keep_video_count]
+    limited["image_urls"] = image_urls[:keep_image_count]
+    _slice_metadata_list(limited, "video_cover_urls", keep_video_count)
+    _slice_metadata_list(limited, "video_cover_url_lists", keep_video_count)
+    _slice_metadata_list(limited, "video_force_downloads", keep_video_count)
+    logger.info(
+        "[MediaParser] media list limited before download -> platform=%s original=%d keep=%d",
+        metadata.get("platform") or metadata.get("parser_name") or "unknown",
+        total_count,
+        keep_video_count + keep_image_count,
+    )
+    return limited
+
+
+def _slice_metadata_list(metadata: dict[str, Any], key: str, limit: int) -> None:
+    value = metadata.get(key)
+    if isinstance(value, list):
+        metadata[key] = value[:limit]
 
 
 def _suppress_redundant_error_metadata(metadata_list: list[dict[str, Any]]) -> list[dict[str, Any]]:

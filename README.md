@@ -326,10 +326,12 @@ uv run python bot.py
 | `enabled` | 是否启用聚合媒体解析 |
 | `trigger.auto_parse` | 是否自动解析消息里的支持平台链接 |
 | `max_links_per_message` | 单条消息最多处理几个链接 |
-| `parse_queue.enabled` | 是否启用解析队列；启用后链接会逐个解析发送，避免批量链接互相抢占 |
+| `parse_queue.enabled` | 是否启用解析队列；启用后链接会进入后台解析/下载 worker |
 | `parse_queue.max_size` | 等待解析的最大链接数 |
-| `parse_queue.delay_seconds` | 两个队列任务之间的等待秒数 |
-| `max_send` | 单条链接最多发送多少个图片/视频节点 |
+| `parse_queue.max_concurrent` | 同时解析/下载的链接数；建议保持小并发，避免平台风控和本机 IO 抢占 |
+| `parse_queue.delay_seconds` | 每个解析 worker 完成一个任务后的等待秒数 |
+| `max_send` | 单条链接最多发送多少个图片/视频节点，默认 80；合并转发每包也按这个数量打包 |
+| `send_strategy.forward_timeout_seconds` | 单次合并转发 OneBot 调用的超时时间；超时后按策略回退到逐条发送 |
 | `parsers.<平台>` | 每个平台的输出模式：`关闭`、`全部发送`、`仅文本`、`仅富媒体` |
 | `permissions.whitelist` / `permissions.blacklist` | 插件自己的 QQ/群黑白名单，可在 Bot 后台“权限”页管理 |
 | `download.cache_dir` | 媒体缓存目录；Docker/NapCat 部署时应放在双方都能访问的 `/tmp/hikari_bot` 子目录 |

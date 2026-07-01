@@ -46,8 +46,8 @@ def build_metadata_text(metadata: dict[str, Any], *, max_desc_chars: int) -> str
         )
         return ""
 
-    video_count = len(metadata.get("video_urls") or [])
-    image_count = len(metadata.get("image_urls") or [])
+    video_count = int(metadata.get("_original_video_count", len(metadata.get("video_urls") or [])))
+    image_count = int(metadata.get("_original_image_count", len(metadata.get("image_urls") or [])))
     lines = [
         msg(
             "media_parser.info_header",
@@ -156,22 +156,119 @@ async def send_metadata_result(
     prefer_forward = bool(send_strategy.get("prefer_forward_message", True))
     fallback_separate = bool(send_strategy.get("fallback_to_separate_media", True))
     include_text_in_forward = bool(send_strategy.get("include_text_in_forward", True))
+    forward_timeout_seconds = max(1.0, float(send_strategy.get("forward_timeout_seconds", 90)))
 
     if prefer_forward and len(media_messages) > 1:
-        nodes: list[MessageSegment] = []
-        if text and include_text_in_forward:
-            nodes.append(_node(bot, Message(text)))
-        for _, media in media_messages:
-            nodes.append(_node(bot, media))
-        if await _try_send_forward(bot, event, nodes):
-            return len(media_messages)
+        logger.info(
+            "[MediaParser] sending media as forward chunks -> media=%d chunk_size=%d timeout=%.1fs",
+            len(media_messages),
+            max_send,
+            forward_timeout_seconds,
+        )
+        sent_count, text_sent = await _send_forward_chunks(
+            bot,
+            event,
+            text=text,
+            media_messages=media_messages,
+            include_text=include_text_in_forward,
+            chunk_size=max_send,
+            timeout_seconds=forward_timeout_seconds,
+        )
+        if sent_count == len(media_messages):
+            return sent_count
         if not fallback_separate:
-            return 0
+            return sent_count
+        logger.info(
+            "[MediaParser] falling back to separate media sends -> remaining=%d total=%d",
+            len(media_messages) - sent_count,
+            len(media_messages),
+        )
+        return await _send_separate(
+            bot,
+            event,
+            text=text,
+            media_messages=media_messages,
+            start_index=sent_count,
+            send_text=bool(text and not text_sent),
+        )
 
-    if text:
+    return await _send_separate(
+        bot,
+        event,
+        text=text,
+        media_messages=media_messages,
+        start_index=0,
+        send_text=bool(text),
+    )
+
+
+async def _send_forward_chunks(
+    bot: Bot,
+    event: Event,
+    *,
+    text: str,
+    media_messages: list[tuple[str, Message]],
+    include_text: bool,
+    chunk_size: int,
+    timeout_seconds: float,
+) -> tuple[int, bool]:
+    sent_count = 0
+    text_sent = False
+    for chunk_index, chunk in enumerate(_chunk_media_messages(media_messages, chunk_size)):
+        nodes: list[MessageSegment] = []
+        include_text_node = chunk_index == 0 and bool(text) and include_text
+        if include_text_node:
+            nodes.append(_node(bot, Message(text)))
+        for _, media in chunk:
+            nodes.append(_node(bot, media))
+        if not await _try_send_forward(bot, event, nodes, timeout_seconds=timeout_seconds):
+            logger.warning(
+                "[MediaParser] forward chunk failed -> chunk=%d sent_media=%d total_media=%d",
+                chunk_index + 1,
+                sent_count,
+                len(media_messages),
+            )
+            return sent_count, text_sent
+        sent_count += len(chunk)
+        text_sent = text_sent or include_text_node
+        logger.info(
+            "[MediaParser] forward chunk sent -> chunk=%d sent_media=%d total_media=%d",
+            chunk_index + 1,
+            sent_count,
+            len(media_messages),
+        )
+    return sent_count, text_sent
+
+
+def _chunk_media_messages(
+    media_messages: list[tuple[str, Message]],
+    chunk_size: int,
+) -> list[list[tuple[str, Message]]]:
+    chunk_size = max(1, chunk_size)
+    return [
+        media_messages[index:index + chunk_size]
+        for index in range(0, len(media_messages), chunk_size)
+    ]
+
+
+async def _send_separate(
+    bot: Bot,
+    event: Event,
+    *,
+    text: str,
+    media_messages: list[tuple[str, Message]],
+    start_index: int,
+    send_text: bool,
+) -> int:
+    if send_text and text:
         await bot.send(event, Message(text))
-    for _, media in media_messages:
+    for index, (_, media) in enumerate(media_messages[start_index:], start=start_index + 1):
         await bot.send(event, media)
+        logger.info(
+            "[MediaParser] separate media sent -> index=%d total=%d",
+            index,
+            len(media_messages),
+        )
         await asyncio.sleep(0.4)
     return len(media_messages)
 
@@ -184,13 +281,25 @@ def _node(bot: Bot, content: Message) -> MessageSegment:
     )
 
 
-async def _try_send_forward(bot: Bot, event: Event, nodes: list[MessageSegment]) -> bool:
+async def _try_send_forward(
+    bot: Bot,
+    event: Event,
+    nodes: list[MessageSegment],
+    *,
+    timeout_seconds: float,
+) -> bool:
     try:
-        if isinstance(event, GroupMessageEvent):
-            await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
-        else:
-            await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
+        async def _send() -> None:
+            if isinstance(event, GroupMessageEvent):
+                await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+            else:
+                await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
+
+        await asyncio.wait_for(_send(), timeout=timeout_seconds)
         return True
+    except asyncio.TimeoutError:
+        logger.warning("[MediaParser] forward message timed out after %.1fs", timeout_seconds)
+        return False
     except Exception as e:
         logger.warning("[MediaParser] forward message failed: %s", e)
         return False

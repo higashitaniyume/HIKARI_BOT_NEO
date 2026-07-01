@@ -5,9 +5,10 @@
   "parse_queue": {
     "enabled": true,
     "max_size": 100,
+    "max_concurrent": 2,
     "delay_seconds": 0.8
   },
-  "max_send": 8,
+  "max_send": 80,
   "trigger": {
     "auto_parse": true,
     "keywords": ["视频解析", "解析视频", "媒体解析"],
@@ -116,6 +117,7 @@
   "send_strategy": {
     "prefer_forward_message": true,
     "fallback_to_separate_media": true,
-    "include_text_in_forward": true
+    "include_text_in_forward": true,
+    "forward_timeout_seconds": 90
   }
 }

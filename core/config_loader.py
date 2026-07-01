@@ -127,9 +127,10 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     "parse_queue": {
         "enabled": True,
         "max_size": 100,
+        "max_concurrent": 2,
         "delay_seconds": 0.8,
     },
-    "max_send": 8,
+    "max_send": 80,
     "trigger": {
         "auto_parse": True,
         "keywords": ["视频解析", "解析视频", "媒体解析"],
@@ -239,6 +240,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "prefer_forward_message": True,
         "fallback_to_separate_media": True,
         "include_text_in_forward": True,
+        "forward_timeout_seconds": 90,
     },
 }
 
