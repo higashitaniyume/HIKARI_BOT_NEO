@@ -13,6 +13,7 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from plugins.push_framework import PushContext, PushMessage, register_push_source
 
+from .ai_summary import enhance_digest
 from .config import get_config
 from .feed import NewsItem, fetch_all_sources, normalize_sources, select_items
 from .render import render_digest
@@ -33,17 +34,22 @@ logger = logging.getLogger("HikariBot.AiNews")
         "send_first_run": None,
         "mark_seen": None,
         "include_links": False,
+        "ai_summary": None,
+        "translate": None,
+        "target_language": None,
     },
 )
 async def build_ai_news_push(ctx: PushContext) -> list[PushMessage]:
-    if not bool(get_config().get("enabled", True)):
+    cfg = get_config()
+    if not bool(cfg.get("enabled", True)):
         return []
 
     items = await _build_digest_items(ctx.options, now=ctx.now, default_mark_seen=not ctx.force)
     if not items:
         return []
 
-    path = await render_digest(items, config=get_config(), generated_at=ctx.now)
+    items, ai_summary = await enhance_digest(items, config=cfg, options=ctx.options)
+    path = await render_digest(items, config=cfg, generated_at=ctx.now, ai_summary=ai_summary)
     messages = [PushMessage(Message(MessageSegment.image(path.resolve().as_uri())), "AI 资讯图片")]
     if _parse_bool(ctx.options.get("include_links"), default=False):
         links = _format_links(items)
@@ -66,10 +72,12 @@ async def handle_ai_news(ctx: CommandContext) -> None:
         return
 
     max_items = _parse_count(ctx.args)
+    options = _manual_options(ctx.args)
+    options.update({"max_items": max_items, "only_new": False, "mark_seen": False})
     await ctx.send(Message(msg("ai_news.fetching")))
     try:
         items = await _build_digest_items(
-            {"max_items": max_items, "only_new": False, "mark_seen": False},
+            options,
             now=datetime.now().astimezone(),
             default_mark_seen=False,
         )
@@ -82,7 +90,9 @@ async def handle_ai_news(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("ai_news.empty")))
         return
 
-    path = await render_digest(items, config=get_config(), generated_at=datetime.now().astimezone())
+    cfg = get_config()
+    items, ai_summary = await enhance_digest(items, config=cfg, options=options)
+    path = await render_digest(items, config=cfg, generated_at=datetime.now().astimezone(), ai_summary=ai_summary)
     await ctx.send(Message(MessageSegment.image(path.resolve().as_uri())))
 
 
@@ -173,6 +183,16 @@ def _parse_count(text: str) -> int | None:
     if not match:
         return None
     return _parse_int(match.group(1), default=10, minimum=1, maximum=20)
+
+
+def _manual_options(text: str) -> dict[str, Any]:
+    normalized = str(text or "").strip().casefold()
+    options: dict[str, Any] = {}
+    if any(token in normalized for token in ("总结", "摘要", "翻译", "ai", "AI".casefold())):
+        options["ai_summary"] = True
+    if any(token in normalized for token in ("原文", "不总结", "noai", "no-ai")):
+        options["ai_summary"] = False
+    return options
 
 
 def _parse_bool(value: Any, *, default: bool = False) -> bool:

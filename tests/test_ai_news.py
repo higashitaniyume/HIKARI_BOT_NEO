@@ -4,10 +4,12 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import plugins.ai_news as ai_news_plugin
+from plugins.ai_news import ai_summary as ai_news_summary
 from plugins.ai_news import storage as ai_news_storage
+from plugins.ai_news.ai_summary import enhance_digest
 from plugins.ai_news.feed import NewsItem, NewsSource, normalize_sources, parse_feed_xml, select_items
 from plugins.push_framework.registry import PushContext, PushTarget, build_push_messages
 
@@ -140,6 +142,130 @@ class AiNewsPushSourceTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(messages), 1)
             self.assertIn("image", str(messages[0].message))
+
+    async def test_push_source_uses_ai_summary_when_enabled(self) -> None:
+        now = datetime(2026, 6, 30, 12, tzinfo=SHANGHAI_TZ)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = {
+                "enabled": True,
+                "max_items": 3,
+                "max_age_hours": 168,
+                "only_new": False,
+                "send_first_run": True,
+                "max_state_entries": 100,
+                "cache_dir": tmp,
+                "render": {"image_format": "PNG"},
+                "keyword_boosts": ["AI"],
+                "ai_summary": {"enabled": True, "fallback_to_original": True},
+                "sources": [
+                    {
+                        "id": "unit",
+                        "enabled": True,
+                        "title": "Unit Source",
+                        "group": "official",
+                        "url": "https://example.com/feed.xml",
+                        "weight": 10,
+                    }
+                ],
+            }
+            item = NewsItem("unit", "Unit Source", "official", "AI release", "https://example.com/ai", "A useful release.", now, "ai-1", 10)
+
+            async def fake_fetch_all_sources(sources, config):
+                return [item]
+
+            ctx = PushContext(
+                bot=None,
+                job_id="ai_news_job",
+                source="ai_news",
+                target=PushTarget("group", 100),
+                options={"mark_seen": False, "ai_summary": True},
+                now=now,
+            )
+
+            with (
+                patch.object(ai_news_plugin, "get_config", Mock(return_value=cfg)),
+                patch.object(ai_news_plugin, "fetch_all_sources", fake_fetch_all_sources),
+                patch.object(ai_news_plugin, "enhance_digest", AsyncMock(return_value=([item], None))) as enhance_mock,
+            ):
+                messages = await build_push_messages("ai_news", ctx)
+
+            self.assertEqual(len(messages), 1)
+            self.assertTrue(enhance_mock.called)
+
+
+class AiNewsSummaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_enhance_digest_reads_aiagent_model_config(self) -> None:
+        item = NewsItem(
+            "openai",
+            "OpenAI News",
+            "official",
+            "New model",
+            "https://example.com/model",
+            "A new model ships.",
+            datetime(2026, 6, 30, 12, tzinfo=timezone.utc),
+            "model-1",
+            10,
+        )
+        cfg = {
+            "ai_summary": {
+                "enabled": True,
+                "translate": True,
+                "target_language": "zh-CN",
+                "max_input_items": 1,
+                "fallback_to_original": True,
+            }
+        }
+        agent_cfg = {
+            "model": {
+                "base_url": "https://api.example.com/v1",
+                "api_key": "secret-key",
+                "model": "unit-model",
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "max_tokens": 1024,
+                "timeout_seconds": 60,
+                "proxy": "",
+            }
+        }
+
+        async def fake_post_chat_completion(request_cfg, messages, tools):
+            self.assertEqual(request_cfg["model"]["base_url"], "https://api.example.com/v1")
+            self.assertEqual(request_cfg["model"]["api_key"], "secret-key")
+            self.assertEqual(request_cfg["model"]["model"], "unit-model")
+            self.assertEqual(tools, [])
+            return {
+                "content": (
+                    '{"overview_title":"今日 AI 简报","overview_bullets":["模型发布值得关注"],'
+                    '"items":[{"index":1,"title":"新模型发布","summary":"一个新模型发布。"}]}'
+                )
+            }
+
+        with (
+            patch.object(ai_news_summary, "get_aiagent_config", Mock(return_value=agent_cfg)),
+            patch.object(ai_news_summary, "post_chat_completion", fake_post_chat_completion),
+        ):
+            items, summary = await enhance_digest([item], config=cfg, options={})
+
+        self.assertEqual(items[0].title, "新模型发布")
+        self.assertEqual(items[0].summary, "一个新模型发布。")
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary.title, "今日 AI 简报")
+
+    async def test_enhance_digest_falls_back_to_original_on_failure(self) -> None:
+        item = NewsItem("openai", "OpenAI News", "official", "New model", "https://example.com/model", "A new model ships.")
+        cfg = {"ai_summary": {"enabled": True, "fallback_to_original": True}}
+
+        async def fake_post_chat_completion(request_cfg, messages, tools):
+            raise RuntimeError("boom")
+
+        with (
+            patch.object(ai_news_summary, "get_aiagent_config", Mock(return_value={"model": {"model": "unit-model"}})),
+            patch.object(ai_news_summary, "post_chat_completion", fake_post_chat_completion),
+        ):
+            items, summary = await enhance_digest([item], config=cfg, options={})
+
+        self.assertEqual(items, [item])
+        self.assertIsNone(summary)
 
 
 if __name__ == "__main__":

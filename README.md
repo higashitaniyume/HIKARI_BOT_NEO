@@ -549,6 +549,8 @@ Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_
 
 本插件注册通用推送源 `ai_news`，从公开 RSS/Atom 源聚合 AI 最新资讯，按来源权重、发布时间和关键词加权筛选，去重后渲染成一张图片。默认源包含 OpenAI News、Google AI、Hugging Face Blog、arXiv AI、Hacker News AI、TechCrunch AI、The Verge AI 和 VentureBeat AI。手动命令 `ai资讯` 只用于预览，不写入推送去重状态。
 
+可选的 AI 摘要/翻译功能会复用 `BotData/plugin_configs/aiagent.json` 中的 `model` 配置，包括 `base_url`、`api_key`、`model` 和 `proxy`；`ai_news.json` 不单独保存模型 Key。AI 摘要默认关闭，避免无意消耗 token。开启后，插件会先筛选资讯，再请求 AI Agent 同款 OpenAI-compatible 接口生成中文总览并翻译标题/摘要；如果请求失败且 `fallback_to_original` 为 `true`，会降级发送原始资讯图片，只在日志里记录失败原因。
+
 关键字段：
 
 | 字段 | 说明 |
@@ -562,6 +564,12 @@ Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_
 | `max_items` | 单张图片默认最多展示多少条资讯 |
 | `max_per_source` | 单个数据源最多展示多少条，避免 arXiv/HN 这类高频源刷屏 |
 | `max_age_hours` | 只展示最近多少小时内的条目；`0` 表示不限制时间 |
+| `ai_summary.enabled` | 是否默认开启 AI 总结和翻译 |
+| `ai_summary.translate` | 是否翻译标题和摘要 |
+| `ai_summary.target_language` | 目标语言，默认 `zh-CN` |
+| `ai_summary.max_input_items` | 最多把多少条资讯交给 AI 总结 |
+| `ai_summary.max_summary_bullets` | 图片顶部 AI 总览最多几条要点 |
+| `ai_summary.fallback_to_original` | AI 请求失败时是否降级为原始资讯图片 |
 | `only_new` | 推送时是否只发送未见过的条目 |
 | `send_first_run` | 第一次推送时是否发送当前最新条目；关闭后第一次只建立基线 |
 | `max_state_entries` | `UserData/ai_news_state.json` 中保留多少去重键 |
@@ -575,6 +583,7 @@ Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_
 |------|------|
 | `ai资讯` | 生成默认条数的 AI 资讯图片 |
 | `ai资讯 5` | 生成最多 5 条资讯的图片 |
+| `ai资讯 总结 5` | 使用 AI Agent 的模型配置翻译并总结后生成图片 |
 
 中午 12 点推送示例：
 
@@ -593,6 +602,9 @@ Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_
   "source_options": {
     "max_items": 10,
     "max_per_source": 3,
+    "ai_summary": true,
+    "translate": true,
+    "target_language": "zh-CN",
     "only_new": true,
     "send_first_run": true,
     "include_links": false
@@ -641,7 +653,7 @@ Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_
 |--------|------|------------------------|
 | `static_text` | 发送固定文本，用于测试链路 | `text` |
 | `steam_deals` | 发送 Steam 热门热卖、免费和低价游戏日报图片 | `mode`: `all`/`free`/`low`；`include_links`: `true`/`false`；`force_refresh`: `true`/`false` |
-| `ai_news` | 发送 AI 最新资讯图片 | `max_items`: 条数；`max_per_source`: 单源上限；`groups`: 分组；`source_ids`: 指定源；`only_new`: `true`/`false`；`include_links`: `true`/`false` |
+| `ai_news` | 发送 AI 最新资讯图片 | `max_items`: 条数；`max_per_source`: 单源上限；`groups`: 分组；`source_ids`: 指定源；`only_new`: `true`/`false`；`include_links`: `true`/`false`；`ai_summary`: `true`/`false`；`translate`: `true`/`false`；`target_language`: 目标语言 |
 | `rss_feed` | 发送 RSS/Atom 订阅更新 | `subscription_id`: 订阅 ID；`url`: 临时 Feed URL；`max_items`: 条数；`only_new`: `true`/`false`；`mark_seen`: 显式写入去重状态 |
 
 Steam 原插件自己的 `BotData/plugin_configs/steam_deals.json` 定时白名单仍然保留兼容；新建推送任务时推荐走 `push_framework.json`，也就是 source 写 `steam_deals`。

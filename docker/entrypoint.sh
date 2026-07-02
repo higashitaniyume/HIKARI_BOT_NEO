@@ -19,8 +19,8 @@ for package in ffmpeg libcairo2 libpango-1.0-0 fonts-noto-cjk 7zip; do
 done
 
 if [ "$SYSTEM_DEPS_READY" -eq 0 ]; then
-  apt-get update
-  apt-get install -y --no-install-recommends \
+  apt update
+  apt install -y --no-install-recommends \
     ffmpeg \
     libcairo2 \
     libpango-1.0-0 \

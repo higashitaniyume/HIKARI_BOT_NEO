@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw
 
 from core.rendering import load_font
 
+from .ai_summary import AiDigestSummary
 from .feed import NewsItem
 
 BG = (247, 249, 252)
@@ -33,6 +34,7 @@ async def render_digest(
     *,
     config: dict[str, Any],
     generated_at: datetime | None = None,
+    ai_summary: AiDigestSummary | None = None,
 ) -> Path:
     generated_at = generated_at or datetime.now(timezone.utc)
     cache_dir = Path(str(config.get("cache_dir") or "/tmp/hikari_bot/ai_news"))
@@ -44,8 +46,9 @@ async def render_digest(
     header_h = 178
     row_gap = 16
     footer_h = 58
+    summary_h = _summary_height(ai_summary) if ai_summary is not None else 0
     row_heights = [_row_height(item) for item in items] or [138]
-    height = header_h + pad + sum(row_heights) + row_gap * max(0, len(row_heights) - 1) + footer_h
+    height = header_h + pad + summary_h + sum(row_heights) + row_gap * max(0, len(row_heights) - 1) + footer_h
 
     image = Image.new("RGB", (width, height), BG)
     draw = ImageDraw.Draw(image)
@@ -63,10 +66,18 @@ async def render_digest(
     draw.rectangle((0, header_h - 5, width, header_h), fill=(72, 179, 157))
     draw.text((pad, 32), "AI 最新资讯", font=title_font, fill=(255, 255, 255))
     local_time = generated_at.astimezone().strftime("%Y-%m-%d %H:%M")
-    draw.text((pad, 94), f"{local_time} 生成 · {len(items)} 条精选", font=subtitle_font, fill=(207, 216, 226))
-    draw.text((pad, 130), "来源按官方发布、研究社区与科技媒体综合排序", font=meta_font, fill=(162, 176, 194))
+    mode = "AI 总结 + 翻译" if ai_summary is not None else "规则筛选"
+    draw.text((pad, 94), f"{local_time} 生成 · {len(items)} 条精选 · {mode}", font=subtitle_font, fill=(207, 216, 226))
+    subtitle = "来源按官方发布、研究社区与科技媒体综合排序"
+    if ai_summary is not None and ai_summary.model_label:
+        subtitle = f"{subtitle} · {ai_summary.model_label}"
+    draw.text((pad, 130), subtitle, font=meta_font, fill=(162, 176, 194))
 
     y = header_h + pad
+    if ai_summary is not None:
+        y = _draw_summary_panel(draw, ai_summary, (pad, y, width - pad, y + summary_h - row_gap), title_font=load_font(28, bold=True), text_font=summary_font, small_font=small_font)
+        y += row_gap
+
     if not items:
         _rounded_rect(draw, (pad, y, width - pad, y + 116), radius=8, fill=PANEL, outline=SOFT)
         draw.text((pad + 28, y + 38), "暂时没有筛到新的 AI 资讯。", font=item_title_font, fill=INK)
@@ -122,6 +133,39 @@ async def render_digest(
 
 def _row_height(item: NewsItem) -> int:
     return 178 if item.summary else 142
+
+
+def _summary_height(summary: AiDigestSummary | None) -> int:
+    if summary is None:
+        return 0
+    bullet_count = max(1, min(len(summary.bullets), 4))
+    return 96 + bullet_count * 34 + 16
+
+
+def _draw_summary_panel(
+    draw: ImageDraw.ImageDraw,
+    summary: AiDigestSummary,
+    box: tuple[int, int, int, int],
+    *,
+    title_font,
+    text_font,
+    small_font,
+) -> int:
+    x0, y0, x1, y1 = box
+    _rounded_rect(draw, box, radius=8, fill=(235, 244, 250), outline=(197, 215, 228))
+    draw.text((x0 + 28, y0 + 22), summary.title or "AI 摘要", font=title_font, fill=INK)
+    bullets = summary.bullets or ["已根据当前资讯生成中文摘要。"]
+    y = y0 + 66
+    for bullet in bullets[:4]:
+        draw.ellipse((x0 + 32, y + 8, x0 + 42, y + 18), fill=(72, 179, 157))
+        lines = _wrap_text(draw, bullet, text_font, width=x1 - x0 - 96, max_lines=1)
+        draw.text((x0 + 54, y), lines[0], font=text_font, fill=(46, 61, 78))
+        y += 34
+    if summary.model_label:
+        label = f"由 {summary.model_label} 生成"
+        label_w, _ = _text_size(draw, label, small_font)
+        draw.text((x1 - 28 - label_w, y1 - 32), label, font=small_font, fill=MUTED)
+    return y1
 
 
 def _format_time(value: datetime) -> str:
