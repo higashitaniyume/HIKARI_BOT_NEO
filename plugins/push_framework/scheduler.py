@@ -69,6 +69,7 @@ _FIXED_TIMEZONES: dict[str, tzinfo] = {
 }
 
 _TRIGGERS = {"schedule", "startup", "shutdown", "manual"}
+_MEDIA_SEGMENT_TYPES = {"image", "record", "video", "file"}
 
 
 @dataclass(slots=True)
@@ -252,6 +253,7 @@ async def run_job(
                     lambda message=push_message.message: _send_to_target(bot, target, message),
                     cfg,
                     f"{target.label} {label}",
+                    message=push_message.message,
                 )
             result.sent += 1
             if mark_state:
@@ -271,17 +273,47 @@ async def _send_to_target(bot, target: PushTarget, message) -> Any:
     return await bot.send_private_msg(user_id=target.target_id, message=message)
 
 
-async def _send_with_retry(action, cfg: dict[str, Any], label: str) -> Any:
+async def _send_with_retry(action, cfg: dict[str, Any], label: str, *, message: Any = None) -> Any:
     attempts = max(1, _safe_int(cfg.get("send_retry_attempts"), default=2))
     delay = max(0.0, _safe_float(cfg.get("send_retry_delay_seconds"), default=2.0))
     for attempt in range(1, attempts + 1):
         try:
             return await action()
-        except ActionFailed:
+        except ActionFailed as e:
+            if _message_has_media(message) and _is_ambiguous_media_timeout(e):
+                logger.warning("[PushFramework] %s 返回媒体发送超时，可能已送达；跳过重试以避免重复发送: %s", label, e)
+                return None
             if attempt >= attempts:
                 raise
             logger.warning("[PushFramework] %s 发送失败，%.1fs 后重试 %d/%d", label, delay, attempt, attempts - 1)
             await asyncio.sleep(delay)
+
+
+def _message_has_media(message: Any) -> bool:
+    try:
+        for segment in message:
+            if getattr(segment, "type", "") in _MEDIA_SEGMENT_TYPES:
+                return True
+    except TypeError:
+        pass
+    text = str(message or "")
+    return any(f"[CQ:{segment_type}" in text for segment_type in _MEDIA_SEGMENT_TYPES)
+
+
+def _is_ambiguous_media_timeout(error: ActionFailed) -> bool:
+    info = getattr(error, "info", {})
+    retcode = info.get("retcode") if isinstance(info, dict) else getattr(error, "retcode", None)
+    text = "\n".join(
+        str(value or "")
+        for value in (
+            info.get("message") if isinstance(info, dict) else getattr(error, "message", ""),
+            info.get("wording") if isinstance(info, dict) else getattr(error, "wording", ""),
+            str(error),
+        )
+    )
+    if "rich media transfer failed" in text:
+        return False
+    return retcode == 1200 and "Timeout" in text
 
 
 def _job_time_labels(job: dict[str, Any]) -> list[str]:

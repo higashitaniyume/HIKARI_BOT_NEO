@@ -6,6 +6,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.adapters.onebot.v11.exception import ActionFailed
+
 from plugins.push_framework.registry import (
     PushContext,
     PushMessage,
@@ -30,6 +33,23 @@ class FakeBot:
 
     async def send_private_msg(self, *, user_id: int, message) -> None:
         self.private_messages.append((user_id, message))
+
+
+class MediaTimeoutBot(FakeBot):
+    def __init__(self) -> None:
+        super().__init__()
+        self.group_attempts = 0
+
+    async def send_group_msg(self, *, group_id: int, message) -> None:
+        self.group_attempts += 1
+        self.group_messages.append((group_id, message))
+        if self.group_attempts == 1:
+            raise ActionFailed(
+                status="failed",
+                retcode=1200,
+                message="Timeout: NTEvent serviceAndMethod:NodeIKernelMsgService/sendMsg ListenerName:NodeIKernelMsgListener/onMsgInfoListUpdate EventRet:\n{}\n",
+                wording="Timeout: NTEvent serviceAndMethod:NodeIKernelMsgService/sendMsg ListenerName:NodeIKernelMsgListener/onMsgInfoListUpdate EventRet:\n{}\n",
+            )
 
 
 class PushRegistryTests(unittest.IsolatedAsyncioTestCase):
@@ -188,6 +208,36 @@ class PushRunTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([result.job_id for result in results], ["startup_job"])
         self.assertEqual([group_id for group_id, _ in bot.group_messages], [100])
+
+    async def test_media_timeout_is_not_retried_to_avoid_duplicate_images(self) -> None:
+        async def provider(ctx: PushContext):
+            return Message(MessageSegment.image("file:///tmp/hikari_bot/unit.png"))
+
+        register_push_source("unit_test_media_timeout_source", provider)
+        job = {
+            "id": "media_timeout_job",
+            "source": "unit_test_media_timeout_source",
+            "targets": {
+                "group_ids": [100],
+                "private_user_ids": [],
+            },
+            "source_options": {},
+        }
+
+        with patch.object(push_scheduler, "get_config", Mock(return_value={"send_retry_attempts": 2, "send_retry_delay_seconds": 0})):
+            bot = MediaTimeoutBot()
+            result = await push_scheduler.run_job(
+                bot,
+                job,
+                token="manual:test",
+                mark_state=False,
+                now=datetime(2026, 6, 30, 9, 0, tzinfo=SHANGHAI_TZ),
+            )
+
+        self.assertEqual(result.sent, 1)
+        self.assertEqual(result.failed, 0)
+        self.assertEqual(bot.group_attempts, 1)
+        self.assertEqual(len(bot.group_messages), 1)
 
 
 if __name__ == "__main__":
