@@ -1,0 +1,103 @@
+{
+  "enabled": true,
+  "timeout_seconds": 20,
+  "proxy": "",
+  "user_agent": "HIKARI_BOT_NEO AI News Reader",
+  "max_feed_bytes": 2097152,
+  "fetch_concurrency": 4,
+  "max_items": 10,
+  "max_per_source": 3,
+  "max_age_hours": 168,
+  "summary_max_chars": 180,
+  "only_new": true,
+  "send_first_run": true,
+  "max_state_entries": 5000,
+  "cache_dir": "/tmp/hikari_bot/ai_news",
+  "render": {
+    "image_format": "PNG",
+    "jpeg_quality": 86
+  },
+  "keyword_boosts": [
+    "OpenAI",
+    "GPT",
+    "Claude",
+    "Anthropic",
+    "Gemini",
+    "DeepMind",
+    "Llama",
+    "Mistral",
+    "agent",
+    "agents",
+    "multimodal",
+    "reasoning",
+    "模型",
+    "智能体",
+    "多模态"
+  ],
+  "sources": [
+    {
+      "id": "openai_news",
+      "enabled": true,
+      "title": "OpenAI News",
+      "group": "official",
+      "url": "https://openai.com/news/rss.xml",
+      "weight": 120
+    },
+    {
+      "id": "google_ai",
+      "enabled": true,
+      "title": "Google AI",
+      "group": "official",
+      "url": "https://blog.google/technology/ai/rss/",
+      "weight": 105
+    },
+    {
+      "id": "huggingface_blog",
+      "enabled": true,
+      "title": "Hugging Face Blog",
+      "group": "research",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "weight": 90
+    },
+    {
+      "id": "arxiv_ai",
+      "enabled": true,
+      "title": "arXiv AI",
+      "group": "research",
+      "url": "https://rss.arxiv.org/rss/cs.AI+cs.LG+cs.CL+cs.CV",
+      "weight": 75
+    },
+    {
+      "id": "hn_ai",
+      "enabled": true,
+      "title": "Hacker News AI",
+      "group": "community",
+      "url": "https://hnrss.org/newest?q=AI+OR+LLM+OR+OpenAI+OR+Claude+OR+Gemini&points=50&count=20",
+      "weight": 70
+    },
+    {
+      "id": "techcrunch_ai",
+      "enabled": true,
+      "title": "TechCrunch AI",
+      "group": "media",
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "weight": 65
+    },
+    {
+      "id": "theverge_ai",
+      "enabled": true,
+      "title": "The Verge AI",
+      "group": "media",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+      "weight": 60
+    },
+    {
+      "id": "venturebeat_ai",
+      "enabled": true,
+      "title": "VentureBeat AI",
+      "group": "media",
+      "url": "https://venturebeat.com/category/ai/feed/",
+      "weight": 58
+    }
+  ]
+}
