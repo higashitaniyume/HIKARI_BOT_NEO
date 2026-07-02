@@ -152,6 +152,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "empty": "暂时没有筛到新的 AI 资讯。",
         "help": "ai资讯 [数量]：生成 AI 最新资讯图片，不写入推送去重状态。\nai资讯 总结 [数量]：使用 AI Agent 的模型配置翻译并总结后生成图片。\n推送消息源为 ai_news，可在 push_framework.json 中配置每日推送；source_options 支持 max_items、max_per_source、groups、source_ids、only_new、send_first_run、mark_seen、include_links、ai_summary、translate、target_language。",
     },
+    "zhihu_hot": {
+        "disabled": "知乎热搜源当前已关闭。",
+        "fetching": "正在读取知乎热搜...",
+        "failed": "知乎热搜生成失败，请稍后再试。",
+        "empty": "暂时没有读取到知乎热搜。",
+        "help": "知乎热搜 [数量]：生成知乎热搜图片。\n知乎热搜 10 刷新：忽略短期缓存重新读取。\n知乎热搜 链接：图片后额外发送前几条问题链接。\n推送消息源为 zhihu_hot，可在 push_framework.json 中配置每日推送；source_options 支持 max_items、include_links、force_refresh。",
+    },
     "push_framework": {
         "help": "推送框架用法：\n推送 状态：查看框架、任务和消息源状态。\n推送 源：查看已注册消息源。\n推送 触发 <任务ID>：立即按配置目标试发一次，不写入定时去重状态。\n任务配置位于 BotData/plugin_configs/push_framework.json；trigger 支持 schedule、startup、shutdown、manual；新消息源可在插件中调用 register_push_source() 注册。",
         "permission_denied": "只有超级管理员可以管理推送框架。",
