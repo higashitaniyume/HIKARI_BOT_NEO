@@ -1266,6 +1266,8 @@ curl -H "X-Admin-Token: <后台密码>" http://服务器IP:54213/api/aiagent-con
 curl -H "Authorization: Bearer <后台密码>" http://服务器IP:54213/api/state
 ```
 
+完整 HTTP API 文档见 [`docs/API.md`](docs/API.md)。
+
 打开 `http://服务器IP:54213/` 后，可以：
 
 - 上传贴纸素材到已有贴纸包，保存前会统一转换为 GIF。
