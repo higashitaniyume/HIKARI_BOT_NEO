@@ -74,6 +74,7 @@ async function fetchAiAgentConfig(shouldRender = true) {
   const data = await readJsonResponse(res, "读取 AI Agent 设置失败");
   state.aiagentConfig = data.config || {};
   state.aiagentPersonas = data.personas || [];
+  state.aiagentTools = data.tools_catalog || [];
   if (shouldRender) {
     renderAiAgentConfig();
   }

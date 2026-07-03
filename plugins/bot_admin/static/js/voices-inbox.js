@@ -429,6 +429,173 @@ function renderTtsVoiceList() {
   }
 }
 
+function aiagentPluginToolsConfig() {
+  const cfg = state.aiagentConfig || {};
+  const tools = cfg.tools || {};
+  return tools.plugin_tools || {};
+}
+
+function aiagentToolNameSet(value) {
+  if (!Array.isArray(value)) return new Set();
+  return new Set(value.map((item) => String(item || "").trim()).filter(Boolean));
+}
+
+function aiagentToolMode(pluginTools) {
+  return aiagentToolNameSet(pluginTools.enabled_names).size ? "allowlist" : "default";
+}
+
+function aiagentToolSelected(tool, pluginTools, mode) {
+  const enabledNames = aiagentToolNameSet(pluginTools.enabled_names);
+  const disabledNames = aiagentToolNameSet(pluginTools.disabled_names);
+  if (mode === "allowlist" || enabledNames.size) {
+    return enabledNames.has(tool.name) && !disabledNames.has(tool.name);
+  }
+  return tool.enabled_by_default !== false && !disabledNames.has(tool.name);
+}
+
+function aiagentToolStatus(tool, pluginTools, selected) {
+  if (pluginTools.enabled === false) {
+    return { text: "总开关关闭", active: false };
+  }
+  if (!selected) {
+    return { text: "未启用", active: false };
+  }
+  if (tool.missing === true) {
+    return { text: "未注册", active: false };
+  }
+  if (tool.readonly === false && pluginTools.allow_side_effects !== true) {
+    return { text: "副作用未放行", active: false };
+  }
+  if (tool.requires_superuser === true) {
+    return { text: "仅超级用户", active: true };
+  }
+  return { text: "可用", active: true };
+}
+
+function buildAiAgentPluginToolsPayload() {
+  const current = aiagentPluginToolsConfig();
+  const enabledNode = $("#aiagentPluginToolsEnabled");
+  const sideEffectNode = $("#aiagentAllowSideEffectTools");
+  const modeNode = $("#aiagentToolSelectionMode");
+  const catalog = state.aiagentTools || [];
+  const mode = modeNode?.value || aiagentToolMode(current);
+  const checkedNames = new Set(
+    Array.from(document.querySelectorAll(".aiagent-tool-toggle:checked"))
+      .map((item) => item.value)
+      .filter(Boolean)
+  );
+  const selectedNames = catalog
+    .filter((tool) => checkedNames.has(tool.name))
+    .map((tool) => tool.name);
+  const hasDefaultDisabledSelection = catalog.some(
+    (tool) => tool.enabled_by_default === false && checkedNames.has(tool.name)
+  );
+  let enabledNames = [];
+  let disabledNames = [];
+  if (mode === "allowlist" || hasDefaultDisabledSelection) {
+    enabledNames = selectedNames;
+  } else {
+    disabledNames = catalog
+      .filter((tool) => tool.enabled_by_default !== false && !checkedNames.has(tool.name))
+      .map((tool) => tool.name);
+  }
+
+  return {
+    enabled: enabledNode ? enabledNode.checked : current.enabled !== false,
+    allow_side_effects: sideEffectNode ? sideEffectNode.checked : current.allow_side_effects === true,
+    enabled_names: enabledNames,
+    disabled_names: disabledNames,
+  };
+}
+
+function makeAiAgentToolBadge(text, extraClass = "") {
+  const badge = document.createElement("span");
+  badge.className = extraClass ? `aiagent-tool-badge ${extraClass}` : "aiagent-tool-badge";
+  badge.textContent = text;
+  return badge;
+}
+
+function renderAiAgentTools(useDraft = false) {
+  const pluginTools = useDraft ? buildAiAgentPluginToolsPayload() : aiagentPluginToolsConfig();
+  const tools = state.aiagentTools || [];
+  const mode = useDraft ? ($("#aiagentToolSelectionMode")?.value || aiagentToolMode(pluginTools)) : aiagentToolMode(pluginTools);
+  const list = $("#aiagentToolList");
+  $("#aiagentPluginToolsEnabled").checked = pluginTools.enabled !== false;
+  $("#aiagentAllowSideEffectTools").checked = pluginTools.allow_side_effects === true;
+  $("#aiagentToolSelectionMode").value = mode;
+
+  list.replaceChildren();
+  if (!tools.length) {
+    list.className = "aiagent-tool-list empty";
+    list.textContent = "当前没有已注册的插件 Tools。";
+    $("#aiagentToolSummary").textContent = "0 个插件工具。";
+    return;
+  }
+
+  list.className = "aiagent-tool-list";
+  let selectedCount = 0;
+  let activeCount = 0;
+  for (const tool of tools) {
+    const selected = aiagentToolSelected(tool, pluginTools, mode);
+    const status = aiagentToolStatus(tool, pluginTools, selected);
+    if (selected) selectedCount += 1;
+    if (status.active) activeCount += 1;
+
+    const card = document.createElement("article");
+    card.className = "aiagent-tool-card";
+    card.classList.toggle("is-selected", selected);
+    card.classList.toggle("is-active", status.active);
+
+    const header = document.createElement("div");
+    header.className = "aiagent-tool-card-head";
+    const selectLabel = document.createElement("label");
+    selectLabel.className = "aiagent-tool-select";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "aiagent-tool-toggle";
+    input.value = tool.name;
+    input.checked = selected;
+    input.addEventListener("change", () => renderAiAgentTools(true));
+    const title = document.createElement("span");
+    title.textContent = tool.name;
+    selectLabel.append(input, title);
+
+    const badges = document.createElement("div");
+    badges.className = "aiagent-tool-badges";
+    badges.append(makeAiAgentToolBadge(tool.plugin_name || "unknown"));
+    badges.append(makeAiAgentToolBadge(tool.readonly === false ? "可产生副作用" : "只读"));
+    if (tool.missing === true) {
+      badges.append(makeAiAgentToolBadge("未注册", "is-muted"));
+    }
+    if (tool.requires_superuser === true) {
+      badges.append(makeAiAgentToolBadge("超级用户"));
+    }
+    if (tool.enabled_by_default === false) {
+      badges.append(makeAiAgentToolBadge("默认关闭"));
+    }
+    badges.append(makeAiAgentToolBadge(status.text, status.active ? "is-active" : "is-muted"));
+    header.append(selectLabel, badges);
+
+    const description = document.createElement("p");
+    description.className = "aiagent-tool-description";
+    description.textContent = tool.description || "这个工具没有提供说明。";
+
+    const details = document.createElement("details");
+    details.className = "aiagent-tool-schema";
+    const summary = document.createElement("summary");
+    summary.textContent = "参数 schema";
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(tool.parameters || {}, null, 2);
+    details.append(summary, pre);
+
+    card.append(header, description, details);
+    list.append(card);
+  }
+
+  const modeLabel = mode === "allowlist" ? "白名单模式" : "默认模式";
+  $("#aiagentToolSummary").textContent = `${tools.length} 个插件工具，已选 ${selectedCount} 个，当前可用 ${activeCount} 个（${modeLabel}）。`;
+}
+
 function renderAiAgentConfig() {
   const cfg = state.aiagentConfig || {};
   const model = cfg.model || {};
@@ -462,4 +629,5 @@ function renderAiAgentConfig() {
     select.append(option(personaItem.path, label));
   }
   select.value = (state.aiagentPersonas || []).some((item) => item.path === personaPath) ? personaPath : "";
+  renderAiAgentTools(false);
 }

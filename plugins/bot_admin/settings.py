@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
+from core.ai_tool_registry import iter_ai_tools
 from plugins.aiagent.config import get_config as get_aiagent_config
 from plugins.aiagent.config import list_persona_skills as list_aiagent_persona_skills
 from plugins.aiagent.config import resolve_persona_path as resolve_aiagent_persona_path
@@ -25,6 +27,9 @@ from .parsing import (
     _parse_tts_voices,
 )
 
+_AI_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
 def _tts_config_state() -> dict[str, Any]:
     cfg = get_tts_config()
     sanitized = json.loads(json.dumps(cfg, ensure_ascii=False))
@@ -34,6 +39,98 @@ def _tts_config_state() -> dict[str, Any]:
     fish_cfg["api_key_set"] = bool(api_key)
     sanitized["fish_audio"] = fish_cfg
     return {"config": sanitized}
+
+
+def _parse_ai_tool_names(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_names = [item.strip() for item in value.replace("\n", ",").split(",")]
+    elif isinstance(value, list):
+        raw_names = [str(item).strip() for item in value]
+    else:
+        return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in raw_names:
+        if not name:
+            continue
+        if not _AI_TOOL_NAME_RE.fullmatch(name):
+            raise ValueError(f"AI Tool 名称格式无效：{name}")
+        if name not in seen:
+            names.append(name)
+            seen.add(name)
+        if len(names) >= 128:
+            break
+    return names
+
+
+def _aiagent_plugin_tools_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    plugin_tools = tools_cfg.get("plugin_tools") if isinstance(tools_cfg.get("plugin_tools"), dict) else {}
+    return plugin_tools
+
+
+def _aiagent_tools_catalog(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    plugin_tools = _aiagent_plugin_tools_cfg(cfg)
+    enabled = _parse_bool(plugin_tools.get("enabled", True))
+    allow_side_effects = _parse_bool(plugin_tools.get("allow_side_effects", False))
+    enabled_names = set(_parse_ai_tool_names(plugin_tools.get("enabled_names", [])))
+    disabled_names = set(_parse_ai_tool_names(plugin_tools.get("disabled_names", [])))
+
+    tools: list[dict[str, Any]] = []
+    registered_names: set[str] = set()
+    for spec in sorted(iter_ai_tools(), key=lambda item: ((item.plugin_name or "").casefold(), item.name.casefold())):
+        registered_names.add(spec.name)
+        selected = True
+        blocked_reason = ""
+        if not enabled:
+            selected = False
+            blocked_reason = "plugin_tools 已关闭"
+        elif not spec.enabled_by_default and spec.name not in enabled_names:
+            selected = False
+            blocked_reason = "默认未启用"
+        elif enabled_names and spec.name not in enabled_names:
+            selected = False
+            blocked_reason = "未在启用名单中"
+        elif spec.name in disabled_names:
+            selected = False
+            blocked_reason = "已加入禁用名单"
+        elif not spec.readonly and not allow_side_effects:
+            selected = False
+            blocked_reason = "副作用工具未放行"
+
+        tools.append(
+            {
+                "name": spec.name,
+                "plugin_name": spec.plugin_name or "unknown",
+                "description": spec.description,
+                "parameters": spec.parameters,
+                "readonly": spec.readonly,
+                "requires_superuser": spec.requires_superuser,
+                "enabled_by_default": spec.enabled_by_default,
+                "selected": selected,
+                "blocked_reason": blocked_reason,
+                "missing": False,
+            }
+        )
+
+    for name in sorted((enabled_names | disabled_names) - registered_names, key=str.casefold):
+        in_disabled = name in disabled_names
+        tools.append(
+            {
+                "name": name,
+                "plugin_name": "missing",
+                "description": "这个工具写在配置里，但当前没有已注册的插件提供它。",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+                "readonly": True,
+                "requires_superuser": False,
+                "enabled_by_default": in_disabled,
+                "selected": enabled and name in enabled_names and not in_disabled,
+                "blocked_reason": "当前未注册",
+                "missing": True,
+            }
+        )
+    return tools
 
 
 def _aiagent_config_state() -> dict[str, Any]:
@@ -47,6 +144,7 @@ def _aiagent_config_state() -> dict[str, Any]:
     return {
         "config": sanitized,
         "personas": list_aiagent_persona_skills(),
+        "tools_catalog": _aiagent_tools_catalog(sanitized),
     }
 
 def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +231,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
+    current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
@@ -140,6 +239,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
+    input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -202,6 +302,12 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
                 "enabled": _parse_bool(input_files.get("enabled", current_files.get("enabled", True))),
                 "max_read_chars": _parse_int(input_files.get("max_read_chars", current_files.get("max_read_chars", 20000)), 20000, minimum=1000, maximum=200000),
                 "max_write_chars": _parse_int(input_files.get("max_write_chars", current_files.get("max_write_chars", 20000)), 20000, minimum=1000, maximum=200000),
+            },
+            "plugin_tools": {
+                "enabled": _parse_bool(input_plugin_tools.get("enabled", current_plugin_tools.get("enabled", True))),
+                "allow_side_effects": _parse_bool(input_plugin_tools.get("allow_side_effects", current_plugin_tools.get("allow_side_effects", False))),
+                "enabled_names": _parse_ai_tool_names(input_plugin_tools.get("enabled_names", current_plugin_tools.get("enabled_names", []))),
+                "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 2)), 2, minimum=0, maximum=5),
         },

@@ -52,6 +52,9 @@ $("#aiagentPersonaSelect").addEventListener("change", (event) => {
     $("#aiagentPersonaPath").value = event.currentTarget.value;
   }
 });
+$("#aiagentPluginToolsEnabled").addEventListener("change", () => renderAiAgentTools(true));
+$("#aiagentAllowSideEffectTools").addEventListener("change", () => renderAiAgentTools(true));
+$("#aiagentToolSelectionMode").addEventListener("change", () => renderAiAgentTools(true));
 $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 

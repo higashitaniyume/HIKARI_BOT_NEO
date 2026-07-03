@@ -100,6 +100,33 @@
             <textarea id="aiagentSystemExtra" rows="4" placeholder="可选，会追加在人格 skill 后"></textarea>
           </label>
 
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentToolsTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentToolsTitle">Tools 管理</h3>
+                <p id="aiagentToolSummary">正在读取可用工具。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentPluginToolsEnabled" type="checkbox">
+                  <span>启用插件 Tools</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentAllowSideEffectTools" type="checkbox">
+                  <span>允许副作用 Tools</span>
+                </label>
+                <label>
+                  <span>选择模式</span>
+                  <select id="aiagentToolSelectionMode">
+                    <option value="default">默认启用，逐个禁用</option>
+                    <option value="allowlist">只启用勾选项</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="aiagentToolList" class="aiagent-tool-list" aria-live="polite"></div>
+          </section>
+
           <button type="submit" class="primary">保存 AI Agent 设置</button>
         </form>
       </section>

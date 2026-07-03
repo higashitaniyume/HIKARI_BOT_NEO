@@ -16,6 +16,7 @@ const state = {
   ttsConfig: {},
   aiagentConfig: {},
   aiagentPersonas: [],
+  aiagentTools: [],
   pushConfig: {},
   pushSources: [],
   selectedPushJobId: "",

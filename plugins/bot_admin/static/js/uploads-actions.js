@@ -263,6 +263,9 @@ function buildAiAgentPayload() {
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
     },
+    tools: {
+      plugin_tools: buildAiAgentPluginToolsPayload(),
+    },
   };
 }
 
@@ -279,6 +282,7 @@ async function saveAiAgentConfig(event) {
     const data = await readJsonResponse(res, "保存 AI Agent 设置失败");
     state.aiagentConfig = data.config || {};
     state.aiagentPersonas = data.personas || [];
+    state.aiagentTools = data.tools_catalog || [];
     renderAiAgentConfig();
     showToast(data.message || "AI Agent 设置已保存。");
   } catch (err) {
