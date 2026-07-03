@@ -54,6 +54,7 @@ from .system_probe import system_probe_state
 from .utils import _safe_pack_name, _safe_voice_name
 
 logger = logging.getLogger("HikariBot.BotAdmin")
+_API_TOKEN_HEADERS = ("X-Admin-Token", "X-Hikari-Admin-Token", "Token")
 
 class BotAdminHandler(BaseHTTPRequestHandler):
     server_version = "HikariBotAdmin/1.0"
@@ -84,10 +85,29 @@ class BotAdminHandler(BaseHTTPRequestHandler):
     def _is_authenticated(self) -> bool:
         if not _auth_enabled():
             return True
+        if self._is_api_request() and self._is_valid_api_token():
+            return True
         cookie_header = self.headers.get("Cookie", "")
         cookie = SimpleCookie(cookie_header)
         morsel = cookie.get(_COOKIE_NAME)
         return bool(morsel and _valid_session_token(morsel.value))
+
+    def _is_api_request(self) -> bool:
+        return urlparse(self.path).path.startswith("/api/")
+
+    def _api_token_from_headers(self) -> str:
+        authorization = self.headers.get("Authorization", "").strip()
+        if authorization.lower().startswith("bearer "):
+            return authorization[7:].strip()
+        for header_name in _API_TOKEN_HEADERS:
+            token = self.headers.get(header_name, "").strip()
+            if token:
+                return token
+        return ""
+
+    def _is_valid_api_token(self) -> bool:
+        token = self._api_token_from_headers()
+        return bool(token) and hmac.compare_digest(token, _auth_password())
 
     def _send_login(self, message: str = "", status: int = 200) -> None:
         self._send_html(_login_page(message), status)

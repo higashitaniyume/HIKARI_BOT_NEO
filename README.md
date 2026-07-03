@@ -1259,6 +1259,13 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 
 > TCP 端口最大为 `65535`，因此不能使用 `542123`。如需修改端口，请改 `bot_admin.json` 中的 `port`。如果服务器上已有旧的 `sticker_web.json`，首次启动会自动迁移。
 
+后台 API 也可以直接用请求头鉴权，token 就是 `bot_admin.json` 里的 `password`；该方式只对 `/api/...` 路径生效，不改变浏览器登录页的 cookie/session 登录。
+
+```bash
+curl -H "X-Admin-Token: <后台密码>" http://服务器IP:54213/api/aiagent-config
+curl -H "Authorization: Bearer <后台密码>" http://服务器IP:54213/api/state
+```
+
 打开 `http://服务器IP:54213/` 后，可以：
 
 - 上传贴纸素材到已有贴纸包，保存前会统一转换为 GIF。
