@@ -20,17 +20,22 @@ def _command_scope(spec: CommandSpec) -> str:
 
 
 def _format_command_line(spec: CommandSpec) -> str:
-    usage = spec.usage or spec.name
     description = msg("bot_help.command_description", description=spec.description) if spec.description else ""
-    scope = _command_scope(spec)
-    scope_text = msg("bot_help.command_scope", scope=scope) if scope else ""
-    return msg("bot_help.command_line", usage=usage, description=description, scope=scope_text)
+    return msg(
+        "bot_help.command_line",
+        name=spec.name,
+        usage=spec.name,
+        description=description,
+        scope="",
+    )
 
 
-def _unique_commands() -> list[CommandSpec]:
+def _unique_commands(*, public_only: bool = False) -> list[CommandSpec]:
     commands: list[CommandSpec] = []
     seen: set[str] = set()
     for spec in iter_commands():
+        if public_only and not spec.show_in_help:
+            continue
         if spec.name in seen:
             continue
         seen.add(spec.name)
@@ -42,7 +47,7 @@ def _find_command(name: str) -> CommandSpec | None:
     normalized = name.strip().casefold()
     if not normalized:
         return None
-    for spec in _unique_commands():
+    for spec in _unique_commands(public_only=True):
         names = (spec.name, *spec.aliases)
         if any(candidate.casefold() == normalized for candidate in names):
             return spec
@@ -50,7 +55,7 @@ def _find_command(name: str) -> CommandSpec | None:
 
 
 def _format_command_list() -> str:
-    commands = _unique_commands()
+    commands = _unique_commands(public_only=True)
     if not commands:
         return msg("bot_help.command_list_empty")
     return "\n".join([msg("bot_help.command_list_header"), *[_format_command_line(spec) for spec in commands]])
@@ -77,7 +82,6 @@ def _summary_help() -> str:
     blocks = [
         [msg("bot_help.summary_title")],
         _format_command_list().splitlines(),
-        msg("bot_help.fallback").splitlines(),
         msg("bot_help.web").splitlines(),
         [msg("bot_help.summary_more")],
     ]
@@ -89,7 +93,6 @@ def _full_help() -> str:
         [msg("bot_help.full_title")],
         _format_command_list().splitlines(),
         msg("bot_help.auto_parse").splitlines(),
-        msg("bot_help.fallback").splitlines(),
         msg("bot_help.web").splitlines(),
         msg("bot_help.usage").splitlines(),
     ]

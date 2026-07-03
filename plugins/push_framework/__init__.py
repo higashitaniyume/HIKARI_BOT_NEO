@@ -80,6 +80,7 @@ async def _schedule_loop() -> None:
     usage="推送 [状态|源|触发 <任务ID>]",
     detail_key="push_framework.help",
     require_tome=True,
+    show_in_help=False,
 )
 async def handle_push_framework(ctx: CommandContext) -> None:
     if not _is_superuser(ctx):

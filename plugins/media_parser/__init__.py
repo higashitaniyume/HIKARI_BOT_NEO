@@ -593,6 +593,7 @@ async def media_parse_command(ctx: CommandContext) -> None:
     aliases=("B站Cookie", "刷新B站Cookie", "b站登录", "bilibili登录"),
     description="向超级管理员私发 B站扫码登录二维码",
     usage="B站登录",
+    show_in_help=False,
 )
 async def bilibili_cookie_login_command(ctx: CommandContext) -> None:
     if not bilibili_cookie_assist.is_superuser_event(ctx.event):

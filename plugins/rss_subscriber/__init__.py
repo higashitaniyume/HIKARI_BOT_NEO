@@ -72,7 +72,7 @@ async def build_rss_push(ctx: PushContext) -> list[PushMessage]:
 @command(
     "rss",
     aliases=("RSS", "订阅", "rss订阅"),
-    description="管理 RSS 订阅",
+    description="查看 RSS 订阅",
     usage="rss [列表|看|添加|删除|开启|关闭|测试]",
     detail_key="rss.help",
     require_tome=True,

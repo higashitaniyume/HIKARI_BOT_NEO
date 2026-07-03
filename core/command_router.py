@@ -47,6 +47,7 @@ class CommandSpec:
     require_tome: bool = False
     private_only: bool = False
     group_only: bool = False
+    show_in_help: bool = True
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -68,6 +69,7 @@ def command(
     require_tome: bool = False,
     private_only: bool = False,
     group_only: bool = False,
+    show_in_help: bool = True,
 ) -> Callable[[CommandHandler], CommandHandler]:
     """注册一个明确命令。"""
 
@@ -82,6 +84,7 @@ def command(
             require_tome=require_tome,
             private_only=private_only,
             group_only=group_only,
+            show_in_help=show_in_help,
         )
         _commands.append(spec)
         logger.info(
@@ -103,12 +106,13 @@ def format_command_help() -> str:
     lines: list[str] = []
     seen: set[str] = set()
     for spec in _commands:
+        if not spec.show_in_help:
+            continue
         if spec.name in seen:
             continue
         seen.add(spec.name)
-        usage = spec.usage or spec.name
         description = f"：{spec.description}" if spec.description else ""
-        lines.append(f"- {usage}{description}")
+        lines.append(f"- {spec.name}{description}")
     return "\n".join(lines)
 
 
