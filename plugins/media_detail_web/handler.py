@@ -26,6 +26,26 @@ class MediaDetailWebHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         logger.info("[MediaDetailWeb] " + fmt, *args)
 
+    def send_response(self, code: int, message: str | None = None) -> None:
+        super().send_response(code, message)
+        origin = self.headers.get("Origin")
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+        else:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, HEAD, OPTIONS, PUT, PATCH")
+        request_headers = self.headers.get("Access-Control-Request-Headers")
+        if request_headers:
+            self.send_header("Access-Control-Allow-Headers", request_headers)
+        else:
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token, X-Hikari-Admin-Token, Token")
+
+    def do_OPTIONS(self) -> None:
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path in {"/", "/index.html"}:
