@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from nonebot.adapters.onebot.v11 import Message
 
+from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.config_loader import load_main_config
@@ -67,6 +68,86 @@ async def build_rss_push(ctx: PushContext) -> list[PushMessage]:
         max_message_chars=max_message_chars,
     )
     return [PushMessage(Message(text), f"RSS {subscription['id']}")] if text else []
+
+
+@register_ai_tool(
+    "rss_latest",
+    plugin_name="rss_subscriber",
+    description="Read the latest entries from a configured RSS subscription ID or an explicit RSS/Atom URL without changing seen state.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "subscription_id": {
+                "type": "string",
+                "description": "Configured rss_subscriber subscription id.",
+            },
+            "url": {
+                "type": "string",
+                "description": "RSS/Atom URL to read when no subscription_id is supplied.",
+            },
+            "max_items": {
+                "type": "integer",
+                "description": "Maximum number of entries to return.",
+                "minimum": 1,
+                "maximum": 20,
+            },
+            "include_summary": {
+                "type": "boolean",
+                "description": "Whether summaries should be included in returned entries.",
+            },
+        },
+        "additionalProperties": False,
+    },
+)
+async def ai_tool_rss_latest(context: AIToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    cfg = get_config()
+    if not bool(cfg.get("enabled", True)):
+        return {"error": "rss_subscriber is disabled"}
+
+    target = str(arguments.get("subscription_id") or "").strip()
+    url = str(arguments.get("url") or "").strip()
+    subscription = _resolve_command_subscription(target or url, cfg)
+    if subscription is None:
+        return {"error": "subscription_id or url is required"}
+    if not bool(subscription.get("enabled", True)) and target:
+        return {"subscription_id": target, "error": "subscription is disabled"}
+
+    max_items = _parse_int(
+        arguments.get("max_items", subscription.get("max_items", cfg.get("max_items", 5))),
+        default=5,
+        minimum=1,
+        maximum=20,
+    )
+    include_summary = _parse_bool(arguments.get("include_summary"), default=bool(subscription.get("include_summary", True)))
+    summary_max_chars = _parse_int(
+        subscription.get("summary_max_chars", cfg.get("summary_max_chars", 220)),
+        default=220,
+        minimum=0,
+        maximum=2000,
+    )
+
+    try:
+        feed = await fetch_feed(str(subscription["url"]), cfg)
+    except RssFeedError as e:
+        logger.warning("[RSS] AI Tool 读取失败 subscription=%s: %s", subscription.get("id"), e)
+        return {"subscription_id": subscription.get("id", ""), "error": str(e)}
+
+    entries = feed.entries[:max_items]
+    return {
+        "subscription_id": subscription.get("id", ""),
+        "feed_title": feed.title,
+        "feed_url": feed.url,
+        "count": len(entries),
+        "entries": [
+            {
+                "title": entry.title,
+                "link": entry.link,
+                "summary": entry.summary[:summary_max_chars] if include_summary and summary_max_chars > 0 else "",
+                "published": entry.published,
+            }
+            for entry in entries
+        ],
+    }
 
 
 @command(

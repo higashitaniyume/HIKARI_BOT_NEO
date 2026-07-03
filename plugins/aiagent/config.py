@@ -84,6 +84,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "max_read_chars": 20000,
             "max_write_chars": 20000,
         },
+        "plugin_tools": {
+            "enabled": True,
+            "allow_side_effects": False,
+            "enabled_names": [],
+            "disabled_names": [],
+        },
         "max_tool_rounds": 2,
     },
 }

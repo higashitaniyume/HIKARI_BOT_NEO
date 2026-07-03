@@ -36,6 +36,9 @@
 - If a visible admin UI element exists, make it actually interactive. Do not leave buttons, tabs, or controls as static placeholders.
 - For rendered cards/images, avoid fixed-width assumptions that can clip long names, localized strings, large numbers, or beatmap titles. Prefer dynamic measurement and responsive layout.
 - When changing shared resources or fonts needed on the server, confirm `deploy.ps1` continues uploading `BotData/resources/` and `BotData/fonts/`.
+- If a plugin capability should be callable by `plugins/aiagent` as a tool, register an explicit contract through `core.ai_tool_registry.register_ai_tool()` instead of exposing command handlers wholesale. The contract must include a stable tool name, plugin name, clear description, strict JSON object schema, readonly/side-effect metadata, and a handler that returns structured JSON-serializable data.
+- Default AI tools should be read-only and should not directly send messages, upload files, trigger pushes, mutate bindings, write plugin config, or consume paid/limited external APIs unexpectedly. Side-effect tools require an explicit config gate, permission boundary, tests, and documentation before being enabled.
+- Never expose bot admin operations, runtime config secrets, `BotData/config.json`, `BotData/plugin_configs/*.json`, arbitrary filesystem access, media parser download/send actions, or other sensitive operations as AI tools. If a plugin uses API keys internally, return only sanitized public results.
 
 ## Validation
 

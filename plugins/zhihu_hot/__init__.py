@@ -9,6 +9,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
+from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from plugins.push_framework import PushContext, PushMessage, register_push_source
@@ -45,6 +46,63 @@ async def build_zhihu_hot_push(ctx: PushContext) -> list[PushMessage]:
         if links:
             messages.append(PushMessage(Message(links), "知乎热搜链接"))
     return messages
+
+
+@register_ai_tool(
+    "zhihu_hot_list",
+    plugin_name="zhihu_hot",
+    description="Fetch the current Zhihu hot list and return ranked questions with heat, excerpt, and URLs.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "max_items": {
+                "type": "integer",
+                "description": "Maximum number of hot questions to return.",
+                "minimum": 1,
+                "maximum": 30,
+            },
+            "force_refresh": {
+                "type": "boolean",
+                "description": "Whether to bypass the short in-memory cache.",
+            },
+        },
+        "additionalProperties": False,
+    },
+)
+async def ai_tool_zhihu_hot_list(context: AIToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    cfg = get_config()
+    if not bool(cfg.get("enabled", True)):
+        return {"error": "zhihu_hot is disabled"}
+    max_items = _parse_int(
+        arguments.get("max_items"),
+        default=_parse_int(cfg.get("max_items"), default=15, minimum=1, maximum=30),
+        minimum=1,
+        maximum=30,
+    )
+    force_refresh = _parse_bool(arguments.get("force_refresh"), default=False)
+    try:
+        items = await _build_hot_items({"max_items": max_items, "force_refresh": force_refresh}, force=force_refresh)
+    except Exception as e:
+        logger.warning("[ZhihuHot] AI Tool 读取失败: %s", e)
+        return {"error": str(e)}
+    return {
+        "count": len(items),
+        "items": [
+            {
+                "rank": item.rank,
+                "title": item.title,
+                "url": item.url,
+                "heat": item.heat,
+                "excerpt": item.excerpt,
+                "answer_count": item.answer_count,
+                "follower_count": item.follower_count,
+                "question_id": item.question_id,
+                "trend": item.trend,
+                "debut": item.debut,
+            }
+            for item in items[:max_items]
+        ],
+    }
 
 
 @command(

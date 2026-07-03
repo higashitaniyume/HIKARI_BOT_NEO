@@ -1122,6 +1122,10 @@ BotData/Voices/_library/
 | `tools.files.enabled` | 是否向模型提供文件工具 |
 | `tools.files.max_read_chars` | 单次读取文件最多返回多少字符 |
 | `tools.files.max_write_chars` | 单次写入 UserData 文件最多允许多少字符 |
+| `tools.plugin_tools.enabled` | 是否向模型提供插件显式声明的 AI tools |
+| `tools.plugin_tools.allow_side_effects` | 是否允许非只读插件工具；默认 `false` |
+| `tools.plugin_tools.enabled_names` | 可选工具白名单；为空时使用所有默认启用且未禁用的插件工具 |
+| `tools.plugin_tools.disabled_names` | 插件工具黑名单 |
 | `tools.max_tool_rounds` | 单次回复最多允许多少轮工具调用 |
 
 女娲人格 skill 放在：
@@ -1141,6 +1145,8 @@ BotData/agent_personas/nuwa_hikari/SKILL.md
 搜索工具使用 OpenAI-compatible Chat Completions 的 `tools` / function calling。模型需要支持工具调用才会主动搜索；如果 SearXNG 使用自定义配置，请确保 `search.formats` 包含 `json`，否则 JSON 搜索接口不可用。
 
 文件工具同样使用 function calling。模型只能读取 `BotData/agent_personas/` 下的 `.md`、`.txt`、`.json` 人格 skill 资源；不能读取 `BotData/config.json`、`BotData/plugin_configs/` 或其他可能含有密钥的配置。`UserData/` 是唯一允许读写的用户数据目录，写入工具会拒绝绝对路径和任何逃出 `UserData/` 的相对路径。
+
+插件工具由各插件显式注册，不会自动暴露所有命令。默认只提供只读查询类能力，包括 `mc_wiki_search`、`stardew_wiki_search`、`zhihu_hot_list`、`steam_deals_list`、`ai_news_list`、`rss_latest`、`osu_user_lookup`、`osu_scores_lookup`、`osu_beatmap_lookup` 和 `osu_ranking_lookup`。这些工具返回结构化 JSON 供模型组织回答；不会直接发送图片、上传文件、触发推送、修改绑定或写入配置。媒体解析、后台管理、TTS、点赞/戳一戳等有明显副作用的能力默认不作为 AI tool 暴露。
 
 可用指令：
 

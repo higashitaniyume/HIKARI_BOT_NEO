@@ -5,6 +5,8 @@ from typing import Any
 
 import httpx
 
+from core.ai_tool_registry import AIToolContext
+
 from .tools import available_tools, execute_tool_call
 from .utils import safe_float, safe_int
 
@@ -84,9 +86,13 @@ async def post_chat_completion(
     return message
 
 
-async def request_chat_completion(cfg: dict[str, Any], messages: list[dict[str, str]]) -> str:
+async def request_chat_completion(
+    cfg: dict[str, Any],
+    messages: list[dict[str, str]],
+    tool_context: AIToolContext | None = None,
+) -> str:
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
-    tools = available_tools(cfg)
+    tools = available_tools(cfg, tool_context)
     max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 2, minimum=0, maximum=5)
 
     for round_index in range(max_rounds + 1):
@@ -114,6 +120,6 @@ async def request_chat_completion(cfg: dict[str, Any], messages: list[dict[str, 
         request_messages.append(_assistant_tool_message(message))
         for tool_call in tool_calls:
             if isinstance(tool_call, dict):
-                request_messages.append(await execute_tool_call(cfg, tool_call))
+                request_messages.append(await execute_tool_call(cfg, tool_call, tool_context))
 
     raise RuntimeError("AI Agent 回复为空。")

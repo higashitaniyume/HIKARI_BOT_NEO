@@ -11,6 +11,7 @@ import nonebot
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
+from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from plugins.push_framework.registry import PushContext, PushMessage, register_push_source
@@ -147,6 +148,97 @@ def _parse_push_bool(value, *, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().casefold() in {"1", "true", "yes", "on", "启用", "是"}
+
+
+@register_ai_tool(
+    "steam_deals_list",
+    plugin_name="steam_deals",
+    description="Fetch Steam deals and return a compact list of free, low-price, or highlighted discounted games.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "description": "Deal filter mode: all, free, or low.",
+                "enum": ["all", "free", "low"],
+            },
+            "max_items": {
+                "type": "integer",
+                "description": "Maximum number of deals to return.",
+                "minimum": 1,
+                "maximum": 30,
+            },
+            "force_refresh": {
+                "type": "boolean",
+                "description": "Whether to bypass the short in-memory cache.",
+            },
+        },
+        "additionalProperties": False,
+    },
+)
+async def ai_tool_steam_deals_list(context: AIToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    if not _enabled():
+        return {"error": "steam_deals is disabled"}
+
+    cfg = dict(get_config())
+    price_watch = dict(cfg.get("price_watch") or {})
+    price_watch["enabled"] = False
+    cfg["price_watch"] = price_watch
+
+    mode = _normalize_push_mode(arguments.get("mode"))
+    max_items = _tool_int(arguments.get("max_items"), default=int(cfg.get("max_items") or 18), minimum=1, maximum=30)
+    cfg["max_items"] = max_items
+    force_refresh = _parse_push_bool(arguments.get("force_refresh"), default=False)
+    client = SteamDealsClient(cfg)
+
+    try:
+        deals = client.filter_deals(await client.fetch_deals(force_refresh=force_refresh), mode)[:max_items]
+    except SteamDealsError as e:
+        logger.warning("[SteamDeals] AI Tool 查询失败: %s", e)
+        return {"mode": mode, "error": str(e)}
+
+    return {
+        "mode": mode,
+        "count": len(deals),
+        "items": [_deal_payload(deal, cfg) for deal in deals],
+    }
+
+
+def _tool_int(value, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return min(max(parsed, minimum), maximum)
+
+
+def _deal_payload(deal, cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "appid": deal.appid,
+        "name": deal.name,
+        "url": deal.url,
+        "discount_percent": deal.discount_percent,
+        "original_price_cents": deal.original_price_cents,
+        "final_price_cents": deal.final_price_cents,
+        "price": _price_text(deal.final_price_cents, cfg),
+        "currency": deal.currency,
+        "source": deal.source,
+        "released": deal.released,
+        "review_summary": deal.review_summary,
+        "review_percent": deal.review_percent,
+        "review_count": deal.review_count,
+        "promotion_kind": deal.promotion_kind,
+        "promotion_start": deal.promotion_start,
+        "promotion_end": deal.promotion_end,
+        "categories": sorted(str(item) for item in deal.categories),
+    }
+
+
+def _price_text(cents: int, cfg: dict[str, Any]) -> str:
+    if cents <= 0:
+        return "免费"
+    symbol = str(cfg.get("currency_symbol") or "").strip()
+    return f"{symbol}{cents / 100:.2f}" if symbol else f"{cents / 100:.2f}"
 
 
 register_push_source(

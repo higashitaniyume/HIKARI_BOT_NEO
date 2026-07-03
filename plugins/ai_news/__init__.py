@@ -9,6 +9,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
+from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from plugins.push_framework import PushContext, PushMessage, register_push_source
@@ -56,6 +57,84 @@ async def build_ai_news_push(ctx: PushContext) -> list[PushMessage]:
         if links:
             messages.append(PushMessage(Message(links), "AI 资讯链接"))
     return messages
+
+
+@register_ai_tool(
+    "ai_news_list",
+    plugin_name="ai_news",
+    description="Fetch configured AI news RSS sources and return recent selected news items without rendering an image.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "max_items": {
+                "type": "integer",
+                "description": "Maximum number of news items to return.",
+                "minimum": 1,
+                "maximum": 30,
+            },
+            "max_age_hours": {
+                "type": "integer",
+                "description": "Only include news no older than this many hours; 0 disables age filtering.",
+                "minimum": 0,
+                "maximum": 2160,
+            },
+            "groups": {
+                "type": "array",
+                "description": "Optional source groups to include, such as official, research, media, community.",
+                "items": {"type": "string"},
+            },
+            "source_ids": {
+                "type": "array",
+                "description": "Optional configured source IDs to include.",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": False,
+    },
+)
+async def ai_tool_ai_news_list(context: AIToolContext, arguments: dict[str, Any]) -> dict[str, Any]:
+    if not bool(get_config().get("enabled", True)):
+        return {"error": "ai_news is disabled"}
+    cfg = get_config()
+    options = {
+        "max_items": _parse_int(
+            arguments.get("max_items"),
+            default=_parse_int(cfg.get("max_items"), default=10, minimum=1, maximum=30),
+            minimum=1,
+            maximum=30,
+        ),
+        "max_age_hours": _parse_int(
+            arguments.get("max_age_hours"),
+            default=_parse_int(cfg.get("max_age_hours"), default=168, minimum=0, maximum=24 * 90),
+            minimum=0,
+            maximum=24 * 90,
+        ),
+        "groups": arguments.get("groups") if isinstance(arguments.get("groups"), list) else [],
+        "source_ids": arguments.get("source_ids") if isinstance(arguments.get("source_ids"), list) else [],
+        "only_new": False,
+        "mark_seen": False,
+        "ai_summary": False,
+    }
+    try:
+        items = await _build_digest_items(options, now=datetime.now().astimezone(), default_mark_seen=False)
+    except Exception as e:
+        logger.warning("[AiNews] AI Tool 读取失败: %s", e)
+        return {"error": str(e)}
+    return {
+        "count": len(items),
+        "items": [
+            {
+                "source_id": item.source_id,
+                "source_title": item.source_title,
+                "source_group": item.source_group,
+                "title": item.title,
+                "link": item.link,
+                "summary": item.summary,
+                "published": item.published.isoformat(timespec="minutes") if item.published else "",
+            }
+            for item in items
+        ],
+    }
 
 
 @command(
