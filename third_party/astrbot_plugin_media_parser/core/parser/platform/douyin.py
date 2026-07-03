@@ -3,7 +3,7 @@ import asyncio
 import json
 import re
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 
@@ -149,6 +149,22 @@ class DouyinParser(ShortVideoParserMixin, BaseVideoParser):
         )
 
     @staticmethod
+    def _is_malformed_douyin_play_url(url: str) -> bool:
+        try:
+            parsed = urlparse(str(url or ""))
+        except Exception:
+            return False
+
+        if "/aweme/v1/play" not in (parsed.path or "").lower():
+            return False
+
+        video_ids = parse_qs(parsed.query or "").get("video_id") or []
+        return any(
+            str(video_id).strip().lower().startswith(("http://", "https://"))
+            for video_id in video_ids
+        )
+
+    @staticmethod
     def _looks_like_audio_url(url: str) -> bool:
         normalized = str(url or "").lower()
         if not normalized.startswith(("http://", "https://")):
@@ -171,6 +187,8 @@ class DouyinParser(ShortVideoParserMixin, BaseVideoParser):
         if not normalized.startswith(("http://", "https://")):
             return False
         if cls._looks_like_audio_url(normalized):
+            return False
+        if cls._is_malformed_douyin_play_url(normalized):
             return False
         return any(
             marker in normalized
