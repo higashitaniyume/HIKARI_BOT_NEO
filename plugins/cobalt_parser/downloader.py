@@ -14,6 +14,8 @@ from pathlib import Path
 
 import httpx
 
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, register_temp_media_path
+
 logger = logging.getLogger("HikariBot.CobaltDownloader")
 
 USER_AGENT = (
@@ -49,6 +51,7 @@ async def download_media(
     cache_dir: str = "/tmp/hikari_bot",
     timeout: int = 90,
     max_file_mb: int = 200,
+    cache_ttl_seconds: int = DEFAULT_TEMP_MEDIA_TTL_SECONDS,
 ) -> Path:
     """
     下载媒体文件到本地缓存。
@@ -68,6 +71,7 @@ async def download_media(
     if path.exists() and path.stat().st_size > 0:
         if path.stat().st_size > max_bytes:
             raise RuntimeError(f"缓存媒体超过大小限制：{path.stat().st_size / 1024 / 1024:.1f}MB")
+        register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
         size_kb = path.stat().st_size / 1024
         logger.debug(f"[Cobalt] 缓存命中 → {path.name} ({size_kb:.1f} KB)")
         return path
@@ -111,5 +115,6 @@ async def download_media(
     size_kb = path.stat().st_size / 1024
     size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
     logger.info(f"[Cobalt] 下载完成 → {path.name} ({size_str}, {elapsed:.2f}s)")
+    register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
 
     return path

@@ -15,6 +15,8 @@ from typing import Optional
 
 import httpx
 
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, register_temp_media_path
+
 from .parser import _get_http_client
 
 logger = logging.getLogger("HikariBot.PixivDownloader")
@@ -52,6 +54,7 @@ async def download_image(
     proxy: str = "",
     cache_dir: str = "/tmp/hikari_bot",
     max_bytes: int | None = None,
+    cache_ttl_seconds: int = DEFAULT_TEMP_MEDIA_TTL_SECONDS,
 ) -> Path:
     """
     下载单张图片到本地缓存。
@@ -65,6 +68,7 @@ async def download_image(
 
     # 缓存命中
     if path.exists() and path.stat().st_size > 0:
+        register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
         size_kb = path.stat().st_size / 1024
         logger.debug(f"[Pixiv] 缓存命中 pid={illust_id} → {path.name} ({size_kb:.1f} KB)")
         return path
@@ -118,6 +122,7 @@ async def download_image(
         f"[Pixiv] 下载完成 pid={illust_id} → {path.name} "
         f"({file_size_kb:.1f} KB, {elapsed:.2f}s)"
     )
+    register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
 
     return path
 
@@ -129,6 +134,7 @@ async def download_with_fallback(
     proxy: str = "",
     cache_dir: str = "/tmp/hikari_bot",
     max_file_mb: int = 25,
+    cache_ttl_seconds: int = DEFAULT_TEMP_MEDIA_TTL_SECONDS,
 ) -> tuple[Path, bool]:
     """
     下载图片，优先 original，超限则降级到 regular。
@@ -155,6 +161,7 @@ async def download_with_fallback(
             proxy,
             cache_dir,
             max_bytes=max_bytes,
+            cache_ttl_seconds=cache_ttl_seconds,
         )
         original_size_mb = original_path.stat().st_size / 1024 / 1024
     except DownloadTooLargeError as e:
@@ -181,6 +188,7 @@ async def download_with_fallback(
             proxy,
             cache_dir,
             max_bytes=max_bytes,
+            cache_ttl_seconds=cache_ttl_seconds,
         )
     except DownloadTooLargeError as e:
         raise RuntimeError(f"图片过大，regular 超过 {max_file_mb}MB") from e

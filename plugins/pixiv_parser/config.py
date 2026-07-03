@@ -39,6 +39,7 @@ def _log_config_summary(cfg: dict[str, Any]) -> None:
         f"max_file_mb={cfg.get('max_file_mb')}, "
         f"allow_r18={cfg.get('allow_r18')}, "
         f"send_link_info={cfg.get('send_link_info')}, "
+        f"cache_ttl_seconds={cfg.get('cache_ttl_seconds')}, "
         f"proxy={'已配置' if cfg.get('proxy') else '未配置'}, "
         f"cookie={'已配置' if cfg.get('cookie') else '未配置'}, "
         f"cache_dir={cfg.get('cache_dir')}, "

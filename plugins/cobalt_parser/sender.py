@@ -17,6 +17,7 @@ from typing import Any
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
 from core.bot_messages import get_message as msg
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, ttl_seconds_from_config
 
 from .downloader import download_media, file_as_uri
 from .parser import CobaltResult, call_cobalt_api
@@ -65,6 +66,10 @@ async def send_cobalt_result(
     t_start = time.time()
 
     cache_dir = config.get("cache_dir", "/tmp/hikari_bot")
+    cache_ttl_seconds = ttl_seconds_from_config(
+        config.get("cache_ttl_seconds"),
+        DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    )
     api_timeout = config.get("api_timeout", 90)
     max_file_mb = config.get("max_file_mb", 200)
     max_send = config.get("max_send", 6)
@@ -80,7 +85,14 @@ async def send_cobalt_result(
 
     for item in items:
         try:
-            path = await download_media(item.url, "", cache_dir, api_timeout, max_file_mb)
+            path = await download_media(
+                item.url,
+                "",
+                cache_dir,
+                api_timeout,
+                max_file_mb,
+                cache_ttl_seconds=cache_ttl_seconds,
+            )
             media_paths.append(path)
             media_types.append(item.media_type)
             await asyncio.sleep(0.3)

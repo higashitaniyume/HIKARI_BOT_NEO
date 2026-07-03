@@ -63,7 +63,7 @@ DEFAULT_PIXIV_CONFIG: dict[str, Any] = {
     "allow_r18": False,
     "send_link_info": True,
     "cache_dir": "/tmp/hikari_bot",
-    "cache_ttl_hours": 24,
+    "cache_ttl_seconds": 600,
     "proxy": "",
     "send_strategy": {
         "prefer_forward_message": True,
@@ -83,6 +83,7 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     "parse_retry_count": 2,
     "parse_retry_delay_seconds": 2.0,
     "cache_dir": "/tmp/hikari_bot",
+    "cache_ttl_seconds": 600,
     "api_key": "",
     "send_strategy": {
         "prefer_forward_message": True,
@@ -102,6 +103,7 @@ DEFAULT_YOUTUBE_DOWNLOADER_CONFIG: dict[str, Any] = {
     "socket_timeout": 30,
     "retries": 5,
     "cache_dir": "/tmp/hikari_bot/youtube_downloader",
+    "cache_ttl_seconds": 600,
     "cookiefile": "",
     "format": "",
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
@@ -192,6 +194,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "max_video_size_mb": 1000,
         "large_video_threshold_mb": 100,
         "cache_dir": "/tmp/hikari_bot/media_parser",
+        "cache_ttl_seconds": 600,
         "max_concurrent": 5,
     },
     "parse_rate_limit": {

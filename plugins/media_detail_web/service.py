@@ -11,9 +11,11 @@ import aiohttp
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, ttl_seconds_from_config
 from plugins.cobalt_parser.config import get_config as get_cobalt_config
 from plugins.cobalt_parser.downloader import download_media as download_cobalt_media
 from plugins.cobalt_parser.parser import CobaltResult, call_cobalt_api, extract_social_urls
+from plugins.media_parser.cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
 from plugins.media_parser.config import get_config as get_media_parser_config
 from plugins.media_parser.runtime import create_runtime
 from plugins.pixiv_parser.config import get_config as get_pixiv_config
@@ -140,6 +142,10 @@ async def _parse_pixiv_links(
     proxy = str(cfg.get("proxy") or "")
     cache_dir = str(cfg.get("cache_dir") or "/tmp/hikari_bot")
     max_file_mb = max(1, int(cfg.get("max_file_mb", 25)))
+    cache_ttl_seconds = ttl_seconds_from_config(
+        cfg.get("cache_ttl_seconds"),
+        DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    )
     max_send = max(1, int(cfg.get("max_send", 6)))
     allow_r18 = bool(cfg.get("allow_r18", False))
     max_proxy_bytes = _max_proxy_bytes(web_cfg)
@@ -174,6 +180,7 @@ async def _parse_pixiv_links(
                             proxy,
                             cache_dir,
                             max_file_mb,
+                            cache_ttl_seconds=cache_ttl_seconds,
                         )
                         original_count += 1 if is_original else 0
                         media = register_file(
@@ -494,6 +501,10 @@ async def _cobalt_result_item(
     cache_dir = str(cfg.get("cache_dir") or "/tmp/hikari_bot")
     api_timeout = max(5, int(cfg.get("api_timeout", 90)))
     max_file_mb = max(1, int(cfg.get("max_file_mb", 200)))
+    cache_ttl_seconds = ttl_seconds_from_config(
+        cfg.get("cache_ttl_seconds"),
+        DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    )
     max_proxy_bytes = _max_proxy_bytes(web_cfg)
 
     item = {
@@ -535,6 +546,7 @@ async def _cobalt_result_item(
                     cache_dir,
                     api_timeout,
                     max_file_mb,
+                    cache_ttl_seconds=cache_ttl_seconds,
                 )
                 media = register_file(
                     path,
@@ -595,6 +607,7 @@ async def _parse_aggregated_links(
         )
         metadata_list = _suppress_redundant_error_metadata(metadata_list)
         items: list[dict[str, Any]] = []
+        cache_ttl_seconds = media_cache_ttl_seconds(cfg)
         for metadata in metadata_list:
             if download and not metadata.get("error"):
                 metadata = await runtime.download_manager.process_metadata(
@@ -602,6 +615,7 @@ async def _parse_aggregated_links(
                     metadata=metadata,
                     proxy_addr=runtime.config_manager.proxy.address or None,
                 )
+                register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
             items.append(_aggregated_metadata_item(metadata, ttl_seconds, max_proxy_bytes))
         return items
 

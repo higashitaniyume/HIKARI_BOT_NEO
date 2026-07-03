@@ -70,6 +70,7 @@
     "max_video_size_mb": 1000,
     "large_video_threshold_mb": 100,
     "cache_dir": "/tmp/hikari_bot/media_parser",
+    "cache_ttl_seconds": 600,
     "max_concurrent": 5
   },
   "parse_rate_limit": {

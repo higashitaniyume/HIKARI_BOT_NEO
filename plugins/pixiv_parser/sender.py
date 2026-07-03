@@ -17,6 +17,7 @@ from typing import Any
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
 from core.bot_messages import get_message as msg
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, ttl_seconds_from_config
 
 from .downloader import download_with_fallback, file_as_uri
 from .parser import PixivArtwork, PixivPage, fetch_artwork
@@ -91,6 +92,10 @@ async def send_artwork(
     cookie = config.get("cookie", "")
     proxy = config.get("proxy", "")
     cache_dir = config.get("cache_dir", "/tmp/hikari_bot")
+    cache_ttl_seconds = ttl_seconds_from_config(
+        config.get("cache_ttl_seconds"),
+        DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    )
     max_file_mb = config.get("max_file_mb", 25)
     max_send = config.get("max_send", 6)
     allow_r18 = config.get("allow_r18", False)
@@ -132,7 +137,13 @@ async def send_artwork(
     for page in selected_pages:
         try:
             path, is_original = await download_with_fallback(
-                page, illust_id, cookie, proxy, cache_dir, max_file_mb
+                page,
+                illust_id,
+                cookie,
+                proxy,
+                cache_dir,
+                max_file_mb,
+                cache_ttl_seconds=cache_ttl_seconds,
             )
             image_paths.append(path)
             if is_original:

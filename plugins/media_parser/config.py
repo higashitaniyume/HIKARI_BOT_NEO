@@ -29,8 +29,9 @@ def _log_config_summary(cfg: dict[str, Any]) -> None:
         if str(mode or "").strip() != "关闭"
     ]
     logger.info(
-        "Media parser config loaded -> enabled=%s, auto_parse=%s, parsers=%s",
+        "Media parser config loaded -> enabled=%s, auto_parse=%s, cache_ttl_seconds=%s, parsers=%s",
         cfg.get("enabled"),
         (cfg.get("trigger") or {}).get("auto_parse"),
+        (cfg.get("download") or {}).get("cache_ttl_seconds"),
         ",".join(enabled) or "none",
     )

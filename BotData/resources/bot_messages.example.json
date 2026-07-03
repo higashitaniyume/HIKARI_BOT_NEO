@@ -128,7 +128,10 @@
     "bilibili_cookie_assist_success": "B站扫码登录成功，Cookie 已更新。",
     "bilibili_cookie_assist_qr_expired": "B站二维码已过期，本轮协助登录结束。",
     "bilibili_cookie_assist_timeout": "B站扫码登录超时，本轮协助登录结束。",
-    "bilibili_cookie_assist_poll_failed": "B站登录轮询失败，请稍后重试。"
+    "bilibili_cookie_assist_poll_failed": "B站登录轮询失败，请稍后重试。",
+    "bilibili_cookie_assist_permission_denied": "只有超级管理员可以发起 B站 Cookie 登录。",
+    "bilibili_cookie_assist_manual_unavailable": "B站 Cookie 登录未启用。请确认聚合媒体解析已启用、B站解析器未关闭，并开启 bilibili_enhanced.use_cookie。",
+    "bilibili_cookie_assist_manual_started": "已向超级管理员私发 B站登录二维码。"
   },
   "stardew_wiki": {
     "result": "标题：{title}\n简介：{summary}\nURL：{url}",

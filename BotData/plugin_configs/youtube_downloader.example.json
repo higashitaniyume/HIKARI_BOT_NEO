@@ -9,6 +9,7 @@
   "socket_timeout": 30,
   "retries": 5,
   "cache_dir": "/tmp/hikari_bot/youtube_downloader",
+  "cache_ttl_seconds": 600,
   "cookiefile": "",
   "format": "",
   "permissions": {

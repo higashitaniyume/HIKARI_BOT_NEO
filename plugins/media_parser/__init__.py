@@ -18,6 +18,7 @@ from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_ur
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
 
 from .bilibili_cookie_assist import bilibili_cookie_assist
+from .cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
 from .config import get_config
 from .runtime import MediaParserRuntime, create_runtime
 from .sender import send_metadata_result
@@ -419,6 +420,7 @@ async def _prepare_text(
 
         processed: list[dict[str, Any]] = []
         max_send = max(1, int(runtime.config.get("max_send", 8)))
+        cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
         for metadata in metadata_list:
             if not _apply_output_modes(runtime, metadata):
                 continue
@@ -429,6 +431,7 @@ async def _prepare_text(
                     metadata=metadata,
                     proxy_addr=runtime.config_manager.proxy.address or None,
                 )
+                register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
             processed.append(metadata)
 
         if not processed:
@@ -517,6 +520,24 @@ def _trigger_bilibili_cookie_assist_if_needed(bot: Bot, runtime: MediaParserRunt
     )
 
 
+def _bilibili_cookie_login_runtime() -> tuple[Any, Any] | None:
+    cfg = get_config()
+    if not cfg.get("enabled", True):
+        return None
+    try:
+        runtime = create_runtime(cfg)
+    except Exception as e:
+        logger.warning("[MediaParser] Bilibili cookie login runtime init failed: %s", e)
+        return None
+    parser = runtime.config_manager.bilibili_parser
+    if parser is None:
+        return None
+    bili_cfg = runtime.config_manager.bilibili
+    if not bili_cfg.cookie_runtime_enabled:
+        return None
+    return parser, bili_cfg
+
+
 class BilibiliCookieAssistReplyHandler:
     """Consume superuser private replies for Bilibili Cookie QR login."""
 
@@ -565,6 +586,32 @@ async def media_parse_command(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("media_parser.usage")))
         return
     await _enqueue_text(ctx.bot, ctx.event, ctx.args, force=True)
+
+
+@command(
+    "B站登录",
+    aliases=("B站Cookie", "刷新B站Cookie", "b站登录", "bilibili登录"),
+    description="向超级管理员私发 B站扫码登录二维码",
+    usage="B站登录",
+)
+async def bilibili_cookie_login_command(ctx: CommandContext) -> None:
+    if not bilibili_cookie_assist.is_superuser_event(ctx.event):
+        await ctx.send(Message(msg("media_parser.bilibili_cookie_assist_permission_denied")))
+        return
+
+    runtime_parts = _bilibili_cookie_login_runtime()
+    if runtime_parts is None:
+        await ctx.send(Message(msg("media_parser.bilibili_cookie_assist_manual_unavailable")))
+        return
+
+    parser, bili_cfg = runtime_parts
+    started = await bilibili_cookie_assist.start_manual_login(
+        ctx.bot,
+        auth_runtime=parser.get_auth_runtime(),
+        reply_timeout_minutes=bili_cfg.admin_reply_timeout_minutes,
+    )
+    if started and isinstance(ctx.event, GroupMessageEvent):
+        await ctx.send(Message(msg("media_parser.bilibili_cookie_assist_manual_started")))
 
 
 register_handler(BilibiliCookieAssistReplyHandler())

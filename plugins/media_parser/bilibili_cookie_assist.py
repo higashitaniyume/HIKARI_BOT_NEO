@@ -98,6 +98,49 @@ class BilibiliCookieAssistManager:
             return False
         return self._is_superuser_private_event(event, self._superuser_id())
 
+    def is_superuser_event(self, event: MessageEvent) -> bool:
+        superuser_id = self._superuser_id()
+        if superuser_id in _PLACEHOLDER_SUPERUSER:
+            return False
+        try:
+            int(superuser_id)
+        except ValueError:
+            return False
+        try:
+            return str(event.get_user_id()).strip() == superuser_id
+        except Exception:
+            return False
+
+    async def start_manual_login(
+        self,
+        bot: Bot,
+        *,
+        auth_runtime: Any,
+        reply_timeout_minutes: int,
+    ) -> bool:
+        """Send a Bilibili QR login payload directly to the configured superuser."""
+        superuser_id = self._superuser_id()
+        if superuser_id in _PLACEHOLDER_SUPERUSER:
+            logger.warning("[bilibili] superuser_id 未配置，无法手动发起 Cookie 登录。")
+            return False
+        try:
+            int(superuser_id)
+        except ValueError:
+            logger.warning("[bilibili] superuser_id 不是有效 QQ 号，无法手动发起 Cookie 登录。")
+            return False
+
+        async with self._lock:
+            self._waiting_confirm = False
+            self._pending_auth_runtime = None
+            timeout_seconds = max(1, int(reply_timeout_minutes) * 60)
+
+        return await self._send_login_payload_and_poll(
+            bot,
+            superuser_id=superuser_id,
+            auth_runtime=auth_runtime,
+            timeout_seconds=timeout_seconds,
+        )
+
     def trigger_assist_request(
         self,
         bot: Bot,
@@ -204,6 +247,22 @@ class BilibiliCookieAssistManager:
             await self._send_private_text(bot, superuser_id, msg("media_parser.bilibili_cookie_assist_runtime_missing"))
             return True
 
+        await self._send_login_payload_and_poll(
+            bot,
+            superuser_id=superuser_id,
+            auth_runtime=auth_runtime,
+            timeout_seconds=timeout_seconds,
+        )
+        return True
+
+    async def _send_login_payload_and_poll(
+        self,
+        bot: Bot,
+        *,
+        superuser_id: str,
+        auth_runtime: Any,
+        timeout_seconds: int,
+    ) -> bool:
         try:
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -211,7 +270,7 @@ class BilibiliCookieAssistManager:
         except Exception as e:
             logger.warning("[bilibili] 生成超级管理员协助登录二维码失败: %s", e)
             await self._send_private_text(bot, superuser_id, msg("media_parser.bilibili_cookie_assist_generate_failed"))
-            return True
+            return False
 
         await self._send_private_text(
             bot,

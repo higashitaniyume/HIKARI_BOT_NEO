@@ -290,6 +290,7 @@ uv run python bot.py
 | `allow_r18` | 是否允许 R18 内容 |
 | `send_link_info` | 是否发送作品标题、作者、链接等详情；设为 `false` 时只发送图片 |
 | `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot` |
+| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
 
 支持链接形态：
 
@@ -314,6 +315,7 @@ uv run python bot.py
 | `max_send` | 单次最多发送媒体数 |
 | `send_link_info` | 是否发送来源、数量、链接等详情；设为 `false` 时只发送媒体 |
 | `cache_dir` | 下载缓存目录 |
+| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
 
 支持 Instagram 的 `p`、`reel`、`stories`、`tv` 链接，以及 `facebook.com`、`fb.com`、`fb.watch` 链接。
 
@@ -341,13 +343,14 @@ uv run python bot.py
 | `parsers.<平台>` | 每个平台的输出模式：`关闭`、`全部发送`、`仅文本`、`仅富媒体` |
 | `permissions.whitelist` / `permissions.blacklist` | 插件自己的 QQ/群黑白名单，可在 Bot 后台“权限”页管理 |
 | `download.cache_dir` | 媒体缓存目录；Docker/NapCat 部署时应放在双方都能访问的 `/tmp/hikari_bot` 子目录 |
+| `download.cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒；只清理解析生成的媒体子目录，不清理 B站 Cookie 等运行时数据 |
 | `download.max_video_size_mb` | 单个视频大小上限 |
 | `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890` |
 | `bilibili_enhanced.cookie` | 可选 B站 Cookie，用于高画质和受限内容解析 |
 | `bilibili_enhanced.admin_assist.enable` | B站 Cookie 不可用时是否私聊超级管理员协助扫码登录 |
 | `message.media_display.video_cover_only` | 是否把视频改为只发封面 |
 
-开启 `bilibili_enhanced.use_cookie` 且开启 `bilibili_enhanced.admin_assist.enable` 后，B站 Cookie 缺失或失效时，Bot 会私聊 `BotData/config.json` 里的 `bot.superuser_id`。超级管理员回复“确定”后会收到 Bilibili 登录二维码图片和备用登录链接；扫码成功后，新 Cookie 会保存到 `download.cache_dir/runtime_manager/bilibili/cookie.json`，无需手动替换配置文件里的 Cookie。
+开启 `bilibili_enhanced.use_cookie` 且开启 `bilibili_enhanced.admin_assist.enable` 后，B站 Cookie 缺失或失效时，Bot 会私聊 `BotData/config.json` 里的 `bot.superuser_id`。超级管理员回复“确定”后会收到 Bilibili 登录二维码图片和备用登录链接；扫码成功后，新 Cookie 会保存到 `download.cache_dir/runtime_manager/bilibili/cookie.json`，无需手动替换配置文件里的 Cookie。超级管理员也可以发送 `B站登录` / `B站Cookie` 手动触发私聊二维码登录。
 
 显式命令：
 
@@ -355,6 +358,8 @@ uv run python bot.py
 媒体解析 <链接>
 解析媒体 <链接>
 视频解析 <链接>
+B站登录
+B站Cookie
 ```
 
 上游更新：
@@ -384,6 +389,7 @@ uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_medi
 | `send_link_info` | 是否发送标题、频道、时长、链接等详情；设为 `false` 时只发送视频 |
 | `download_timeout` | 单个视频下载超时时间，单位秒 |
 | `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot/youtube_downloader` |
+| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
 | `cookiefile` | 可选 yt-dlp cookies 文件路径；YouTube 要求登录验证时使用 |
 | `format` | 可选 yt-dlp format selector；为空时使用插件默认选择 |
 
@@ -1274,7 +1280,7 @@ jm 123456
 
 ## NapCat 文件目录
 
-机器人会把图片、视频、贴纸、PDF 等临时文件放到 `/tmp/hikari_bot`。NapCat 必须能读取这个目录，否则会出现“解析成功但发送失败”。
+机器人会把图片、视频、贴纸、PDF 等临时文件放到 `/tmp/hikari_bot`。NapCat 必须能读取这个目录，否则会出现“解析成功但发送失败”。Pixiv、Cobalt、聚合媒体解析和 YouTube 下载的临时媒体默认登记为 10 分钟后清理，可通过各插件的 `cache_ttl_seconds` 调整。
 
 如果 NapCat 运行在 Docker 容器中，请挂载同一个目录：
 

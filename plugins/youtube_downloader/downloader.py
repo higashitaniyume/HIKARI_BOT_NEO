@@ -24,6 +24,8 @@ import deno
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError, MaxDownloadsReached
 
+from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, register_temp_media_path, ttl_seconds_from_config
+
 logger = logging.getLogger("HikariBot.YouTubeDownloader")
 
 VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
@@ -60,6 +62,10 @@ def _download_youtube_video_sync(url: str, cfg: dict[str, Any]) -> YouTubeDownlo
     max_file_mb = max(1, int(cfg.get("max_file_mb", 1024)))
     max_bytes = max_file_mb * 1024 * 1024
     max_height = max(144, int(cfg.get("max_height", 720)))
+    cache_ttl_seconds = ttl_seconds_from_config(
+        cfg.get("cache_ttl_seconds"),
+        DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    )
     cache_dir = Path(str(cfg.get("cache_dir") or "/tmp/hikari_bot/youtube_downloader"))
     download_timeout = max(60, int(cfg.get("download_timeout", 1800)))
     socket_timeout = max(5, int(cfg.get("socket_timeout", 30)))
@@ -100,6 +106,7 @@ def _download_youtube_video_sync(url: str, cfg: dict[str, Any]) -> YouTubeDownlo
 
     existing = _find_cached_file(cache_dir, video_id, max_height, max_bytes)
     if existing:
+        register_temp_media_path(existing, ttl_seconds=cache_ttl_seconds)
         logger.info("[YouTube] 缓存命中 -> %s", existing.name)
         return YouTubeDownloadResult(
             path=existing,
@@ -163,6 +170,7 @@ def _download_youtube_video_sync(url: str, cfg: dict[str, Any]) -> YouTubeDownlo
         final_path.stat().st_size / 1024 / 1024,
         elapsed,
     )
+    register_temp_media_path(final_path, ttl_seconds=cache_ttl_seconds)
 
     return YouTubeDownloadResult(
         path=final_path,

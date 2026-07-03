@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
 
 from core.config_loader import DEFAULT_MEDIA_PARSER_CONFIG
@@ -120,6 +121,53 @@ class MediaParserSchedulerTests(unittest.TestCase):
                 "12345",
             )
         )
+
+
+class MediaParserBilibiliLoginCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_cookie_login_command_starts_assist_flow(self) -> None:
+        auth_runtime = object()
+        bot = object()
+
+        class FakeAssist:
+            def __init__(self) -> None:
+                self.started: list[dict[str, object]] = []
+
+            def is_superuser_event(self, event) -> bool:
+                return True
+
+            async def start_manual_login(self, bot_arg, **kwargs) -> bool:
+                self.started.append({"bot": bot_arg, **kwargs})
+                return True
+
+        class FakeParser:
+            def get_auth_runtime(self) -> object:
+                return auth_runtime
+
+        fake_assist = FakeAssist()
+        old_assist = media_parser.bilibili_cookie_assist
+        old_runtime = media_parser._bilibili_cookie_login_runtime
+        media_parser.bilibili_cookie_assist = fake_assist
+        media_parser._bilibili_cookie_login_runtime = lambda: (
+            FakeParser(),
+            SimpleNamespace(admin_reply_timeout_minutes=9),
+        )
+        try:
+            ctx = SimpleNamespace(
+                bot=bot,
+                event=object(),
+                send=AsyncMock(),
+            )
+
+            await media_parser.bilibili_cookie_login_command(ctx)
+        finally:
+            media_parser.bilibili_cookie_assist = old_assist
+            media_parser._bilibili_cookie_login_runtime = old_runtime
+
+        self.assertEqual(len(fake_assist.started), 1)
+        self.assertIs(fake_assist.started[0]["bot"], bot)
+        self.assertIs(fake_assist.started[0]["auth_runtime"], auth_runtime)
+        self.assertEqual(fake_assist.started[0]["reply_timeout_minutes"], 9)
+        ctx.send.assert_not_awaited()
 
 
 if __name__ == "__main__":

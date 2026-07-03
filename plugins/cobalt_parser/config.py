@@ -38,6 +38,7 @@ def _log_config_summary(cfg: dict[str, Any]) -> None:
         f"cobalt_api={cfg.get('cobalt_api')}, "
         f"max_send={cfg.get('max_send')}, "
         f"send_link_info={cfg.get('send_link_info')}, "
+        f"cache_ttl_seconds={cfg.get('cache_ttl_seconds')}, "
         f"parse_retry_count={cfg.get('parse_retry_count')}, "
         f"parse_retry_delay_seconds={cfg.get('parse_retry_delay_seconds')}, "
         f"api_key={'已配置' if cfg.get('api_key') else '未配置'}, "

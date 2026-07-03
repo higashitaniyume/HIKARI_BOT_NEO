@@ -7,7 +7,7 @@
   "allow_r18": false,
   "send_link_info": true,
   "cache_dir": "/tmp/hikari_bot",
-  "cache_ttl_hours": 24,
+  "cache_ttl_seconds": 600,
   "proxy": "",
   "send_strategy": {
     "prefer_forward_message": true,

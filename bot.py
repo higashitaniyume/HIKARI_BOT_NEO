@@ -106,6 +106,9 @@ from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 # 注册适配器实例（这会触发 Adapter.__init__ → _setup → _start_forward → 连接 NapCat）
 driver = nonebot.get_driver()
 register_driver_lifecycle_logs(driver, _startup_started_at)
+from core.temp_media_cleaner import register_temp_media_cleaner
+
+register_temp_media_cleaner(driver)
 driver.register_adapter(OneBotV11Adapter)
 logger.info("[Startup] OneBot V11 适配器已注册，将在 Driver 就绪后连接 NapCat")
 
