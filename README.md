@@ -124,6 +124,8 @@ docker compose up -d
 | `BotData/plugin_configs/tg_sticker_parser.json` | Telegram Bot Token，按需开启 |
 | `BotData/plugin_configs/stardew_wiki.json` | 无必填项，默认使用中文 Wiki |
 | `BotData/plugin_configs/mc_wiki.json` | 无必填项，默认使用中文 Minecraft Wiki |
+| `BotData/plugin_configs/profile_like.json` | 无必填项；`点赞` 默认点满 QQ 资料卡赞 |
+| `BotData/plugin_configs/poke_back.json` | 无必填项；被戳一戳时自动戳回 |
 
 如果 NapCat 和机器人在同一个 compose 网络内，`BotData/config.json` 可以保持：
 
@@ -241,6 +243,8 @@ cp BotData/plugin_configs/rss_subscriber.example.json BotData/plugin_configs/rss
 cp BotData/plugin_configs/voice_trigger.example.json BotData/plugin_configs/voice_trigger.json
 cp BotData/plugin_configs/tts_speaker.example.json BotData/plugin_configs/tts_speaker.json
 cp BotData/plugin_configs/aiagent.example.json BotData/plugin_configs/aiagent.json
+cp BotData/plugin_configs/profile_like.example.json BotData/plugin_configs/profile_like.json
+cp BotData/plugin_configs/poke_back.example.json BotData/plugin_configs/poke_back.json
 ```
 
 ### 3. 修改主配置
@@ -920,6 +924,45 @@ RSS 推送任务示例：
 | `我的世界wiki <关键词>` | 同上 |
 | `mc百科 <关键词>` | 同上 |
 
+### QQ 互动插件
+
+#### 资料卡点赞
+
+配置文件：`BotData/plugin_configs/profile_like.json`
+
+本插件调用 NapCat/OneBot 的 `send_like` API。默认 `点赞` 会给发命令的人点满 10 次；群聊里不需要 @ 机器人。点赞会静默执行，成功或失败都不会在聊天里发送文字消息，失败细节只写入日志。
+
+关键字段：
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用插件 |
+| `default_times` | 未指定次数时默认点赞次数，默认 10 |
+| `max_times` | 单次命令允许的最大点赞次数，最高 10 |
+
+可用指令：
+
+| 消息 | 效果 |
+|------|------|
+| `点赞` | 静默给自己点满赞 |
+| `点赞 @用户` | 静默给被 @ 的用户点赞 |
+| `点赞 QQ号` | 静默给指定 QQ 号点赞 |
+| `点赞 QQ号 5` | 静默给指定 QQ 号点赞 5 次 |
+
+#### 戳一戳回戳
+
+配置文件：`BotData/plugin_configs/poke_back.json`
+
+本插件监听 OneBot V11 的戳一戳通知。如果有人戳到机器人，机器人会立刻调用 NapCat `send_poke` 戳回对方；不会发送文字提示。戳一戳发送依赖 NapCat 当前 packetBackend/QQ 协议支持，如果 NapCat 返回失败，机器人只记录日志。
+
+关键字段：
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用插件 |
+| `group_enabled` | 是否在群聊里戳回 |
+| `private_enabled` | 是否在私聊里戳回 |
+
 ### Telegram 贴纸包
 
 配置文件：`BotData/plugin_configs/tg_sticker_parser.json`
@@ -1333,6 +1376,8 @@ HIKARI_BOT_NEO/
     rss_subscriber/              # RSS/Atom 订阅命令和推送消息源
     stardew_wiki/                # 星露谷物语 Wiki 查询
     mc_wiki/                     # Minecraft Wiki 查询
+    profile_like/                # QQ 资料卡点赞命令
+    poke_back/                   # 被戳一戳时自动戳回
   BotData/
     config.example.json          # 主配置模板
     config.json                  # 主配置，含敏感信息，不提交

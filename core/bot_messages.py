@@ -91,6 +91,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "summary_more": "发送「帮助 全部」查看自动解析和更多说明",
         "full_title": "HIKARI BOT 完整帮助",
     },
+    "profile_like": {
+        "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。",
+    },
     "pixiv": {
         "r18_blocked": "Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。",
         "no_images": "Pixiv 作品 {illust_id} 没有可发送的图片。",
