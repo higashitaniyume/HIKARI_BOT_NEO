@@ -117,7 +117,18 @@
     "info_access": "访问状态：{access}",
     "info_skip": "跳过：{reason}",
     "info_url": "原始链接：{url}",
-    "hot_comments_header": "热评："
+    "hot_comments_header": "热评：",
+    "bilibili_cookie_assist_prompt": "检测到 B站 Cookie 不可用，是否协助登录？\n回复“确定”将发送登录二维码，其他回复均视为取消。\n原因：{reason}\n有效期：{minutes} 分钟。",
+    "bilibili_cookie_assist_expired": "本轮 B站 Cookie 协助请求已超时。",
+    "bilibili_cookie_assist_canceled": "已取消本轮 B站 Cookie 协助登录。",
+    "bilibili_cookie_assist_runtime_missing": "B站登录运行时未初始化，无法发起协助登录。",
+    "bilibili_cookie_assist_generate_failed": "生成 B站登录二维码失败，请稍后重试。",
+    "bilibili_cookie_assist_login_text": "请使用 Bilibili 客户端扫码登录。\n若二维码图片加载失败，可打开登录链接：\n{login_url}",
+    "bilibili_cookie_assist_image_failed": "二维码图片发送失败，可打开二维码链接：\n{qr_code_url}",
+    "bilibili_cookie_assist_success": "B站扫码登录成功，Cookie 已更新。",
+    "bilibili_cookie_assist_qr_expired": "B站二维码已过期，本轮协助登录结束。",
+    "bilibili_cookie_assist_timeout": "B站扫码登录超时，本轮协助登录结束。",
+    "bilibili_cookie_assist_poll_failed": "B站登录轮询失败，请稍后重试。"
   },
   "stardew_wiki": {
     "result": "标题：{title}\n简介：{summary}\nURL：{url}",

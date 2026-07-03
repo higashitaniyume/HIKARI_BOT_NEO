@@ -344,7 +344,10 @@ uv run python bot.py
 | `download.max_video_size_mb` | 单个视频大小上限 |
 | `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890` |
 | `bilibili_enhanced.cookie` | 可选 B站 Cookie，用于高画质和受限内容解析 |
+| `bilibili_enhanced.admin_assist.enable` | B站 Cookie 不可用时是否私聊超级管理员协助扫码登录 |
 | `message.media_display.video_cover_only` | 是否把视频改为只发封面 |
+
+开启 `bilibili_enhanced.use_cookie` 且开启 `bilibili_enhanced.admin_assist.enable` 后，B站 Cookie 缺失或失效时，Bot 会私聊 `BotData/config.json` 里的 `bot.superuser_id`。超级管理员回复“确定”后会收到 Bilibili 登录二维码图片和备用登录链接；扫码成功后，新 Cookie 会保存到 `download.cache_dir/runtime_manager/bilibili/cookie.json`，无需手动替换配置文件里的 Cookie。
 
 显式命令：
 

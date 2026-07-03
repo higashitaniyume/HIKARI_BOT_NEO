@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from core.config_loader import DEFAULT_MEDIA_PARSER_CONFIG
 import plugins.media_parser as media_parser
+from plugins.media_parser.bilibili_cookie_assist import BilibiliCookieAssistManager
 from plugins.media_parser import sender
 
 
@@ -49,6 +51,75 @@ class MediaParserSchedulerTests(unittest.TestCase):
         chunks = sender._chunk_media_messages(media_messages, 80)
 
         self.assertEqual([len(chunk) for chunk in chunks], [29])
+
+    def test_bilibili_assist_trigger_consumes_parser_request(self) -> None:
+        auth_runtime = object()
+
+        class FakeParser:
+            def __init__(self) -> None:
+                self.consumed = False
+
+            def consume_assist_request(self) -> str | None:
+                if self.consumed:
+                    return None
+                self.consumed = True
+                return "missing_cookie"
+
+            def get_auth_runtime(self) -> object:
+                return auth_runtime
+
+        class FakeAssist:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            def trigger_assist_request(self, bot, **kwargs) -> None:
+                self.calls.append({"bot": bot, **kwargs})
+
+        fake_parser = FakeParser()
+        fake_assist = FakeAssist()
+        old_assist = media_parser.bilibili_cookie_assist
+        media_parser.bilibili_cookie_assist = fake_assist
+        try:
+            runtime = SimpleNamespace(
+                config_manager=SimpleNamespace(
+                    bilibili_parser=fake_parser,
+                    bilibili=SimpleNamespace(
+                        admin_reply_timeout_minutes=12,
+                        admin_request_cooldown_minutes=34,
+                    ),
+                )
+            )
+
+            media_parser._trigger_bilibili_cookie_assist_if_needed(object(), runtime)
+        finally:
+            media_parser.bilibili_cookie_assist = old_assist
+
+        self.assertEqual(len(fake_assist.calls), 1)
+        self.assertEqual(fake_assist.calls[0]["reason"], "missing_cookie")
+        self.assertIs(fake_assist.calls[0]["auth_runtime"], auth_runtime)
+        self.assertEqual(fake_assist.calls[0]["reply_timeout_minutes"], 12)
+        self.assertEqual(fake_assist.calls[0]["request_cooldown_minutes"], 34)
+
+    def test_bilibili_assist_reply_is_superuser_private_only(self) -> None:
+        class FakePrivateEvent:
+            def __init__(self, user_id: str) -> None:
+                self.user_id = user_id
+
+            def get_user_id(self) -> str:
+                return self.user_id
+
+        self.assertTrue(
+            BilibiliCookieAssistManager._is_superuser_private_event(
+                FakePrivateEvent("12345"),
+                "12345",
+            )
+        )
+        self.assertFalse(
+            BilibiliCookieAssistManager._is_superuser_private_event(
+                FakePrivateEvent("54321"),
+                "12345",
+            )
+        )
 
 
 if __name__ == "__main__":

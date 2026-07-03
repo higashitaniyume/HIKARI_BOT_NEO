@@ -17,6 +17,7 @@ from core.stats_tracker import increment as stats_increment
 from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_url_from_card_data
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
 
+from .bilibili_cookie_assist import bilibili_cookie_assist
 from .config import get_config
 from .runtime import MediaParserRuntime, create_runtime
 from .sender import send_metadata_result
@@ -408,6 +409,7 @@ async def _prepare_text(
             session,
             links_with_parser=links,
         )
+        _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
         record_manager.record_metadata_links(metadata_list)
         if not metadata_list:
             if force:
@@ -498,12 +500,43 @@ def _create_record_manager(runtime: MediaParserRuntime) -> ParseRecordManager:
     )
 
 
+def _trigger_bilibili_cookie_assist_if_needed(bot: Bot, runtime: MediaParserRuntime) -> None:
+    parser = runtime.config_manager.bilibili_parser
+    if parser is None:
+        return
+    reason = parser.consume_assist_request()
+    if not reason:
+        return
+    bili_cfg = runtime.config_manager.bilibili
+    bilibili_cookie_assist.trigger_assist_request(
+        bot,
+        reason=reason,
+        auth_runtime=parser.get_auth_runtime(),
+        reply_timeout_minutes=bili_cfg.admin_reply_timeout_minutes,
+        request_cooldown_minutes=bili_cfg.admin_request_cooldown_minutes,
+    )
+
+
+class BilibiliCookieAssistReplyHandler:
+    """Consume superuser private replies for Bilibili Cookie QR login."""
+
+    name = "BilibiliCookieAssist"
+
+    async def match(self, event: MessageEvent, text: str) -> bool:
+        return bilibili_cookie_assist.should_handle_reply(event)
+
+    async def handle(self, bot: Bot, event: MessageEvent) -> None:
+        await bilibili_cookie_assist.handle_reply(bot, event)
+
+
 class AutoMediaParserHandler:
     """Automatically detect and parse supported media platform links."""
 
     name = "MediaParser"
 
     async def match(self, event: MessageEvent, text: str) -> bool:
+        if bilibili_cookie_assist.should_handle_reply(event):
+            return False
         parse_text = _event_text(event)
         lowered = parse_text.casefold()
         if not any(marker in lowered for marker in SUPPORTED_LINK_MARKERS):
@@ -534,5 +567,6 @@ async def media_parse_command(ctx: CommandContext) -> None:
     await _enqueue_text(ctx.bot, ctx.event, ctx.args, force=True)
 
 
+register_handler(BilibiliCookieAssistReplyHandler())
 register_handler(AutoMediaParserHandler())
 logger.info("Aggregated media parser registered")
