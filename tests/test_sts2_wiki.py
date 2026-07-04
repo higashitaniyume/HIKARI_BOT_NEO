@@ -13,7 +13,7 @@ from plugins.aiagent.tools import registry as aiagent_tools
 from plugins.sts2_wiki.api import Sts2WikiClient, Sts2WikiError
 from plugins.sts2_wiki.cache import Sts2WikiCache
 from plugins.sts2_wiki.models import Sts2WikiResult
-from plugins.sts2_wiki.service import Sts2WikiKeywordEmpty, normalize_keyword
+from plugins.sts2_wiki.service import Sts2WikiKeywordEmpty, Sts2WikiService, normalize_keyword, resolve_query_alias
 
 
 class FakeExtractClient(Sts2WikiClient):
@@ -93,6 +93,11 @@ def _cfg(**overrides: Any) -> dict[str, Any]:
         "max_cache_entries": 500,
         "proxy": "",
         "user_agent": "HikariBot/1.0 SlayTheSpire2WikiQuery",
+        "query_aliases": {
+            "铁甲战士": "Ironclad",
+            "打击": "Strike",
+            "完美打击": "Perfected Strike",
+        },
     }
     cfg.update(overrides)
     return cfg
@@ -167,6 +172,35 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_keyword_normalization(self) -> None:
         with self.assertRaises(Sts2WikiKeywordEmpty):
             normalize_keyword("   ")
+
+    def test_resolve_query_alias_matches_compact_chinese_terms(self) -> None:
+        self.assertEqual(resolve_query_alias(" 铁甲 战士 ", _cfg()), "Ironclad")
+        self.assertEqual(resolve_query_alias("打击", _cfg()), "Strike")
+        self.assertEqual(resolve_query_alias("unknown", _cfg()), "unknown")
+
+    async def test_service_searches_alias_but_caches_original_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cfg = _cfg()
+            service = Sts2WikiService(cfg)
+            service.cache = Sts2WikiCache(path=Path(tmpdir) / "cache.json", ttl_seconds=86400)
+            service.client.search = AsyncMock(
+                return_value=Sts2WikiResult(
+                    query="Strike",
+                    title="Strike (Ironclad)",
+                    summary="Strike is a basic attack card.",
+                    extract="Strike is a basic attack card.",
+                    url="https://slaythespire.wiki.gg/wiki/Strike_(Ironclad)",
+                )
+            )
+
+            result = await service.lookup("打击")
+            cached = await service.cache.get("打击")
+
+        service.client.search.assert_awaited_once_with("Strike")
+        self.assertEqual(result.query, "打击")
+        assert cached is not None
+        self.assertEqual(cached.query, "打击")
+        self.assertEqual(cached.title, "Strike (Ironclad)")
 
     async def test_command_failure_is_friendly_and_does_not_raise(self) -> None:
         ctx = _FakeCtx("Strike")

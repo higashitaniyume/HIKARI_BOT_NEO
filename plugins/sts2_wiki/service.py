@@ -32,7 +32,9 @@ class Sts2WikiService:
         if cached is not None:
             return cached
 
-        result = await self.client.search(keyword)
+        search_keyword = resolve_query_alias(keyword, self.config)
+        result = await self.client.search(search_keyword)
+        result.query = keyword
         await self.cache.set(keyword, result)
         return result
 
@@ -44,3 +46,21 @@ def normalize_keyword(value: str, *, max_chars: int = 80) -> str:
     if len(keyword) > max_chars:
         raise Sts2WikiKeywordTooLong(max_chars)
     return keyword
+
+
+def resolve_query_alias(keyword: str, config: dict[str, Any]) -> str:
+    aliases = config.get("query_aliases")
+    if not isinstance(aliases, dict):
+        return keyword
+
+    normalized_keyword = _alias_key(keyword)
+    for source, target in aliases.items():
+        if _alias_key(str(source)) != normalized_keyword:
+            continue
+        resolved = str(target or "").strip()
+        return resolved or keyword
+    return keyword
+
+
+def _alias_key(value: str) -> str:
+    return re.sub(r"\s+", "", value.strip().casefold())

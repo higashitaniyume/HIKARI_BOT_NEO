@@ -18,6 +18,19 @@ DEFAULT_STS2_WIKI_CONFIG: dict[str, Any] = {
     "max_cache_entries": 500,
     "proxy": "",
     "user_agent": "HikariBot/1.0 SlayTheSpire2WikiQuery",
+    "query_aliases": {
+        "铁甲战士": "Ironclad",
+        "铁甲": "Ironclad",
+        "战士": "Ironclad",
+        "静默猎手": "Silent",
+        "猎手": "Silent",
+        "故障机器人": "Defect",
+        "机器人": "Defect",
+        "观者": "Watcher",
+        "打击": "Strike",
+        "防御": "Defend",
+        "完美打击": "Perfected Strike",
+    },
 }
 
 _first_load_done = False

@@ -955,6 +955,7 @@ RSS 推送任务示例：
 | `max_cache_entries` | 本地缓存最多保留的查询条目数 |
 | `proxy` | 请求 Wiki API 的代理，可为空 |
 | `user_agent` | 请求 Wiki API 时使用的 User-Agent |
+| `query_aliases` | 查询别名映射，用于把中文译名转成英文 wiki.gg 搜索词，例如 `打击` -> `Strike` |
 
 可用指令：
 
