@@ -12,6 +12,7 @@ import plugins.sts2_wiki as sts2_wiki_plugin
 from plugins.aiagent.tools import registry as aiagent_tools
 from plugins.sts2_wiki.api import Sts2WikiClient, Sts2WikiError
 from plugins.sts2_wiki.cache import Sts2WikiCache
+from plugins.sts2_wiki.config import _migrate_config
 from plugins.sts2_wiki.models import Sts2WikiResult
 from plugins.sts2_wiki.service import Sts2WikiKeywordEmpty, Sts2WikiService, normalize_keyword, resolve_query_alias
 
@@ -72,6 +73,59 @@ class FakeParseFallbackClient(Sts2WikiClient):
         raise AssertionError(f"unexpected params: {params}")
 
 
+class FakeSpireCodexClient(Sts2WikiClient):
+    async def _request_spire(self, endpoint: str, params: dict[str, Any]) -> Any:
+        keyword = params.get("search")
+        if endpoint == "cards" and keyword == "打击":
+            return [
+                {
+                    "id": "BEGONE",
+                    "name": "下去！",
+                    "description": "选择一张牌，将其变化为[gold]仆从打击[/gold]。",
+                    "cost": 1,
+                    "type": "技能",
+                    "rarity": "普通",
+                    "color": "regent",
+                },
+                {
+                    "id": "STRIKE_IRONCLAD",
+                    "name": "打击",
+                    "description": "造成6点伤害。",
+                    "cost": 1,
+                    "type": "攻击",
+                    "rarity": "初始牌",
+                    "color": "ironclad",
+                },
+            ]
+        if endpoint == "cards" and keyword == "完美打击":
+            return [
+                {
+                    "id": "PERFECTED_STRIKE",
+                    "name": "完美打击",
+                    "description": "造成6点伤害。\n你每有一张名字中含有“打击”的牌，伤害+2。",
+                    "upgrade_description": "造成9点伤害。\n你每有一张名字中含有“打击”的牌，伤害+3。",
+                    "cost": 2,
+                    "type": "攻击",
+                    "rarity": "普通",
+                    "color": "ironclad",
+                }
+            ]
+        if endpoint == "cards" and keyword == "铁甲战士":
+            return []
+        if endpoint == "characters" and keyword == "铁甲战士":
+            return [
+                {
+                    "id": "IRONCLAD",
+                    "name": "铁甲战士",
+                    "description": "铁甲军团最后的士兵。",
+                    "starting_hp": 80,
+                    "starting_gold": 99,
+                    "max_energy": 3,
+                }
+            ]
+        return []
+
+
 class _FakeCtx:
     def __init__(self, args: str) -> None:
         self.args = args
@@ -84,7 +138,10 @@ class _FakeCtx:
 def _cfg(**overrides: Any) -> dict[str, Any]:
     cfg: dict[str, Any] = {
         "enabled": True,
-        "api_url": "https://slaythespire.wiki.gg/api.php",
+        "source": "spire_codex",
+        "api_url": "https://spire-codex.com/api",
+        "site_url": "https://spire-codex.com",
+        "language": "zhs",
         "cache_ttl_seconds": 86400,
         "timeout": 10,
         "search_limit": 5,
@@ -93,12 +150,28 @@ def _cfg(**overrides: Any) -> dict[str, Any]:
         "max_cache_entries": 500,
         "proxy": "",
         "user_agent": "HikariBot/1.0 SlayTheSpire2WikiQuery",
+        "search_categories": ["cards", "characters", "relics", "potions", "powers", "keywords"],
         "query_aliases": {
+            "Ironclad": "铁甲战士",
+            "Strike": "打击",
+            "Perfected Strike": "完美打击",
+            "铁甲": "铁甲战士",
+        },
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+def _mediawiki_cfg(**overrides: Any) -> dict[str, Any]:
+    cfg = _cfg(
+        source="mediawiki",
+        api_url="https://slaythespire.wiki.gg/api.php",
+        query_aliases={
             "铁甲战士": "Ironclad",
             "打击": "Strike",
             "完美打击": "Perfected Strike",
         },
-    }
+    )
     cfg.update(overrides)
     return cfg
 
@@ -126,7 +199,7 @@ def _agent_cfg(plugin_tools: dict[str, object]) -> dict[str, object]:
 
 class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_uses_mediawiki_search_then_extracts(self) -> None:
-        result = await FakeExtractClient(_cfg()).search("Strike")
+        result = await FakeExtractClient(_mediawiki_cfg()).search("Strike")
 
         self.assertEqual(result.title, "Strike")
         self.assertEqual(result.summary, "Strike is a basic attack card.")
@@ -135,12 +208,34 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item.title for item in result.candidates], ["Strike", "Strike+"])
 
     async def test_search_falls_back_to_parse_when_extract_is_empty(self) -> None:
-        result = await FakeParseFallbackClient(_cfg()).search("Defend")
+        result = await FakeParseFallbackClient(_mediawiki_cfg()).search("Defend")
 
         self.assertEqual(result.title, "Defend")
         self.assertEqual(result.summary, "Defend is a basic Skill card.")
         self.assertNotIn("ignore", result.extract)
         self.assertEqual(result.url, "https://slaythespire.wiki.gg/wiki/Defend")
+
+    async def test_spire_codex_prefers_exact_chinese_name_match(self) -> None:
+        result = await FakeSpireCodexClient(_cfg(search_categories=["cards"])).search("打击")
+
+        self.assertEqual(result.title, "打击（卡牌）")
+        self.assertIn("卡牌 · 铁甲战士 · 攻击", result.summary)
+        self.assertIn("造成6点伤害", result.extract)
+        self.assertEqual(result.url, "https://spire-codex.com/zhs/cards/STRIKE_IRONCLAD")
+
+    async def test_spire_codex_returns_chinese_card_detail(self) -> None:
+        result = await FakeSpireCodexClient(_cfg(search_categories=["cards"])).search("完美打击")
+
+        self.assertEqual(result.title, "完美打击（卡牌）")
+        self.assertIn("你每有一张名字中含有“打击”的牌", result.extract)
+        self.assertIn("升级：造成9点伤害", result.extract)
+
+    async def test_spire_codex_searches_later_categories_for_characters(self) -> None:
+        result = await FakeSpireCodexClient(_cfg(search_categories=["cards", "characters"])).search("铁甲战士")
+
+        self.assertEqual(result.title, "铁甲战士（角色）")
+        self.assertIn("生命 80", result.summary)
+        self.assertIn("铁甲军团最后的士兵", result.extract)
 
     async def test_cache_write_read_and_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -174,8 +269,9 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
             normalize_keyword("   ")
 
     def test_resolve_query_alias_matches_compact_chinese_terms(self) -> None:
-        self.assertEqual(resolve_query_alias(" 铁甲 战士 ", _cfg()), "Ironclad")
-        self.assertEqual(resolve_query_alias("打击", _cfg()), "Strike")
+        self.assertEqual(resolve_query_alias("Ironclad", _cfg()), "铁甲战士")
+        self.assertEqual(resolve_query_alias("Perfected Strike", _cfg()), "完美打击")
+        self.assertEqual(resolve_query_alias("铁甲", _cfg()), "铁甲战士")
         self.assertEqual(resolve_query_alias("unknown", _cfg()), "unknown")
 
     async def test_service_searches_alias_but_caches_original_query(self) -> None:
@@ -185,22 +281,38 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
             service.cache = Sts2WikiCache(path=Path(tmpdir) / "cache.json", ttl_seconds=86400)
             service.client.search = AsyncMock(
                 return_value=Sts2WikiResult(
-                    query="Strike",
-                    title="Strike (Ironclad)",
-                    summary="Strike is a basic attack card.",
-                    extract="Strike is a basic attack card.",
-                    url="https://slaythespire.wiki.gg/wiki/Strike_(Ironclad)",
+                    query="打击",
+                    title="打击（卡牌）",
+                    summary="卡牌 · 铁甲战士 · 攻击 · 初始牌 · 费用 1",
+                    extract="卡牌 · 铁甲战士 · 攻击 · 初始牌 · 费用 1\n造成6点伤害。",
+                    url="https://spire-codex.com/zhs/cards/STRIKE_IRONCLAD",
                 )
             )
 
-            result = await service.lookup("打击")
-            cached = await service.cache.get("打击")
+            result = await service.lookup("Strike")
+            cached = await service.cache.get("Strike")
 
-        service.client.search.assert_awaited_once_with("Strike")
-        self.assertEqual(result.query, "打击")
+        service.client.search.assert_awaited_once_with("打击")
+        self.assertEqual(result.query, "Strike")
         assert cached is not None
-        self.assertEqual(cached.query, "打击")
-        self.assertEqual(cached.title, "Strike (Ironclad)")
+        self.assertEqual(cached.query, "Strike")
+        self.assertEqual(cached.title, "打击（卡牌）")
+
+    def test_spire_codex_config_migrates_legacy_defaults(self) -> None:
+        cfg = _migrate_config(
+            _cfg(
+                api_url="https://slaythespire.wiki.gg/api.php",
+                query_aliases={
+                    "打击": "Strike",
+                    "完美打击": "Perfected Strike",
+                    "custom": "自定义",
+                },
+            )
+        )
+
+        self.assertEqual(cfg["api_url"], "https://spire-codex.com/api")
+        self.assertNotEqual(cfg["query_aliases"].get("打击"), "Strike")
+        self.assertEqual(cfg["query_aliases"]["custom"], "自定义")
 
     async def test_command_failure_is_friendly_and_does_not_raise(self) -> None:
         ctx = _FakeCtx("Strike")

@@ -1,6 +1,9 @@
 {
   "enabled": true,
-  "api_url": "https://slaythespire.wiki.gg/api.php",
+  "source": "spire_codex",
+  "api_url": "https://spire-codex.com/api",
+  "site_url": "https://spire-codex.com",
+  "language": "zhs",
   "cache_ttl_seconds": 86400,
   "timeout": 10,
   "search_limit": 5,
@@ -9,17 +12,22 @@
   "max_cache_entries": 500,
   "proxy": "",
   "user_agent": "HikariBot/1.0 SlayTheSpire2WikiQuery",
+  "search_categories": [
+    "cards",
+    "characters",
+    "relics",
+    "potions",
+    "powers",
+    "keywords",
+    "monsters",
+    "events"
+  ],
   "query_aliases": {
-    "铁甲战士": "Ironclad",
-    "铁甲": "Ironclad",
-    "战士": "Ironclad",
-    "静默猎手": "Silent",
-    "猎手": "Silent",
-    "故障机器人": "Defect",
-    "机器人": "Defect",
-    "观者": "Watcher",
-    "打击": "Strike",
-    "防御": "Defend",
-    "完美打击": "Perfected Strike"
+    "Ironclad": "铁甲战士",
+    "Strike": "打击",
+    "Perfected Strike": "完美打击",
+    "铁甲": "铁甲战士",
+    "战士": "铁甲战士",
+    "机器人": "故障机器人"
   }
 }

@@ -28,7 +28,7 @@ def _enabled() -> bool:
 @register_ai_tool(
     "sts2_wiki_search",
     plugin_name="sts2_wiki",
-    description="Search wiki.gg's Slay the Spire Wiki for Slay the Spire 2 entries and return the best matching page summary and URL.",
+    description="Search Slay the Spire 2 Chinese data from Spire Codex and return the best matching summary and URL.",
     parameters={
         "type": "object",
         "properties": {
