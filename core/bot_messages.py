@@ -143,12 +143,18 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "stardew_wiki": {
         "result": "标题：{title}\n简介：{summary}\nURL：{url}",
+        "link": "{title}\n{url}",
+        "detail": "标题：{title}\n\n{detail}",
+        "image_caption": "{title} 主图",
         "usage": "用法：星露谷wiki <关键词>",
         "not_found": "没有在星露谷物语 Wiki 找到「{keyword}」。",
         "failed": "星露谷物语 Wiki 查询失败：{error}",
     },
     "mc_wiki": {
         "result": "标题：{title}\n简介：{summary}\nURL：{url}",
+        "link": "{title}\n{url}",
+        "detail": "标题：{title}\n\n{detail}",
+        "image_caption": "{title} 主图",
         "usage": "用法：mcwiki <关键词>",
         "not_found": "没有在 Minecraft Wiki 找到「{keyword}」。",
         "failed": "Minecraft Wiki 查询失败：{error}",

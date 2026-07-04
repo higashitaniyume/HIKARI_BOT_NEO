@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 
-from nonebot.adapters.onebot.v11 import Message
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
 
 from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 
-from .api import StardewWikiClient, StardewWikiError, StardewWikiNotFound
+from .api import StardewWikiClient, StardewWikiError, StardewWikiNotFound, StardewWikiResult
 from .config import get_config
 
 logger = logging.getLogger("HikariBot.StardewWiki")
@@ -18,8 +18,12 @@ def _enabled() -> bool:
     return bool(get_config().get("enabled", True))
 
 
-def _format_result(title: str, summary: str, url: str) -> str:
-    return msg("stardew_wiki.result", title=title, summary=summary, url=url)
+def _format_link(result: StardewWikiResult) -> str:
+    return msg("stardew_wiki.link", title=result.title, url=result.url)
+
+
+def _format_detail(result: StardewWikiResult) -> str:
+    return msg("stardew_wiki.detail", title=result.title, detail=result.detail)
 
 
 @register_ai_tool(
@@ -57,7 +61,9 @@ async def ai_tool_stardew_wiki_search(context: AIToolContext, arguments: dict[st
             {
                 "title": result.title,
                 "summary": result.summary,
+                "detail": result.detail,
                 "url": result.url,
+                "image_url": result.image_url,
             }
         ],
     }
@@ -88,12 +94,65 @@ async def handle_stardew_wiki(ctx: CommandContext) -> None:
 
     try:
         result = await StardewWikiClient(get_config()).search(keyword)
-        await ctx.send(Message(_format_result(result.title, result.summary, result.url)))
+        await _send_result(ctx, result)
     except StardewWikiNotFound:
         await ctx.send(Message(msg("stardew_wiki.not_found", keyword=keyword)))
     except StardewWikiError as e:
         logger.warning("[StardewWiki] 查询失败 keyword=%r error=%s", keyword, e)
         await ctx.send(Message(msg("stardew_wiki.failed", error=e)))
+
+
+async def _send_result(ctx: CommandContext, result: StardewWikiResult) -> None:
+    nodes = _build_forward_nodes(ctx.bot.self_id, result)
+    try:
+        await _send_forward(ctx, nodes)
+    except Exception as e:
+        logger.warning("[StardewWiki] 合并转发失败 title=%r error=%s", result.title, e)
+        await _send_separate(ctx, result)
+
+
+def _build_forward_nodes(self_id: str, result: StardewWikiResult) -> list[MessageSegment]:
+    nodes = [
+        _node(self_id, Message(_format_link(result))),
+        _node(self_id, Message(_format_detail(result))),
+    ]
+    image_message = _build_image_message(result)
+    if image_message is not None:
+        nodes.append(_node(self_id, image_message))
+    return nodes
+
+
+def _node(self_id: str, content: Message) -> MessageSegment:
+    return MessageSegment.node_custom(
+        user_id=int(self_id),
+        nickname="HIKARI",
+        content=content,
+    )
+
+
+def _build_image_message(result: StardewWikiResult) -> Message | None:
+    if not result.image_url:
+        return None
+    return Message(msg("stardew_wiki.image_caption", title=result.title) + "\n") + MessageSegment.image(result.image_url)
+
+
+async def _send_forward(ctx: CommandContext, nodes: list[MessageSegment]) -> None:
+    if isinstance(ctx.event, GroupMessageEvent):
+        await ctx.bot.send_group_forward_msg(group_id=ctx.event.group_id, messages=nodes)
+        return
+    await ctx.bot.send_private_forward_msg(user_id=int(ctx.event.get_user_id()), messages=nodes)
+
+
+async def _send_separate(ctx: CommandContext, result: StardewWikiResult) -> None:
+    await ctx.send(Message(_format_link(result)))
+    await ctx.send(Message(_format_detail(result)))
+    image_message = _build_image_message(result)
+    if image_message is None:
+        return
+    try:
+        await ctx.send(image_message)
+    except Exception as e:
+        logger.warning("[StardewWiki] 主图发送失败 title=%r error=%s", result.title, e)
 
 
 get_config()

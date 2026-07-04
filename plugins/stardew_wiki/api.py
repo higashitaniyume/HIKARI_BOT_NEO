@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 from dataclasses import dataclass
@@ -21,7 +22,9 @@ class StardewWikiNotFound(StardewWikiError):
 class StardewWikiResult:
     title: str
     summary: str
+    detail: str
     url: str
+    image_url: str
 
 
 class _IntroTextParser(HTMLParser):
@@ -66,6 +69,8 @@ class StardewWikiClient:
         self.timeout = float(config.get("timeout") or 12)
         self.search_limit = max(1, min(int(config.get("search_limit") or 3), 10))
         self.summary_max_chars = max(60, int(config.get("summary_max_chars") or 220))
+        self.detail_max_chars = max(self.summary_max_chars, int(config.get("detail_max_chars") or 1600))
+        self.image_size = max(120, min(int(config.get("image_size") or 640), 1600))
         self.proxy = str(config.get("proxy") or "").strip() or None
         if not self.api_url:
             raise StardewWikiError("星露谷 Wiki API 地址未配置")
@@ -89,13 +94,23 @@ class StardewWikiClient:
             raise StardewWikiError("缺少搜索关键词")
 
         page = await self._search_page(keyword)
-        summary = await self._fetch_intro(page["title"])
-        if not summary:
-            summary = "这个页面暂时没有可提取的简介。"
+        detail_result, image_result = await asyncio.gather(
+            self._fetch_detail(page["title"]),
+            self._fetch_main_image(page["title"]),
+            return_exceptions=True,
+        )
+        if isinstance(detail_result, Exception):
+            raise detail_result
+        detail = detail_result or "这个页面暂时没有可提取的详细描述。"
+        detail = _truncate(detail, self.detail_max_chars)
+        summary = _truncate(_first_paragraph(detail), self.summary_max_chars)
+        image_url = "" if isinstance(image_result, Exception) else image_result
         return StardewWikiResult(
             title=str(page["title"]),
-            summary=_truncate(summary, self.summary_max_chars),
+            summary=summary,
+            detail=detail,
             url=str(page["fullurl"]),
+            image_url=image_url,
         )
 
     async def _request(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -136,7 +151,7 @@ class StardewWikiClient:
             raise StardewWikiError("星露谷 Wiki 搜索结果格式异常")
         return page
 
-    async def _fetch_intro(self, title: str) -> str:
+    async def _fetch_detail(self, title: str) -> str:
         data = await self._request(
             {
                 "action": "parse",
@@ -152,7 +167,28 @@ class StardewWikiClient:
             return ""
         parser = _IntroTextParser()
         parser.feed(raw_html)
-        return "\n".join(parser.paragraphs[:2]).strip()
+        return "\n\n".join(parser.paragraphs).strip()
+
+    async def _fetch_main_image(self, title: str) -> str:
+        data = await self._request(
+            {
+                "action": "query",
+                "prop": "pageimages",
+                "piprop": "thumbnail|original",
+                "pithumbsize": self.image_size,
+                "redirects": 1,
+                "titles": title,
+                "format": "json",
+                "formatversion": 2,
+            }
+        )
+        pages = data.get("query", {}).get("pages", [])
+        if not isinstance(pages, list) or not pages:
+            return ""
+        page = pages[0]
+        if not isinstance(page, dict):
+            return ""
+        return _image_source(page.get("original")) or _image_source(page.get("thumbnail"))
 
 
 def _normalize_text(value: str) -> str:
@@ -160,6 +196,17 @@ def _normalize_text(value: str) -> str:
     text = re.sub(r"\[\s*\d+\s*\]", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def _first_paragraph(value: str) -> str:
+    return value.strip().split("\n", 1)[0].strip()
+
+
+def _image_source(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    source = value.get("source")
+    return source.strip() if isinstance(source, str) else ""
 
 
 def _truncate(value: str, max_chars: int) -> str:

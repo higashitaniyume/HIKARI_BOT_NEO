@@ -114,7 +114,15 @@ class AIAgentPluginToolTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 mc_wiki_plugin.McWikiClient,
                 "search",
-                AsyncMock(return_value=McWikiResult("红石", "红石是一种材料。", "https://zh.minecraft.wiki/w/红石")),
+                AsyncMock(
+                    return_value=McWikiResult(
+                        title="红石",
+                        summary="红石是一种材料。",
+                        detail="红石是一种材料，可用于制作红石电路。",
+                        url="https://zh.minecraft.wiki/w/红石",
+                        image_url="https://zh.minecraft.wiki/images/Redstone.png",
+                    )
+                ),
             ) as search_mock,
         ):
             result = await aiagent_tools.execute_tool_call(
@@ -124,7 +132,9 @@ class AIAgentPluginToolTests(unittest.IsolatedAsyncioTestCase):
 
         payload = json.loads(result["content"])
         self.assertEqual(payload["results"][0]["title"], "红石")
+        self.assertEqual(payload["results"][0]["detail"], "红石是一种材料，可用于制作红石电路。")
         self.assertEqual(payload["results"][0]["url"], "https://zh.minecraft.wiki/w/红石")
+        self.assertEqual(payload["results"][0]["image_url"], "https://zh.minecraft.wiki/images/Redstone.png")
         search_mock.assert_awaited_once_with("红石")
 
 

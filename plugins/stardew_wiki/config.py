@@ -13,6 +13,8 @@ DEFAULT_STARDEW_WIKI_CONFIG: dict[str, Any] = {
     "timeout": 12,
     "search_limit": 3,
     "summary_max_chars": 220,
+    "detail_max_chars": 1600,
+    "image_size": 640,
     "proxy": "",
 }
 
