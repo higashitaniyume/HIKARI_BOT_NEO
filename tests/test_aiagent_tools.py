@@ -6,12 +6,16 @@ import tempfile
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import plugins.aiagent as aiagent
+import plugins.mc_wiki as mc_wiki_plugin
+import plugins.stardew_wiki as stardew_wiki_plugin
 from plugins.aiagent import client as aiagent_client
 from plugins.aiagent.tools import registry as tool_registry
 from plugins.aiagent.tools import search as search_tool
+from plugins.mc_wiki.api import McWikiResult
+from plugins.stardew_wiki.api import StardewWikiResult
 
 
 @contextmanager
@@ -92,6 +96,40 @@ class ToolCallingAsyncClient:
         )
 
 
+class WikiPriorityAsyncClient:
+    post_payloads: list[dict[str, object]] = []
+    get_calls: list[tuple[str, dict[str, object]]] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def post(self, url: str, *, headers: dict[str, str], json: dict[str, object]):
+        WikiPriorityAsyncClient.post_payloads.append(json)
+        return FakeResponse(200, {"choices": [{"message": {"role": "assistant", "content": "综合回复"}}]})
+
+    async def get(self, url: str, *, params: dict[str, object]):
+        WikiPriorityAsyncClient.get_calls.append((url, params))
+        return FakeResponse(
+            200,
+            {
+                "results": [
+                    {
+                        "title": "Search title",
+                        "url": "https://example.com/search",
+                        "content": "Search snippet",
+                        "engine": "example",
+                    }
+                ]
+            },
+        )
+
+
 class PlainAsyncClient:
     post_payloads: list[dict[str, object]] = []
 
@@ -160,6 +198,19 @@ def base_cfg(*, search_enabled: bool = True, files_enabled: bool = False) -> dic
     }
 
 
+def _cfg_with_plugin_tool(tool_name: str) -> dict[str, object]:
+    cfg = base_cfg()
+    tools = cfg["tools"]
+    assert isinstance(tools, dict)
+    tools["plugin_tools"] = {
+        "enabled": True,
+        "allow_side_effects": False,
+        "enabled_names": [tool_name],
+        "disabled_names": [],
+    }
+    return cfg
+
+
 class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_chat_completion_executes_search_tool_call(self) -> None:
         ToolCallingAsyncClient.post_payloads = []
@@ -186,6 +237,80 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(tool_messages), 1)
         tool_payload = json.loads(str(tool_messages[0]["content"]))
         self.assertEqual(tool_payload["results"][0]["title"], "Result title")
+
+    async def test_mc_wiki_question_prefetches_wiki_tool_before_web_search(self) -> None:
+        WikiPriorityAsyncClient.post_payloads = []
+        WikiPriorityAsyncClient.get_calls = []
+
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(
+                mc_wiki_plugin.McWikiClient,
+                "search",
+                AsyncMock(
+                    return_value=McWikiResult(
+                        title="苦力怕",
+                        summary="苦力怕是一种敌对生物。",
+                        detail="苦力怕是一种敌对生物。",
+                        url="https://zh.minecraft.wiki/w/苦力怕",
+                        image_url="https://zh.minecraft.wiki/images/Creeper.png",
+                    )
+                ),
+            ) as wiki_search,
+        ):
+            reply = await aiagent._request_chat_completion(
+                _cfg_with_plugin_tool("mc_wiki_search"),
+                [{"role": "user", "content": "mcwiki 苦力怕"}],
+            )
+
+        self.assertEqual(reply, "综合回复")
+        wiki_search.assert_awaited_once_with("苦力怕")
+        self.assertEqual(WikiPriorityAsyncClient.get_calls[0][1]["q"], "mcwiki 苦力怕")
+
+        messages = WikiPriorityAsyncClient.post_payloads[0]["messages"]
+        assert isinstance(messages, list)
+        assistant_calls = next(message["tool_calls"] for message in messages if isinstance(message, dict) and message.get("role") == "assistant")
+        self.assertEqual([call["function"]["name"] for call in assistant_calls], ["mc_wiki_search", "web_search"])
+        tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
+        self.assertEqual([message["name"] for message in tool_messages], ["mc_wiki_search", "web_search"])
+
+    async def test_stardew_wiki_question_prefetches_wiki_tool_before_web_search(self) -> None:
+        WikiPriorityAsyncClient.post_payloads = []
+        WikiPriorityAsyncClient.get_calls = []
+
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(
+                stardew_wiki_plugin.StardewWikiClient,
+                "search",
+                AsyncMock(
+                    return_value=StardewWikiResult(
+                        title="鱼",
+                        summary="鱼可以通过钓鱼技能获得。",
+                        detail="鱼可以通过钓鱼技能获得。",
+                        url="https://zh.stardewvalleywiki.com/鱼",
+                        image_url="https://stardewvalleywiki.com/mediawiki/images/Fish.gif",
+                    )
+                ),
+            ) as wiki_search,
+        ):
+            reply = await aiagent._request_chat_completion(
+                _cfg_with_plugin_tool("stardew_wiki_search"),
+                [{"role": "user", "content": "星露谷物语wiki 鱼"}],
+            )
+
+        self.assertEqual(reply, "综合回复")
+        wiki_search.assert_awaited_once_with("鱼")
+        self.assertEqual(WikiPriorityAsyncClient.get_calls[0][1]["q"], "星露谷物语wiki 鱼")
+
+        messages = WikiPriorityAsyncClient.post_payloads[0]["messages"]
+        assert isinstance(messages, list)
+        assistant_calls = next(message["tool_calls"] for message in messages if isinstance(message, dict) and message.get("role") == "assistant")
+        self.assertEqual([call["function"]["name"] for call in assistant_calls], ["stardew_wiki_search", "web_search"])
+        tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
+        self.assertEqual([message["name"] for message in tool_messages], ["stardew_wiki_search", "web_search"])
 
     async def test_disabled_search_tool_is_not_sent_to_model(self) -> None:
         PlainAsyncClient.post_payloads = []
