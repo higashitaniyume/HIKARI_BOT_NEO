@@ -264,6 +264,28 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
             path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
             self.assertIsNone(await cache.get("Strike"))
 
+    async def test_cache_namespace_separates_old_mediawiki_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "sts2_cache.json"
+            old_cache = Sts2WikiCache(path=path, ttl_seconds=86400, namespace="mediawiki|https://slaythespire.wiki.gg/api.php")
+            new_cache = Sts2WikiCache(path=path, ttl_seconds=86400, namespace="spire_codex|zhs|https://spire-codex.com/api")
+            await old_cache.set(
+                "打击",
+                Sts2WikiResult(
+                    query="打击",
+                    title="Strike (Ironclad)",
+                    summary="English old cache.",
+                    extract="English old cache.",
+                    url="https://slaythespire.wiki.gg/wiki/Strike_(Ironclad)",
+                ),
+            )
+
+            self.assertIsNone(await new_cache.get("打击"))
+            old_result = await old_cache.get("打击")
+
+        assert old_result is not None
+        self.assertEqual(old_result.title, "Strike (Ironclad)")
+
     async def test_empty_keyword_normalization(self) -> None:
         with self.assertRaises(Sts2WikiKeywordEmpty):
             normalize_keyword("   ")

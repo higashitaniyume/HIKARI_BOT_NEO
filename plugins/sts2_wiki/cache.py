@@ -24,10 +24,12 @@ class Sts2WikiCache:
         path: Path = CACHE_PATH,
         ttl_seconds: int = 86400,
         max_entries: int = 500,
+        namespace: str = "",
     ) -> None:
         self.path = path
         self.ttl_seconds = max(0, int(ttl_seconds))
         self.max_entries = max(10, int(max_entries))
+        self.namespace = " ".join(namespace.strip().casefold().split())
 
     async def get(self, query: str) -> Sts2WikiResult | None:
         if self.ttl_seconds <= 0:
@@ -40,7 +42,7 @@ class Sts2WikiCache:
         await asyncio.to_thread(self._set_sync, query, result)
 
     def _get_sync(self, query: str) -> Sts2WikiResult | None:
-        key = _cache_key(query)
+        key = _cache_key(query, self.namespace)
         if not key:
             return None
         with _lock:
@@ -55,7 +57,7 @@ class Sts2WikiCache:
             return result
 
     def _set_sync(self, query: str, result: Sts2WikiResult) -> None:
-        key = _cache_key(query)
+        key = _cache_key(query, self.namespace)
         if not key:
             return
         now = _utc_now()
@@ -66,6 +68,7 @@ class Sts2WikiCache:
             "extract": result.extract,
             "url": result.url,
             "updated_at": now,
+            "namespace": self.namespace,
         }
         with _lock:
             data = _read_cache(self.path)
@@ -144,8 +147,14 @@ def _is_expired(item: dict[str, Any], ttl_seconds: int) -> bool:
     return datetime.now(timezone.utc).timestamp() - timestamp > ttl_seconds
 
 
-def _cache_key(query: str) -> str:
-    return " ".join(query.strip().casefold().split())
+def _cache_key(query: str, namespace: str = "") -> str:
+    normalized_query = " ".join(query.strip().casefold().split())
+    if not normalized_query:
+        return ""
+    normalized_namespace = " ".join(namespace.strip().casefold().split())
+    if not normalized_namespace:
+        return normalized_query
+    return f"{normalized_namespace}::{normalized_query}"
 
 
 def _utc_now() -> str:

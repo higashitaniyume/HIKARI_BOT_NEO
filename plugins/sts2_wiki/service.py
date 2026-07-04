@@ -24,6 +24,7 @@ class Sts2WikiService:
         self.cache = Sts2WikiCache(
             ttl_seconds=int(config.get("cache_ttl_seconds") or 86400),
             max_entries=int(config.get("max_cache_entries") or 500),
+            namespace=_cache_namespace(config),
         )
         self.client = Sts2WikiClient(config)
 
@@ -64,3 +65,10 @@ def resolve_query_alias(keyword: str, config: dict[str, Any]) -> str:
 
 def _alias_key(value: str) -> str:
     return re.sub(r"\s+", "", value.strip().casefold())
+
+
+def _cache_namespace(config: dict[str, Any]) -> str:
+    source = str(config.get("source") or "spire_codex").strip().casefold()
+    language = str(config.get("language") or "").strip().casefold()
+    api_url = str(config.get("api_url") or "").strip().rstrip("/").casefold()
+    return "|".join(part for part in (source, language, api_url) if part)
