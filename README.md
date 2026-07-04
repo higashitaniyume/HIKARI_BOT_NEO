@@ -341,6 +341,8 @@ uv run python bot.py
 | `enabled` | 是否启用聚合媒体解析 |
 | `trigger.auto_parse` | 是否自动解析消息里的支持平台链接 |
 | `max_links_per_message` | 单条消息最多处理几个链接 |
+| `parse_retry_count` | 解析/下载失败后的重试次数，默认 `2`；每次重试会重新解析链接并重新获取媒体地址 |
+| `parse_retry_delay_seconds` | 每次解析/下载重试前等待秒数，默认 `2.0` |
 | `parse_queue.enabled` | 是否启用解析队列；启用后链接会进入后台解析/下载 worker |
 | `parse_queue.max_size` | 等待解析的最大链接数 |
 | `parse_queue.max_concurrent` | 同时解析/下载的链接数；建议保持小并发，避免平台风控和本机 IO 抢占 |

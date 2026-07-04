@@ -72,6 +72,13 @@ class MediaSendQueueItem:
     force: bool = False
 
 
+@dataclass
+class MediaPrepareAttempt:
+    processed: list[dict[str, Any]]
+    metadata_list: list[dict[str, Any]]
+    config: dict[str, Any]
+
+
 def _event_text(event: MessageEvent) -> str:
     parts = [str(event.get_message())]
     plain = event.get_plaintext()
@@ -140,6 +147,13 @@ def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
         "max_size": max(1, int(raw.get("max_size", 100))),
         "max_concurrent": max(1, int(raw.get("max_concurrent", 2))),
         "delay_seconds": max(0.0, float(raw.get("delay_seconds", 0.8))),
+    }
+
+
+def _retry_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "count": max(0, int(cfg.get("parse_retry_count", 2))),
+        "delay_seconds": max(0.0, float(cfg.get("parse_retry_delay_seconds", 2.0))),
     }
 
 
@@ -403,6 +417,84 @@ async def _prepare_text(
         len(links),
     )
 
+    result = await _prepare_links_with_retries(bot, event, text, links, initial_config=runtime.config)
+    if result is None:
+        return None
+    if record_manager.enabled:
+        record_manager.record_metadata_links(result.metadata_list)
+    if not result.processed:
+        if force:
+            await bot.send(event, Message(msg("media_parser.empty")))
+        return None
+    return result.processed, result.config
+
+
+async def _prepare_links_with_retries(
+    bot: Bot,
+    event: MessageEvent,
+    text: str,
+    links: list[tuple[str, Any]],
+    *,
+    initial_config: dict[str, Any],
+) -> MediaPrepareAttempt | None:
+    retry = _retry_settings(initial_config)
+    attempts = retry["count"] + 1
+    delay_seconds = retry["delay_seconds"]
+    last_result: MediaPrepareAttempt | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            result = await _prepare_links_once(bot, event, text, links)
+        except Exception as e:
+            if attempt >= attempts:
+                raise
+            logger.warning(
+                "[MediaParser] parse/download attempt failed, retrying in %.1fs -> attempt=%d/%d error=%s",
+                delay_seconds,
+                attempt,
+                retry["count"],
+                e,
+                exc_info=True,
+            )
+        else:
+            if result is None:
+                return None
+            if not _should_retry_prepare_result(result):
+                if attempt > 1:
+                    logger.info("[MediaParser] parse/download retry succeeded -> attempt=%d/%d", attempt, attempts)
+                return result
+            last_result = result
+            if attempt >= attempts:
+                return result
+            logger.warning(
+                "[MediaParser] parse/download produced retryable result, retrying in %.1fs -> attempt=%d/%d reason=%s",
+                delay_seconds,
+                attempt,
+                retry["count"],
+                _prepare_retry_reason(result),
+            )
+
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+
+    return last_result
+
+
+async def _prepare_links_once(
+    bot: Bot,
+    event: MessageEvent,
+    text: str,
+    links: list[tuple[str, Any]],
+) -> MediaPrepareAttempt | None:
+    runtime = _runtime_from_config()
+    if runtime is None:
+        return None
+    if not _scope_allowed(runtime, event):
+        return None
+    links = _links_for_runtime(runtime, links)
+    if not links:
+        return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
+
     timeout = aiohttp.ClientTimeout(total=max(30, int(runtime.config.get("api_timeout", 120))))
     async with aiohttp.ClientSession(timeout=timeout) as session:
         metadata_list = await runtime.parser_manager.parse_text(
@@ -411,11 +503,9 @@ async def _prepare_text(
             links_with_parser=links,
         )
         _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
-        record_manager.record_metadata_links(metadata_list)
         if not metadata_list:
-            if force:
-                await bot.send(event, Message(msg("media_parser.empty")))
-            return None
+            return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
+        raw_metadata_list = list(metadata_list)
         metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
         processed: list[dict[str, Any]] = []
@@ -434,12 +524,90 @@ async def _prepare_text(
                 register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
             processed.append(metadata)
 
-        if not processed:
-            if force:
-                await bot.send(event, Message(msg("media_parser.empty")))
-            return None
+        return MediaPrepareAttempt(processed=processed, metadata_list=raw_metadata_list, config=runtime.config)
 
-        return processed, runtime.config
+
+def _links_for_runtime(runtime: MediaParserRuntime, links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    refreshed: list[tuple[str, Any]] = []
+    for url, parser in links:
+        runtime_parser = runtime.parser_manager.find_parser(url)
+        if runtime_parser is None:
+            parser_name = getattr(parser, "name", "unknown")
+            logger.debug("[MediaParser] parser disabled while retrying -> parser=%s url=%s", parser_name, url)
+            continue
+        refreshed.append((url, runtime_parser))
+    return refreshed
+
+
+def _should_retry_prepare_result(result: MediaPrepareAttempt) -> bool:
+    if not result.processed:
+        return not result.metadata_list or any(metadata.get("error") for metadata in result.metadata_list)
+
+    for metadata in result.processed:
+        if _metadata_has_sendable_media(metadata):
+            return False
+        if metadata.get("error"):
+            return True
+        if metadata.get("_enable_rich_media") and _metadata_has_retryable_download_failure(metadata):
+            return True
+    return False
+
+
+def _metadata_has_sendable_media(metadata: dict[str, Any]) -> bool:
+    if metadata.get("has_valid_media"):
+        return True
+    modes = list(metadata.get("video_modes") or []) + list(metadata.get("image_modes") or [])
+    return any(mode in ("local", "direct") for mode in modes)
+
+
+def _metadata_has_retryable_download_failure(metadata: dict[str, Any]) -> bool:
+    media_count = int(metadata.get("video_count", len(metadata.get("video_urls") or [])))
+    media_count += int(metadata.get("image_count", len(metadata.get("image_urls") or [])))
+    if media_count <= 0:
+        return False
+
+    status_codes = list(metadata.get("video_status_codes") or []) + list(metadata.get("image_status_codes") or [])
+    for code in status_codes:
+        if _is_retryable_status_code(code):
+            return True
+
+    terminal_tokens = ("超过限制", "缓存目录不可用", "403", "Forbidden", "权限")
+    retry_tokens = ("缓存下载失败", "下载媒体失败", "HTTP 404", "timeout", "timed out", "超时")
+    for reason in _metadata_skip_reasons(metadata):
+        if any(token in reason for token in terminal_tokens):
+            continue
+        if any(token in reason for token in retry_tokens):
+            return True
+    return False
+
+
+def _is_retryable_status_code(code: Any) -> bool:
+    try:
+        status_code = int(code)
+    except (TypeError, ValueError):
+        return False
+    return status_code in {404, 408, 409, 425, 429} or status_code >= 500
+
+
+def _metadata_skip_reasons(metadata: dict[str, Any]) -> list[str]:
+    reasons = []
+    for value in (metadata.get("video_skip_reasons") or []) + (metadata.get("image_skip_reasons") or []):
+        if value:
+            reasons.append(str(value))
+    return reasons
+
+
+def _prepare_retry_reason(result: MediaPrepareAttempt) -> str:
+    if not result.metadata_list:
+        return "empty metadata"
+    errors = [str(metadata.get("error")) for metadata in result.metadata_list if metadata.get("error")]
+    if errors:
+        return errors[0][:160]
+    for metadata in result.processed:
+        reasons = _metadata_skip_reasons(metadata)
+        if reasons:
+            return reasons[0][:160]
+    return "no sendable media"
 
 
 def _limit_metadata_for_send(metadata: dict[str, Any], *, max_send: int) -> dict[str, Any]:
