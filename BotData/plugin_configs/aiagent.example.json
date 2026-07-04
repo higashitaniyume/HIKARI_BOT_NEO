@@ -18,7 +18,7 @@
     "reference_max_files": 8,
     "reference_max_chars_per_file": 8000,
     "reference_max_total_chars": 24000,
-    "fallback_prompt": "你是 HIKARI BOT 的聊天 AI Agent。请自然、简洁地回复用户。"
+    "fallback_prompt": "你是 {bot_name} 的聊天 AI Agent。请自然、简洁地回复用户。"
   },
   "chat": {
     "max_user_chars": 2000,

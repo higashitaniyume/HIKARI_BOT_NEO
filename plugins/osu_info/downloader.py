@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from core.bot_identity import bot_user_agent
+
 
 class OsuDownloadError(RuntimeError):
     pass
@@ -53,7 +55,7 @@ def cache_path_for_beatmapset(beatmapset_id: int, cache_dir: Path) -> Path:
 def _headers(session_cookie: str = "") -> dict[str, str]:
     headers = {
         "Accept": "application/octet-stream,text/html;q=0.9,*/*;q=0.8",
-        "User-Agent": "HIKARI_BOT_NEO osu_info",
+        "User-Agent": bot_user_agent("osu_info"),
         "Referer": "https://osu.ppy.sh/beatmapsets",
     }
     if session_cookie.strip():

@@ -9,6 +9,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from third_party.astrbot_plugin_media_parser.core.downloader.utils import strip_media_prefixes
 
@@ -276,7 +277,7 @@ async def _send_separate(
 def _node(bot: Bot, content: Message) -> MessageSegment:
     return MessageSegment.node_custom(
         user_id=int(bot.self_id),
-        nickname="HIKARI",
+        nickname=get_bot_name(),
         content=content,
     )
 

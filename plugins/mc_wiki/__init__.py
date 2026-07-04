@@ -5,6 +5,7 @@ import logging
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
 
 from core.ai_tool_registry import AIToolContext, register_ai_tool
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 
@@ -128,7 +129,7 @@ def _build_forward_nodes(self_id: str, result: McWikiResult) -> list[MessageSegm
 def _node(self_id: str, content: Message) -> MessageSegment:
     return MessageSegment.node_custom(
         user_id=int(self_id),
-        nickname="HIKARI",
+        nickname=get_bot_name(),
         content=content,
     )
 

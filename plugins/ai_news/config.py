@@ -11,7 +11,7 @@ DEFAULT_AI_NEWS_CONFIG: dict[str, Any] = {
     "enabled": True,
     "timeout_seconds": 20,
     "proxy": "",
-    "user_agent": "HIKARI_BOT_NEO AI News Reader",
+    "user_agent": "{bot_name} AI News Reader",
     "max_feed_bytes": 2097152,
     "fetch_concurrency": 4,
     "max_items": 10,

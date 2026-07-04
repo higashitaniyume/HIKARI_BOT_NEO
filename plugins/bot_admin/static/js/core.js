@@ -1,4 +1,5 @@
 const state = {
+  botName: document.querySelector('meta[name="bot-name"]')?.content || "Bot",
   packs: [],
   keywords: [],
   selectedPackName: "",
@@ -150,6 +151,10 @@ function option(value, text) {
   node.value = value;
   node.textContent = text;
   return node;
+}
+
+function botNameText(template) {
+  return String(template || "").replaceAll("{bot_name}", state.botName || "Bot");
 }
 
 function packLabel(pack) {

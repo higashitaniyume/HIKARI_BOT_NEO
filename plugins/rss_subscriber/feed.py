@@ -13,6 +13,8 @@ from xml.etree import ElementTree
 
 import httpx
 
+from core.bot_identity import format_bot_name_text
+
 logger = logging.getLogger("HikariBot.RssSubscriber.Feed")
 
 
@@ -44,7 +46,7 @@ class RssFeed:
 async def fetch_feed(url: str, config: dict[str, Any]) -> RssFeed:
     timeout = _safe_float(config.get("timeout_seconds"), default=20.0, minimum=1.0, maximum=300.0)
     max_feed_bytes = _safe_int(config.get("max_feed_bytes"), default=2097152, minimum=65536, maximum=10485760)
-    headers = {"User-Agent": str(config.get("user_agent") or "HIKARI_BOT_NEO RSS Reader")}
+    headers = {"User-Agent": format_bot_name_text(config.get("user_agent") or "{bot_name} RSS Reader")}
     client_kwargs: dict[str, Any] = {
         "timeout": httpx.Timeout(timeout),
         "headers": headers,

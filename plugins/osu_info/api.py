@@ -7,6 +7,8 @@ from urllib.parse import quote
 
 import httpx
 
+from core.bot_identity import bot_user_agent
+
 MODE_ALIASES = {
     "osu": "osu",
     "std": "osu",
@@ -57,7 +59,7 @@ class OsuApiClient:
             "timeout": self.timeout,
             "headers": {
                 "Accept": "application/json",
-                "User-Agent": "HIKARI_BOT_NEO osu_info",
+                "User-Agent": bot_user_agent("osu_info"),
             },
         }
         if self.proxy:

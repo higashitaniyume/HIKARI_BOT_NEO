@@ -13,6 +13,7 @@ from nonebot.adapters.onebot.v11 import (
     PrivateMessageEvent,
 )
 
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.error_notifier import notify_error_to_superuser, send_user_error
 
@@ -45,7 +46,7 @@ async def send_merged_forward_gifs(
     nodes = []
 
     bot_uin = str(bot.self_id)
-    sender_name = "Hikari Bot"
+    sender_name = get_bot_name()
 
     for index, gif_path in enumerate(gif_paths, start=1):
         uri = gif_path.resolve().as_uri()

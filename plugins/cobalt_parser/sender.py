@@ -16,6 +16,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, ttl_seconds_from_config
 
@@ -149,7 +150,7 @@ async def _try_send_forward(
     """尝试使用合并转发发送多图/多视频。"""
     try:
         bot_self_id = int(bot.self_id)
-        bot_nickname = "HIKARI"
+        bot_nickname = get_bot_name()
 
         nodes: list[MessageSegment] = []
 

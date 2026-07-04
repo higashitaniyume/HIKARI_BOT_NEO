@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.bot_identity import format_bot_name_text
 from core.resources import backfill_json_resource_value, load_json_resource
 
 DEFAULT_MESSAGES: dict[str, Any] = {
@@ -91,9 +92,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "command_detail_aliases": "别名：{aliases}",
         "command_detail_scope": "限制：{scope}",
         "command_detail_extra": "详细用法：\n{details}",
-        "summary_title": "HIKARI BOT 帮助",
+        "summary_title": "{bot_name} 帮助",
         "summary_more": "发送「帮助 全部」查看自动解析和更多说明",
-        "full_title": "HIKARI BOT 完整帮助",
+        "full_title": "{bot_name} 完整帮助",
     },
     "profile_like": {
         "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。",
@@ -292,10 +293,4 @@ def get_message(key: str, **kwargs: Any) -> str:
     if value is None:
         value = key
 
-    text = str(value)
-    if not kwargs:
-        return text
-    try:
-        return text.format(**kwargs)
-    except Exception:
-        return text
+    return format_bot_name_text(value, **kwargs)

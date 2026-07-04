@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from core.bot_identity import format_bot_name_text
+
 
 class McWikiError(RuntimeError):
     pass
@@ -72,7 +74,7 @@ class McWikiClient:
         self.detail_max_chars = max(self.summary_max_chars, int(config.get("detail_max_chars") or 1600))
         self.image_size = max(120, min(int(config.get("image_size") or 640), 1600))
         self.proxy = str(config.get("proxy") or "").strip() or None
-        self.user_agent = str(config.get("user_agent") or "").strip() or "HIKARI_BOT_NEO mc_wiki"
+        self.user_agent = format_bot_name_text(config.get("user_agent") or "{bot_name} mc_wiki")
         if not self.api_url:
             raise McWikiError("Minecraft Wiki API 地址未配置")
 

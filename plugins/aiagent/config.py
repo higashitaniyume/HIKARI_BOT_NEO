@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from core.bot_identity import format_bot_name_text
+
 logger = logging.getLogger("HikariBot.AIAgent.Config")
 
 CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
@@ -33,7 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "reference_max_files": 8,
         "reference_max_chars_per_file": 8000,
         "reference_max_total_chars": 24000,
-        "fallback_prompt": "你是 HIKARI BOT 的聊天 AI Agent。请自然、简洁地回复用户。",
+        "fallback_prompt": "你是 {bot_name} 的聊天 AI Agent。请自然、简洁地回复用户。",
     },
     "chat": {
         "max_user_chars": 2000,
@@ -350,7 +352,9 @@ def _build_persona_content(skill_file: Path, content: str, persona_cfg: dict[str
 
 def load_persona_prompt(cfg: dict[str, Any]) -> str:
     persona_cfg = cfg.get("persona") if isinstance(cfg.get("persona"), dict) else {}
-    fallback = str(persona_cfg.get("fallback_prompt") or DEFAULT_CONFIG["persona"]["fallback_prompt"]).strip()
+    fallback = format_bot_name_text(
+        str(persona_cfg.get("fallback_prompt") or DEFAULT_CONFIG["persona"]["fallback_prompt"]).strip()
+    )
     max_chars = safe_persona_max_chars(persona_cfg.get("max_chars"))
     try:
         path = resolve_persona_path(persona_cfg.get("skill_path"))

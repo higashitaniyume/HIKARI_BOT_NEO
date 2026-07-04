@@ -85,9 +85,9 @@
     "command_detail_aliases": "别名：{aliases}",
     "command_detail_scope": "限制：{scope}",
     "command_detail_extra": "详细用法：\n{details}",
-    "summary_title": "HIKARI BOT 帮助",
+    "summary_title": "{bot_name} 帮助",
     "summary_more": "发送「帮助 全部」查看自动解析和更多说明",
-    "full_title": "HIKARI BOT 完整帮助"
+    "full_title": "{bot_name} 完整帮助"
   },
   "profile_like": {
     "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。"

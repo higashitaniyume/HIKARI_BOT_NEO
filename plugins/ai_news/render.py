@@ -8,6 +8,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
+from core.bot_identity import get_bot_name
 from core.rendering import load_font
 
 from .ai_summary import AiDigestSummary
@@ -116,7 +117,7 @@ async def render_digest(
 
         y = y1 + row_gap
 
-    footer = "HIKARI BOT NEO · AI News Source"
+    footer = f"{get_bot_name()} · AI News Source"
     draw.text((pad, height - 40), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "PNG").strip().upper()

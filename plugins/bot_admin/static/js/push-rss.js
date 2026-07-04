@@ -311,6 +311,10 @@ function currentRssSubscription() {
   return rssSubscriptions().find((item) => item.id === state.selectedRssSubscriptionId) || null;
 }
 
+function rssDefaultUserAgent() {
+  return botNameText("{bot_name} RSS Reader");
+}
+
 function newRssSubscriptionId() {
   const used = new Set(rssSubscriptions().map((item) => item.id));
   let index = rssSubscriptions().length + 1;
@@ -342,7 +346,8 @@ function collectRssFormToState() {
   cfg.enabled = $("#rssEnabled").checked;
   cfg.timeout_seconds = Number($("#rssTimeout").value || 20);
   cfg.proxy = $("#rssProxy").value.trim();
-  cfg.user_agent = $("#rssUserAgent").value.trim() || "HIKARI_BOT_NEO RSS Reader";
+  const userAgent = $("#rssUserAgent").value.trim();
+  cfg.user_agent = userAgent === rssDefaultUserAgent() ? "{bot_name} RSS Reader" : (userAgent || "{bot_name} RSS Reader");
   cfg.max_items = Number($("#rssMaxItems").value || 5);
   cfg.summary_max_chars = Number($("#rssSummaryMaxChars").value || 220);
   cfg.max_message_chars = Number($("#rssMaxMessageChars").value || 3500);
@@ -373,7 +378,7 @@ function renderRssConfig() {
   $("#rssEnabled").checked = cfg.enabled !== false;
   $("#rssTimeout").value = cfg.timeout_seconds ?? 20;
   $("#rssProxy").value = cfg.proxy || "";
-  $("#rssUserAgent").value = cfg.user_agent || "HIKARI_BOT_NEO RSS Reader";
+  $("#rssUserAgent").value = botNameText(cfg.user_agent || "{bot_name} RSS Reader");
   $("#rssMaxItems").value = cfg.max_items ?? 5;
   $("#rssSummaryMaxChars").value = cfg.summary_max_chars ?? 220;
   $("#rssMaxMessageChars").value = cfg.max_message_chars ?? 3500;

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from dataclasses import replace
 from typing import Any
 
+from core.bot_identity import format_bot_name_text
+
 from plugins.aiagent.client import post_chat_completion
 from plugins.aiagent.config import get_config as get_aiagent_config
 
@@ -60,8 +62,8 @@ async def _request_summary(items: list[NewsItem], ai_cfg: dict[str, Any]) -> dic
     translate = _safe_bool(ai_cfg.get("translate"), True)
     prompt_items = _format_items(items, max_chars=_safe_int(ai_cfg.get("max_input_chars"), 9000, minimum=1000, maximum=30000))
 
-    system_prompt = (
-        "你是 HIKARI BOT 的 AI 资讯编辑。你只根据用户提供的资讯条目工作，不能编造来源中没有的信息。"
+    system_prompt = format_bot_name_text(
+        "你是 {bot_name} 的 AI 资讯编辑。你只根据用户提供的资讯条目工作，不能编造来源中没有的信息。"
         "请输出严格 JSON，不要 Markdown，不要代码块。"
     )
     user_prompt = (

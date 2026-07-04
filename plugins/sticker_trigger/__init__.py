@@ -20,6 +20,7 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.error_notifier import notify_error_to_superuser
@@ -424,12 +425,13 @@ async def _send_forward(bot: Bot, event: MessageEvent, files: list[Path]):
     from nonebot.adapters.onebot.v11 import GroupMessageEvent
 
     nodes: list[MessageSegment] = []
+    bot_nickname = get_bot_name()
     for f in files:
         shared = _copy_to_shared(f)
         uri = shared.resolve().as_uri()
         nodes.append(MessageSegment.node_custom(
             user_id=int(bot.self_id),
-            nickname="HIKARI",
+            nickname=bot_nickname,
             content=Message(MessageSegment.image(uri)),
         ))
 
@@ -485,10 +487,11 @@ async def _send_text_forward(bot: Bot, event: MessageEvent, texts: list[str]) ->
     """合并转发多段文本。"""
     from nonebot.adapters.onebot.v11 import GroupMessageEvent
 
+    bot_nickname = get_bot_name()
     nodes: list[MessageSegment] = [
         MessageSegment.node_custom(
             user_id=int(bot.self_id),
-            nickname="HIKARI",
+            nickname=bot_nickname,
             content=Message(text),
         )
         for text in texts

@@ -16,7 +16,7 @@ DEFAULT_MC_WIKI_CONFIG: dict[str, Any] = {
     "detail_max_chars": 1600,
     "image_size": 640,
     "proxy": "",
-    "user_agent": "HIKARI_BOT_NEO mc_wiki",
+    "user_agent": "{bot_name} mc_wiki",
 }
 
 _first_load_done = False

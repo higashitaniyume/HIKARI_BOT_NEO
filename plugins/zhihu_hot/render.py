@@ -9,6 +9,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
+from core.bot_identity import get_bot_name
 from core.rendering import load_font
 
 from .api import ZhihuHotItem
@@ -112,7 +113,7 @@ async def render_hot_list(
 
         y = y1 + row_gap
 
-    footer = "HIKARI BOT NEO · Zhihu Hot Source"
+    footer = f"{get_bot_name()} · Zhihu Hot Source"
     draw.text((pad, height - 40), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "PNG").strip().upper()

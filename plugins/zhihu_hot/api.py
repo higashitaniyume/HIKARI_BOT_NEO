@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from core.bot_identity import format_bot_name_text
+
 
 class ZhihuHotError(RuntimeError):
     pass
@@ -49,7 +51,9 @@ class ZhihuHotClient:
             "follow_redirects": True,
             "headers": {
                 "Accept": "application/json",
-                "User-Agent": str(self.config.get("user_agent") or "HIKARI_BOT_NEO Zhihu Hot Reader"),
+                "User-Agent": format_bot_name_text(
+                    self.config.get("user_agent") or "Mozilla/5.0 {bot_name} Zhihu Hot Reader"
+                ),
             },
         }
         if self.proxy:

@@ -3,7 +3,7 @@
   "api_url": "https://api.zhihu.com/topstory/hot-list",
   "timeout_seconds": 20,
   "proxy": "",
-  "user_agent": "Mozilla/5.0 HIKARI_BOT_NEO Zhihu Hot Reader",
+  "user_agent": "Mozilla/5.0 {bot_name} Zhihu Hot Reader",
   "cache_ttl_minutes": 5,
   "max_items": 15,
   "summary_max_chars": 150,

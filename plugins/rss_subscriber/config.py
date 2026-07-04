@@ -18,7 +18,7 @@ DEFAULT_RSS_SUBSCRIBER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "timeout_seconds": 20,
     "proxy": "",
-    "user_agent": "HIKARI_BOT_NEO RSS Reader",
+    "user_agent": "{bot_name} RSS Reader",
     "max_items": 5,
     "summary_max_chars": 220,
     "max_message_chars": 3500,
@@ -88,11 +88,11 @@ def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
         ),
         "proxy": _parse_str(data.get("proxy", current.get("proxy", "")), max_length=512),
         "user_agent": _parse_str(
-            data.get("user_agent", current.get("user_agent", "HIKARI_BOT_NEO RSS Reader")),
-            "HIKARI_BOT_NEO RSS Reader",
+            data.get("user_agent", current.get("user_agent", "{bot_name} RSS Reader")),
+            "{bot_name} RSS Reader",
             max_length=200,
         )
-        or "HIKARI_BOT_NEO RSS Reader",
+        or "{bot_name} RSS Reader",
         "max_items": _parse_int(data.get("max_items", current.get("max_items", 5)), 5, minimum=1, maximum=50),
         "summary_max_chars": _parse_int(
             data.get("summary_max_chars", current.get("summary_max_chars", 220)),

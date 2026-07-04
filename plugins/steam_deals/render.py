@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 from PIL import Image, ImageDraw, ImageOps
 
+from core.bot_identity import bot_user_agent
 from core.rendering import load_font
 
 from .api import SteamDeal
@@ -125,7 +126,7 @@ async def _download_covers(
     kwargs: dict[str, Any] = {
         "timeout": httpx.Timeout(timeout, connect=min(timeout, 5.0)),
         "follow_redirects": True,
-        "headers": {"User-Agent": "HIKARI_BOT_NEO steam_deals"},
+        "headers": {"User-Agent": bot_user_agent("steam_deals")},
     }
     if proxy:
         kwargs["proxy"] = proxy

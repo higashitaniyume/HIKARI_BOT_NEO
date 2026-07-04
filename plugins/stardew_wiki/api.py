@@ -9,6 +9,8 @@ from typing import Any
 
 import httpx
 
+from core.bot_identity import bot_user_agent
+
 
 class StardewWikiError(RuntimeError):
     pass
@@ -81,7 +83,7 @@ class StardewWikiClient:
             "follow_redirects": True,
             "headers": {
                 "Accept": "application/json",
-                "User-Agent": "HIKARI_BOT_NEO stardew_wiki",
+                "User-Agent": bot_user_agent("stardew_wiki"),
             },
         }
         if self.proxy:

@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 import httpx
 
+from core.bot_identity import bot_user_agent
+
 from .storage import annotate_price_changes
 
 
@@ -69,7 +71,7 @@ class SteamDealsClient:
             "follow_redirects": True,
             "headers": {
                 "Accept": "application/json",
-                "User-Agent": "HIKARI_BOT_NEO steam_deals",
+                "User-Agent": bot_user_agent("steam_deals"),
             },
         }
         if self.proxy:
@@ -223,7 +225,7 @@ class SteamDealsClient:
                 self.steamdb_free_url,
                 headers={
                     "Accept": "text/html,application/xhtml+xml",
-                    "User-Agent": "Mozilla/5.0 HIKARI_BOT_NEO steam_deals",
+                    "User-Agent": f"Mozilla/5.0 {bot_user_agent('steam_deals')}",
                 },
             )
             response.raise_for_status()
