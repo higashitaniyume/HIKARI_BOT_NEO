@@ -40,7 +40,11 @@ create_searxng_settings() {
 }
 
 write_version_file() {
-  git -C "$APP_DIR" log --reverse --format='%h%x09%s' | awk '
+  git -C "$APP_DIR" log --reverse --format="%h%x1f%s%x1e" | awk '
+    BEGIN {
+      RS = "\036"
+      FS = "\037"
+    }
     BEGIN {
       count = 0
       print "{"
@@ -54,9 +58,17 @@ write_version_file() {
       return value
     }
     {
-      hash = $1
-      title = $0
-      sub(/^[^\t]*\t/, "", title)
+      record = $0
+      gsub(/^[\r\n]+|[\r\n]+$/, "", record)
+      if (record == "") {
+        next
+      }
+      separator = index(record, "\037")
+      if (separator <= 0) {
+        next
+      }
+      hash = substr(record, 1, separator - 1)
+      title = substr(record, separator + 1)
       if (count > 0) {
         print ","
       }

@@ -31,16 +31,16 @@ function Require-Command {
 function Write-VersionFile {
     $versionPath = Join-Path $AppPath "version.json"
     $versions = @()
-    $index = 0
-    foreach ($line in @(& git -C $AppPath log --reverse --format="%h`t%s")) {
-        if ([string]::IsNullOrWhiteSpace($line)) {
+    $gitLog = Invoke-GitUtf8 "log" "--reverse" "--format=%h%x1f%s%x1e"
+    foreach ($record in $gitLog.Split([char]0x1e)) {
+        $record = $record.Trim("`r", "`n")
+        if ([string]::IsNullOrWhiteSpace($record) -or -not $record.Contains([char]0x1f)) {
             continue
         }
-        $parts = $line -split "`t", 2
-        $index += 1
+        $parts = $record -split ([char]0x1f), 2
         $versions += [ordered]@{
-            version = "0.0.$index"
-            git_hash = $parts[0]
+            version = "0.0.$($versions.Count + 1)"
+            git_hash = $parts[0].Trim()
             title = if ($parts.Count -gt 1 -and $parts[1]) { $parts[1] } else { "unknown" }
         }
     }
@@ -52,6 +52,29 @@ function Write-VersionFile {
     $current = if ($versions.Count -gt 0) { $versions[$versions.Count - 1] } else { $null }
     $label = if ($current) { "$($current.version) $($current.git_hash)" } else { "empty" }
     Write-Host "已刷新版本文件：$versionPath ($label)" -ForegroundColor Gray
+}
+
+function Invoke-GitUtf8 {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = "git"
+    $startInfo.WorkingDirectory = $AppPath
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+    foreach ($arg in @("-C", $AppPath) + $Arguments) {
+        [void]$startInfo.ArgumentList.Add($arg)
+    }
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "git $($Arguments -join ' ') 失败：$stderr"
+    }
+    return $stdout
 }
 
 function Ensure-FullGitHistory {

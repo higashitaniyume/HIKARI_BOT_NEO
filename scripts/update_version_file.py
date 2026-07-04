@@ -36,21 +36,21 @@ def main() -> int:
 
 def build_versions(project_root: Path) -> list[dict[str, str]]:
     result = subprocess.run(
-        ["git", "log", "--reverse", "--format=%h%x09%s"],
+        ["git", "log", "--reverse", "--format=%h%x1f%s%x1e"],
         cwd=project_root,
         check=True,
         capture_output=True,
-        text=True,
-        encoding="utf-8",
     )
     versions: list[dict[str, str]] = []
-    for index, line in enumerate(result.stdout.splitlines(), start=1):
-        if "\t" not in line:
+    text = result.stdout.decode("utf-8", errors="replace")
+    for record in text.split("\x1e"):
+        record = record.strip("\r\n")
+        if not record or "\x1f" not in record:
             continue
-        git_hash, title = line.split("\t", 1)
+        git_hash, title = record.split("\x1f", 1)
         versions.append(
             {
-                "version": f"0.0.{index}",
+                "version": f"0.0.{len(versions) + 1}",
                 "git_hash": git_hash.strip() or "unknown",
                 "title": title.strip() or "unknown",
             }

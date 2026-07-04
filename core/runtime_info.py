@@ -129,16 +129,17 @@ def _has_legacy_version_data(data: dict[str, Any]) -> bool:
 
 
 def _git_history_entries(project_root: Path) -> list[VersionEntry]:
-    output = _run_git(project_root, "log", "--reverse", "--format=%h%x09%s")
+    output = _run_git(project_root, "log", "--reverse", "--format=%h%x1f%s%x1e")
     entries: list[VersionEntry] = []
-    for index, line in enumerate(output.splitlines(), start=1):
-        git_hash, _, title = line.partition("\t")
-        if not git_hash:
+    for record in output.split("\x1e"):
+        record = record.strip("\r\n")
+        if not record or "\x1f" not in record:
             continue
+        git_hash, title = record.split("\x1f", 1)
         entries.append(
             VersionEntry(
-                version=f"0.0.{index}",
-                git_hash=git_hash,
+                version=f"0.0.{len(entries) + 1}",
+                git_hash=git_hash.strip(),
                 title=title.strip() or "unknown",
             )
         )
@@ -208,12 +209,11 @@ def _run_git(project_root: Path, *args: str) -> str:
             cwd=project_root,
             check=True,
             capture_output=True,
-            text=True,
             timeout=2,
         )
     except Exception:
         return ""
-    return result.stdout.strip()
+    return result.stdout.decode("utf-8", errors="replace").strip()
 
 
 def _short_commit(commit: str) -> str:
