@@ -52,6 +52,8 @@ UserData/private/*.jsonl
 UserData/group/*.jsonl
 UserData/stats/
 UserData/rss_subscriber_state.json
+UserData/sts2_wiki_cache.json
+UserData/sts2_wiki_cache.json.*.tmp
 !UserData/.gitkeep
 
 # Local deployment legal documents

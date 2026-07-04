@@ -16,6 +16,7 @@ logger = logging.getLogger("HikariBot.AIAgent.Client")
 
 MC_WIKI_TOOL = "mc_wiki_search"
 STARDEW_WIKI_TOOL = "stardew_wiki_search"
+STS2_WIKI_TOOL = "sts2_wiki_search"
 _WEB_SEARCH_TOOL = "web_search"
 _MC_WIKI_ALIASES = (
     "mcwiki",
@@ -44,6 +45,24 @@ _STARDEW_WIKI_ALIASES = (
     "stardew wiki",
     "stardew valley wiki",
     "zh.stardewvalleywiki.com",
+)
+_STS2_WIKI_ALIASES = (
+    "塔2wiki",
+    "塔2 wiki",
+    "塔2维基",
+    "塔2",
+    "sts2wiki",
+    "sts2 wiki",
+    "sts2",
+    "slay the spire 2 wiki",
+    "slay the spire wiki",
+    "slay the spire 2",
+    "杀戮尖塔2wiki",
+    "杀戮尖塔2 wiki",
+    "杀戮尖塔 2 wiki",
+    "杀戮尖塔2维基",
+    "杀戮尖塔 2",
+    "slaythespire.wiki.gg",
 )
 _LEADING_QUERY_FILLERS = (
     "里的",
@@ -126,6 +145,8 @@ def _wiki_priority_tool_names(text: str, names: set[str]) -> list[str]:
         result.append(MC_WIKI_TOOL)
     if STARDEW_WIKI_TOOL in names and _mentions_alias(text, _STARDEW_WIKI_ALIASES):
         result.append(STARDEW_WIKI_TOOL)
+    if STS2_WIKI_TOOL in names and _mentions_alias(text, _STS2_WIKI_ALIASES):
+        result.append(STS2_WIKI_TOOL)
     return result
 
 
@@ -143,7 +164,7 @@ def _strip_query_fillers(value: str) -> str:
 
 
 def _wiki_query_from_text(text: str, tool_name: str) -> str:
-    aliases = _MC_WIKI_ALIASES if tool_name == MC_WIKI_TOOL else _STARDEW_WIKI_ALIASES
+    aliases = _wiki_aliases(tool_name)
     folded = text.casefold()
     best_index = -1
     best_alias = ""
@@ -157,6 +178,16 @@ def _wiki_query_from_text(text: str, tool_name: str) -> str:
         if query:
             return query
     return text.strip()
+
+
+def _wiki_aliases(tool_name: str) -> tuple[str, ...]:
+    if tool_name == MC_WIKI_TOOL:
+        return _MC_WIKI_ALIASES
+    if tool_name == STARDEW_WIKI_TOOL:
+        return _STARDEW_WIKI_ALIASES
+    if tool_name == STS2_WIKI_TOOL:
+        return _STS2_WIKI_ALIASES
+    return ()
 
 
 def _tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, Any]:

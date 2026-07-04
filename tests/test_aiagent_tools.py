@@ -11,11 +11,13 @@ from unittest.mock import AsyncMock, patch
 import plugins.aiagent as aiagent
 import plugins.mc_wiki as mc_wiki_plugin
 import plugins.stardew_wiki as stardew_wiki_plugin
+import plugins.sts2_wiki as sts2_wiki_plugin
 from plugins.aiagent import client as aiagent_client
 from plugins.aiagent.tools import registry as tool_registry
 from plugins.aiagent.tools import search as search_tool
 from plugins.mc_wiki.api import McWikiResult
 from plugins.stardew_wiki.api import StardewWikiResult
+from plugins.sts2_wiki.models import Sts2WikiResult
 
 
 @contextmanager
@@ -311,6 +313,59 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call["function"]["name"] for call in assistant_calls], ["stardew_wiki_search", "web_search"])
         tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
         self.assertEqual([message["name"] for message in tool_messages], ["stardew_wiki_search", "web_search"])
+
+    async def test_sts2_wiki_question_prefetches_wiki_tool_before_web_search(self) -> None:
+        WikiPriorityAsyncClient.post_payloads = []
+        WikiPriorityAsyncClient.get_calls = []
+
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(
+                sts2_wiki_plugin,
+                "get_config",
+                return_value={
+                    "enabled": True,
+                    "api_url": "https://slaythespire.wiki.gg/api.php",
+                    "cache_ttl_seconds": 86400,
+                    "timeout": 10,
+                    "search_limit": 5,
+                    "summary_max_chars": 300,
+                    "query_max_chars": 80,
+                    "max_cache_entries": 500,
+                    "proxy": "",
+                    "user_agent": "HikariBot/1.0 SlayTheSpire2WikiQuery",
+                },
+            ),
+            patch.object(
+                sts2_wiki_plugin.Sts2WikiService,
+                "lookup",
+                AsyncMock(
+                    return_value=Sts2WikiResult(
+                        query="Strike",
+                        title="Strike",
+                        summary="Strike is a card.",
+                        extract="Strike is a card.",
+                        url="https://slaythespire.wiki.gg/wiki/Strike",
+                    )
+                ),
+            ) as wiki_search,
+        ):
+            reply = await aiagent._request_chat_completion(
+                _cfg_with_plugin_tool("sts2_wiki_search"),
+                [{"role": "user", "content": "sts2 Strike"}],
+            )
+
+        self.assertEqual(reply, "综合回复")
+        wiki_search.assert_awaited_once_with("Strike")
+        self.assertEqual(WikiPriorityAsyncClient.get_calls[0][1]["q"], "sts2 Strike")
+
+        messages = WikiPriorityAsyncClient.post_payloads[0]["messages"]
+        assert isinstance(messages, list)
+        assistant_calls = next(message["tool_calls"] for message in messages if isinstance(message, dict) and message.get("role") == "assistant")
+        self.assertEqual([call["function"]["name"] for call in assistant_calls], ["sts2_wiki_search", "web_search"])
+        tool_messages = [message for message in messages if isinstance(message, dict) and message.get("role") == "tool"]
+        self.assertEqual([message["name"] for message in tool_messages], ["sts2_wiki_search", "web_search"])
 
     async def test_disabled_search_tool_is_not_sent_to_model(self) -> None:
         PlainAsyncClient.post_payloads = []

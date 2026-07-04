@@ -164,6 +164,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "not_found": "没有在 Minecraft Wiki 找到「{keyword}」。",
         "failed": "Minecraft Wiki 查询失败：{error}",
     },
+    "sts2_wiki": {
+        "result": "【杀戮尖塔2 Wiki】\n标题：{title}\n摘要：{summary}\n链接：{url}",
+        "usage": "用法：塔2wiki <关键词>\n也可以使用：塔2 <关键词> / sts2 <关键词>",
+        "too_long": "关键词太长了，最多 {max_chars} 个字符。",
+        "not_found": "没有找到相关 Wiki 条目：{keyword}",
+        "failed": "杀戮尖塔 2 Wiki 查询失败，请稍后再试。",
+    },
     "steam_deals": {
         "disabled": "Steam 喜加一日报当前已关闭。",
         "fetching": "正在整理 Steam 免费和低价游戏日报...",
