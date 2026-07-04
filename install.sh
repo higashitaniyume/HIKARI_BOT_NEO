@@ -39,6 +39,43 @@ create_searxng_settings() {
   sed -i "s/__SEARXNG_SECRET__/$secret/g" "$settings_file"
 }
 
+project_version() {
+  awk '
+    /^\[project\]$/ { in_project = 1; next }
+    /^\[/ && in_project { exit }
+    in_project && $1 == "version" {
+      gsub(/"/, "", $3)
+      print $3
+      exit
+    }
+  ' "$APP_DIR/pyproject.toml"
+}
+
+write_version_file() {
+  version="$(project_version)"
+  if [ -z "$version" ]; then
+    version="unknown"
+  fi
+  git_commit="$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || printf unknown)"
+  git_commit_short="$(git -C "$APP_DIR" rev-parse --short=7 HEAD 2>/dev/null || printf unknown)"
+  if [ -n "$(git -C "$APP_DIR" status --porcelain 2>/dev/null)" ]; then
+    git_dirty=true
+  else
+    git_dirty=false
+  fi
+  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  cat > "$APP_DIR/version.json" <<EOF
+{
+  "version": "$version",
+  "git_commit": "$git_commit",
+  "git_commit_short": "$git_commit_short",
+  "git_dirty": $git_dirty,
+  "generated_at": "$generated_at"
+}
+EOF
+  echo "已刷新版本文件：$APP_DIR/version.json ($git_commit_short)"
+}
+
 if [ "$(id -u)" -ne 0 ]; then
   echo "请使用 root 运行，或通过 sudo 执行此脚本。" >&2
   exit 1
@@ -96,6 +133,7 @@ mkdir -p \
 create_searxng_settings
 
 cp "$APP_DIR/deploy/docker-compose.server.yml" "$COMPOSE_FILE"
+write_version_file
 
 if [ ! -f "$ENV_FILE" ]; then
   cp "$APP_DIR/.env.example" "$ENV_FILE"

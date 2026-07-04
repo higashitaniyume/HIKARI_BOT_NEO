@@ -71,6 +71,7 @@ Thumbs.db
 /tmp/hikari_bot/
 /runtime/
 deploy-source-files-*.txt
+version.json
 
 # Docker runtime data
 astrbot/

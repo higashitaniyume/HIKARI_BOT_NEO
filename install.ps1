@@ -28,6 +28,48 @@ function Require-Command {
     }
 }
 
+function Get-ProjectVersion {
+    $pyprojectPath = Join-Path $AppPath "pyproject.toml"
+    $inProject = $false
+    foreach ($line in Get-Content -LiteralPath $pyprojectPath) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq "[project]") {
+            $inProject = $true
+            continue
+        }
+        if ($inProject -and $trimmed.StartsWith("[")) {
+            break
+        }
+        if ($inProject -and $trimmed -match '^version\s*=\s*"([^"]+)"') {
+            return $Matches[1]
+        }
+    }
+    return "unknown"
+}
+
+function Write-VersionFile {
+    $versionPath = Join-Path $AppPath "version.json"
+    $gitCommit = (& git -C $AppPath rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommit)) {
+        $gitCommit = "unknown"
+    }
+    $gitCommitShort = (& git -C $AppPath rev-parse --short=7 HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommitShort)) {
+        $gitCommitShort = if ($gitCommit -ne "unknown") { $gitCommit.Substring(0, [Math]::Min(7, $gitCommit.Length)) } else { "unknown" }
+    }
+    $gitStatus = @(& git -C $AppPath status --porcelain)
+    $versionInfo = [ordered]@{
+        version = Get-ProjectVersion
+        git_commit = $gitCommit
+        git_commit_short = $gitCommitShort
+        git_dirty = [bool]($gitStatus.Count -gt 0)
+        generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($versionPath, (($versionInfo | ConvertTo-Json) + [Environment]::NewLine), $utf8NoBom)
+    Write-Host "已刷新版本文件：$versionPath ($gitCommitShort)" -ForegroundColor Gray
+}
+
 Require-Command git
 Require-Command docker
 
@@ -95,6 +137,7 @@ if (-not (Test-Path $SearxngConfigPath)) {
 }
 
 Copy-Item -Force (Join-Path $AppPath "deploy/docker-compose.server.yml") $ComposePath
+Write-VersionFile
 if (-not (Test-Path $EnvPath)) {
     Copy-Item (Join-Path $AppPath ".env.example") $EnvPath
     Write-Host "已创建 $EnvPath，可按需填写 NAPCAT_ACCOUNT 和端口设置。" -ForegroundColor Yellow

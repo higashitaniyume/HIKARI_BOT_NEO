@@ -31,6 +31,48 @@ function Run-Remote {
     ssh "${ServerUser}@${ServerIP}" $Command
 }
 
+function Get-ProjectVersion {
+    $pyprojectPath = Join-Path $ProjectRoot "pyproject.toml"
+    $inProject = $false
+    foreach ($line in Get-Content -LiteralPath $pyprojectPath) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq "[project]") {
+            $inProject = $true
+            continue
+        }
+        if ($inProject -and $trimmed.StartsWith("[")) {
+            break
+        }
+        if ($inProject -and $trimmed -match '^version\s*=\s*"([^"]+)"') {
+            return $Matches[1]
+        }
+    }
+    return "unknown"
+}
+
+function Write-VersionFile {
+    $versionPath = Join-Path $ProjectRoot "version.json"
+    $gitCommit = (git -C $ProjectRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommit)) {
+        $gitCommit = "unknown"
+    }
+    $gitCommitShort = (git -C $ProjectRoot rev-parse --short=7 HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommitShort)) {
+        $gitCommitShort = if ($gitCommit -ne "unknown") { $gitCommit.Substring(0, [Math]::Min(7, $gitCommit.Length)) } else { "unknown" }
+    }
+    $gitStatus = @(git -C $ProjectRoot status --porcelain)
+    $versionInfo = [ordered]@{
+        version = Get-ProjectVersion
+        git_commit = $gitCommit
+        git_commit_short = $gitCommitShort
+        git_dirty = [bool]($gitStatus.Count -gt 0)
+        generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($versionPath, (($versionInfo | ConvertTo-Json) + [Environment]::NewLine), $utf8NoBom)
+    Write-Host "已刷新版本文件: version.json ($gitCommitShort)" -ForegroundColor Gray
+}
+
 function Get-SourceRelativePaths {
     $files = @(git -C $ProjectRoot ls-files --cached --others --exclude-standard)
     if ($LASTEXITCODE -ne 0 -or $files.Count -eq 0) {
@@ -105,6 +147,7 @@ if ($Local) {
     foreach ($dir in $localDirs) {
         New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot $dir) | Out-Null
     }
+    Write-VersionFile
 
     Write-Host "从当前源码目录启动本机 hikaribot（不构建镜像）..." -ForegroundColor Yellow
     docker compose -f $LocalCompose up -d --no-deps hikaribot
@@ -132,7 +175,11 @@ if ($DeployPath -eq "/opt/hikaribot-docker") {
 Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/searxng/core-config $quotedDeployPath/legacy/pixiv_cache"
 
 Write-Host "打包源码..." -ForegroundColor Yellow
+Write-VersionFile
 $sourcePaths = @(Get-SourceRelativePaths)
+if ($sourcePaths -notcontains "version.json") {
+    $sourcePaths += "version.json"
+}
 $deployArchiveId = [System.Guid]::NewGuid().ToString("N")
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("hikari-deploy-" + $deployArchiveId)
 $archivePath = Join-Path $tempRoot "source.7z"

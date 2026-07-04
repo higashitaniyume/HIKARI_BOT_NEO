@@ -14,6 +14,10 @@
     "stats_label_osu_queries": "osu! 查询",
     "stats_label_collage_made": "拼图"
   },
+  "about": {
+    "description": "基于 NoneBot 2 和 NapCat 的 QQ 机器人，主要用于媒体链接解析、贴纸包、推送和查询辅助。",
+    "response": "{name}\n{description}\n\n版本：{version}\n提交：{git_commit}\n已运行：{uptime}\n\n贴纸库：{total_stickers} 张贴纸 / {pack_count} 个贴纸包 / {keyword_count} 个关键词"
+  },
   "sticker": {
     "empty_library": "贴纸包都是空的，请先添加一些表情包。",
     "help": "贴纸包 随机：从所有贴纸包随机发送一张。\n贴纸包 拼图 <关键词>：将关键词命中的贴纸包拼成预览图。\n贴纸包 统计：查看唯一贴纸数、贴纸包数和关键词数。\n贴纸包 列表 [页码|全部]：分页查看已配置贴纸包和关键词。\n贴纸包 预览：生成包含所有贴纸包名称、关键词和预览图的长图。",
