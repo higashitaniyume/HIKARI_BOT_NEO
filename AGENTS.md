@@ -22,6 +22,7 @@
 - The bot does not use `.env` for runtime bot settings. Runtime config belongs in `BotData/config.json` and `BotData/plugin_configs/*.json`; keep real config and user data out of git.
 - When adding a plugin config, provide `BotData/plugin_configs/<plugin_name>.example.json`, document required fields in `README.md`, and load runtime values through the shared config loader.
 - `core.config_loader.load_plugin_config()` deep-merges user config over defaults. Prefer adding defaults and example keys over inventing separate hidden knobs.
+- Whenever code, resources, admin UI, prompts, rendered images, docs, or agent-facing text need to mention the bot's display name, use `BotData/config.json` `bot.name` through the existing identity/config helpers instead of hard-coding the project/default name. Repo names, paths, environment variables, logger names, and other non-display identifiers may keep their stable literal values.
 - Fixed user-facing bot replies should live in `BotData/resources/bot_messages.json` and be read through `core.bot_messages.get_message`; avoid hard-coding reusable reply text inside plugins.
 - Keep `BotData/resources/*.example.json`, `BotData/config.example.json`, and `BotData/fonts/.gitkeep` in git. Do not commit runtime resource JSON files, real config JSON files, real fonts, logs, or `UserData` state.
 - Generated images must use `core.rendering.load_font` so `BotData/resources/rendering.json` controls regular and bold fonts consistently.
