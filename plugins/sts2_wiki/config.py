@@ -13,6 +13,7 @@ DEFAULT_STS2_WIKI_CONFIG: dict[str, Any] = {
     "api_url": "https://spire-codex.com/api",
     "site_url": "https://spire-codex.com",
     "language": "zhs",
+    "version": "",
     "cache_ttl_seconds": 86400,
     "timeout": 10,
     "search_limit": 5,
@@ -66,11 +67,12 @@ def get_config() -> dict[str, Any]:
     if not _first_load_done:
         _first_load_done = True
         logger.info(
-            "杀戮尖塔 2 Wiki 配置加载完成 -> enabled=%s, source=%s, api_url=%s, language=%s, cache_ttl_seconds=%s",
+            "杀戮尖塔 2 Wiki 配置加载完成 -> enabled=%s, source=%s, api_url=%s, language=%s, version=%s, cache_ttl_seconds=%s",
             cfg.get("enabled"),
             cfg.get("source"),
             cfg.get("api_url"),
             cfg.get("language"),
+            cfg.get("version") or "stable",
             cfg.get("cache_ttl_seconds"),
         )
     return cfg

@@ -952,6 +952,7 @@ RSS 推送任务示例：
 | `api_url` | API 地址，默认 `https://spire-codex.com/api` |
 | `site_url` | 详情页站点地址，默认 `https://spire-codex.com` |
 | `language` | 数据语言，默认 `zhs` 简体中文 |
+| `version` | Spire Codex 数据版本，默认空值表示稳定数据；测试版可设为 `latest` 或具体版本号如 `v0.106.0` |
 | `cache_ttl_seconds` | 本地缓存有效期，默认 86400 秒 |
 | `timeout` | 请求超时时间，单位秒 |
 | `search_limit` | 搜索候选数量，插件会取最相关的第一个结果 |

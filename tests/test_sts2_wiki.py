@@ -14,7 +14,13 @@ from plugins.sts2_wiki.api import Sts2WikiClient, Sts2WikiError
 from plugins.sts2_wiki.cache import Sts2WikiCache
 from plugins.sts2_wiki.config import _migrate_config
 from plugins.sts2_wiki.models import Sts2WikiResult
-from plugins.sts2_wiki.service import Sts2WikiKeywordEmpty, Sts2WikiService, normalize_keyword, resolve_query_alias
+from plugins.sts2_wiki.service import (
+    Sts2WikiKeywordEmpty,
+    Sts2WikiService,
+    _cache_namespace,
+    normalize_keyword,
+    resolve_query_alias,
+)
 
 
 class FakeExtractClient(Sts2WikiClient):
@@ -74,7 +80,12 @@ class FakeParseFallbackClient(Sts2WikiClient):
 
 
 class FakeSpireCodexClient(Sts2WikiClient):
+    def __init__(self, config: dict[str, Any]) -> None:
+        super().__init__(config)
+        self.requests: list[tuple[str, dict[str, Any]]] = []
+
     async def _request_spire(self, endpoint: str, params: dict[str, Any]) -> Any:
+        self.requests.append((endpoint, dict(params)))
         keyword = params.get("search")
         if endpoint == "cards" and keyword == "打击":
             return [
@@ -142,6 +153,7 @@ def _cfg(**overrides: Any) -> dict[str, Any]:
         "api_url": "https://spire-codex.com/api",
         "site_url": "https://spire-codex.com",
         "language": "zhs",
+        "version": "",
         "cache_ttl_seconds": 86400,
         "timeout": 10,
         "search_limit": 5,
@@ -237,6 +249,14 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("生命 80", result.summary)
         self.assertIn("铁甲军团最后的士兵", result.extract)
 
+    async def test_spire_codex_passes_configured_beta_version(self) -> None:
+        client = FakeSpireCodexClient(_cfg(search_categories=["cards"], version="latest"))
+
+        result = await client.search("打击")
+
+        self.assertEqual(client.requests[0][1]["version"], "latest")
+        self.assertEqual(result.url, "https://spire-codex.com/zhs/cards/STRIKE_IRONCLAD?version=latest")
+
     async def test_cache_write_read_and_expiry(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "sts2_cache.json"
@@ -285,6 +305,13 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
 
         assert old_result is not None
         self.assertEqual(old_result.title, "Strike (Ironclad)")
+
+    def test_cache_namespace_includes_spire_codex_version(self) -> None:
+        stable = _cache_namespace(_cfg())
+        beta = _cache_namespace(_cfg(version="latest"))
+
+        self.assertNotEqual(stable, beta)
+        self.assertIn("latest", beta)
 
     async def test_empty_keyword_normalization(self) -> None:
         with self.assertRaises(Sts2WikiKeywordEmpty):

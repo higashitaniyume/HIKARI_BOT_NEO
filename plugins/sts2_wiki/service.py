@@ -70,5 +70,6 @@ def _alias_key(value: str) -> str:
 def _cache_namespace(config: dict[str, Any]) -> str:
     source = str(config.get("source") or "spire_codex").strip().casefold()
     language = str(config.get("language") or "").strip().casefold()
+    version = str(config.get("version") or "").strip().casefold()
     api_url = str(config.get("api_url") or "").strip().rstrip("/").casefold()
-    return "|".join(part for part in (source, language, api_url) if part)
+    return "|".join(part for part in (source, language, version, api_url) if part)

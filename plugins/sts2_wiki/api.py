@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 
@@ -69,6 +69,7 @@ class Sts2WikiClient:
         self.api_url = str(config.get("api_url") or "").strip()
         self.site_url = str(config.get("site_url") or "").strip().rstrip("/")
         self.language = str(config.get("language") or "zhs").strip() or "zhs"
+        self.version = str(config.get("version") or "").strip()
         self.timeout = float(config.get("timeout") or 10)
         self.search_limit = max(1, min(int(config.get("search_limit") or 5), 10))
         self.summary_max_chars = max(80, int(config.get("summary_max_chars") or 300))
@@ -132,13 +133,14 @@ class Sts2WikiClient:
         )
 
     async def _fetch_spire_candidates(self, endpoint: str, keyword: str) -> list["_SpireCandidate"]:
-        data = await self._request_spire(
-            endpoint,
-            {
-                "lang": self.language,
-                "search": keyword,
-            },
-        )
+        params: dict[str, Any] = {
+            "lang": self.language,
+            "search": keyword,
+        }
+        if self.version:
+            params["version"] = self.version
+
+        data = await self._request_spire(endpoint, params)
         if not isinstance(data, list):
             return []
 
@@ -312,7 +314,10 @@ class Sts2WikiClient:
         if not base:
             return ""
         language_prefix = f"/{self.language}" if self.language and self.language != "eng" else ""
-        return f"{base}{language_prefix}/{endpoint}/{quote(item_id, safe='')}"
+        url = f"{base}{language_prefix}/{endpoint}/{quote(item_id, safe='')}"
+        if self.version:
+            url = f"{url}?{urlencode({'version': self.version})}"
+        return url
 
 
 @dataclass(slots=True)
