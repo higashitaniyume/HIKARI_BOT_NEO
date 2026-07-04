@@ -28,46 +28,41 @@ function Require-Command {
     }
 }
 
-function Get-ProjectVersion {
-    $pyprojectPath = Join-Path $AppPath "pyproject.toml"
-    $inProject = $false
-    foreach ($line in Get-Content -LiteralPath $pyprojectPath) {
-        $trimmed = $line.Trim()
-        if ($trimmed -eq "[project]") {
-            $inProject = $true
-            continue
-        }
-        if ($inProject -and $trimmed.StartsWith("[")) {
-            break
-        }
-        if ($inProject -and $trimmed -match '^version\s*=\s*"([^"]+)"') {
-            return $Matches[1]
-        }
-    }
-    return "unknown"
-}
-
 function Write-VersionFile {
     $versionPath = Join-Path $AppPath "version.json"
-    $gitCommit = (& git -C $AppPath rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommit)) {
-        $gitCommit = "unknown"
+    $versions = @()
+    $index = 0
+    foreach ($line in @(& git -C $AppPath log --reverse --format="%h`t%s")) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        $parts = $line -split "`t", 2
+        $index += 1
+        $versions += [ordered]@{
+            version = "0.0.$index"
+            git_hash = $parts[0]
+            title = if ($parts.Count -gt 1 -and $parts[1]) { $parts[1] } else { "unknown" }
+        }
     }
-    $gitCommitShort = (& git -C $AppPath rev-parse --short=7 HEAD).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommitShort)) {
-        $gitCommitShort = if ($gitCommit -ne "unknown") { $gitCommit.Substring(0, [Math]::Min(7, $gitCommit.Length)) } else { "unknown" }
-    }
-    $gitStatus = @(& git -C $AppPath status --porcelain)
     $versionInfo = [ordered]@{
-        version = Get-ProjectVersion
-        git_commit = $gitCommit
-        git_commit_short = $gitCommitShort
-        git_dirty = [bool]($gitStatus.Count -gt 0)
-        generated_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        versions = $versions
     }
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($versionPath, (($versionInfo | ConvertTo-Json) + [Environment]::NewLine), $utf8NoBom)
-    Write-Host "已刷新版本文件：$versionPath ($gitCommitShort)" -ForegroundColor Gray
+    [System.IO.File]::WriteAllText($versionPath, (($versionInfo | ConvertTo-Json -Depth 4) + [Environment]::NewLine), $utf8NoBom)
+    $current = if ($versions.Count -gt 0) { $versions[$versions.Count - 1] } else { $null }
+    $label = if ($current) { "$($current.version) $($current.git_hash)" } else { "empty" }
+    Write-Host "已刷新版本文件：$versionPath ($label)" -ForegroundColor Gray
+}
+
+function Ensure-FullGitHistory {
+    $shallowPath = Join-Path $AppPath ".git/shallow"
+    if (Test-Path $shallowPath) {
+        Write-Host "检测到浅克隆，正在补全 Git 历史..." -ForegroundColor Yellow
+        & git -C $AppPath fetch --unshallow origin
+        if ($LASTEXITCODE -ne 0) {
+            throw "补全 Git 历史失败，无法生成完整版本列表。"
+        }
+    }
 }
 
 Require-Command git
@@ -88,7 +83,7 @@ if (Test-Path (Join-Path $AppPath ".git")) {
     }
 
     Write-Host "更新机器人源码（$Branch）..." -ForegroundColor Yellow
-    & git -C $AppPath fetch --depth 1 origin $Branch
+    & git -C $AppPath fetch origin $Branch
     & git -C $AppPath checkout --quiet $Branch
     & git -C $AppPath reset --hard "origin/$Branch"
 } else {
@@ -98,8 +93,10 @@ if (Test-Path (Join-Path $AppPath ".git")) {
 
     Write-Host "拉取机器人源码（$Branch）..." -ForegroundColor Yellow
     New-Item -ItemType Directory -Force -Path $DeployPath | Out-Null
-    & git clone --depth 1 --branch $Branch $RepositoryUrl $AppPath
+    & git clone --branch $Branch $RepositoryUrl $AppPath
 }
+
+Ensure-FullGitHistory
 
 $runtimeRoot = Join-Path $DeployPath "runtime"
 $legacySharedPath = Join-Path $DeployPath "sharedFolder"

@@ -58,6 +58,18 @@ class BotAdminAuthTests(unittest.TestCase):
         ):
             self.assertTrue(request._is_authenticated())
 
+    def test_version_api_returns_runtime_info_state(self) -> None:
+        request = self._handler("/api/version")
+        payload = {"current": {"version": "0.0.1", "git_hash": "abcdef1", "title": "Initial"}}
+        with (
+            patch.object(admin_handler.BotAdminHandler, "_is_authenticated", Mock(return_value=True)),
+            patch.object(admin_handler, "runtime_info_state", Mock(return_value=payload)),
+            patch.object(admin_handler.BotAdminHandler, "_send_json") as send_json,
+        ):
+            request.do_GET()
+
+        send_json.assert_called_once_with(payload)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,6 +26,8 @@ const state = {
   selectedAccessPlugin: "",
   systemProbe: null,
   systemProbeError: "",
+  versionInfo: null,
+  versionError: "",
   editingTtsVoiceName: "",
   pickerInboxIds: [],
 };

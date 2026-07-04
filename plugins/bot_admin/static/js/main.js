@@ -30,6 +30,7 @@ $("#packPickerDialog").addEventListener("close", () => {
   state.pickerInboxIds = [];
 });
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
+$("#versionRefreshBtn").addEventListener("click", () => fetchVersionInfo().then(() => showToast("版本信息已刷新。")).catch((err) => showToast(err.message, true)));
 $("#systemProbeRefreshBtn").addEventListener("click", () => fetchSystemProbe().then(() => showToast("系统探针已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then(() => showToast("配置列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());

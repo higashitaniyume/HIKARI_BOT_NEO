@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from core.runtime_info import runtime_info_state
 from plugins import sticker_inbox
 from plugins import sticker_library
 from plugins import voice_library
@@ -309,6 +310,12 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 self._unauthorized_json()
                 return
             self._send_json(system_probe_state())
+            return
+        if parsed.path == "/api/version":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            self._send_json(runtime_info_state())
             return
         if parsed.path.startswith("/api/packs/") and parsed.path.endswith("/download"):
             if not self._is_authenticated():

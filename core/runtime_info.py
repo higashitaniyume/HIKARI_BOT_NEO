@@ -21,12 +21,28 @@ _runtime_info_cache: "RuntimeInfo | None" = None
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeInfo:
+class VersionEntry:
     version: str
-    git_commit: str
-    git_commit_short: str
-    git_dirty: bool
-    generated_at: str
+    git_hash: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeInfo:
+    current: VersionEntry
+    versions: tuple[VersionEntry, ...]
+
+    @property
+    def version(self) -> str:
+        return self.current.version
+
+    @property
+    def git_hash(self) -> str:
+        return self.current.git_hash
+
+    @property
+    def title(self) -> str:
+        return self.current.title
 
 
 def get_runtime_info(*, refresh: bool = False) -> RuntimeInfo:
@@ -39,26 +55,21 @@ def get_runtime_info(*, refresh: bool = False) -> RuntimeInfo:
 
 def read_runtime_info(project_root: Path) -> RuntimeInfo:
     data = _read_version_json(project_root / VERSION_FILE_NAME)
-    version = _string_value(data.get("version")) or _read_project_version(project_root) or "unknown"
-    git_commit = _string_value(data.get("git_commit"))
-    git_commit_short = _string_value(data.get("git_commit_short"))
-    git_dirty = bool(data.get("git_dirty", False))
-    generated_at = _string_value(data.get("generated_at"))
+    versions = _parse_version_entries(data.get("versions"))
+    if not versions:
+        versions = _legacy_entry(project_root, data) if _has_legacy_version_data(data) else _git_history_entries(project_root)
+    if not versions:
+        versions = _legacy_entry(project_root, data)
+    current = versions[-1] if versions else VersionEntry("unknown", "unknown", "unknown")
+    return RuntimeInfo(current=current, versions=tuple(versions))
 
-    if not git_commit:
-        git_commit = _run_git(project_root, "rev-parse", "HEAD") or "unknown"
-    if not git_commit_short:
-        git_commit_short = _short_commit(git_commit)
-    if "git_dirty" not in data:
-        git_dirty = bool(_run_git(project_root, "status", "--porcelain"))
 
-    return RuntimeInfo(
-        version=version,
-        git_commit=git_commit,
-        git_commit_short=git_commit_short,
-        git_dirty=git_dirty,
-        generated_at=generated_at or "unknown",
-    )
+def runtime_info_state(*, refresh: bool = False) -> dict[str, Any]:
+    info = get_runtime_info(refresh=refresh)
+    return {
+        "current": _entry_state(info.current),
+        "versions": [_entry_state(entry) for entry in info.versions],
+    }
 
 
 def get_uptime_seconds() -> int:
@@ -87,11 +98,72 @@ def _read_version_json(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception as e:
         logger.warning("[RuntimeInfo] 读取版本文件失败: %s -> %s", path, e)
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _parse_version_entries(value: Any) -> list[VersionEntry]:
+    if not isinstance(value, list):
+        return []
+
+    entries: list[VersionEntry] = []
+    seen_versions: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        version = _string_value(item.get("version"))
+        git_hash = _string_value(item.get("git_hash"))
+        title = _string_value(item.get("title"))
+        if not version or not git_hash or not title or version in seen_versions:
+            continue
+        seen_versions.add(version)
+        entries.append(VersionEntry(version=version, git_hash=git_hash, title=title))
+    return entries
+
+
+def _has_legacy_version_data(data: dict[str, Any]) -> bool:
+    return any(key in data for key in ("version", "git_hash", "git_commit", "git_commit_short", "title"))
+
+
+def _git_history_entries(project_root: Path) -> list[VersionEntry]:
+    output = _run_git(project_root, "log", "--reverse", "--format=%h%x09%s")
+    entries: list[VersionEntry] = []
+    for index, line in enumerate(output.splitlines(), start=1):
+        git_hash, _, title = line.partition("\t")
+        if not git_hash:
+            continue
+        entries.append(
+            VersionEntry(
+                version=f"0.0.{index}",
+                git_hash=git_hash,
+                title=title.strip() or "unknown",
+            )
+        )
+    return entries
+
+
+def _legacy_entry(project_root: Path, data: dict[str, Any]) -> list[VersionEntry]:
+    version = _string_value(data.get("version")) or _read_project_version(project_root) or "unknown"
+    git_hash = (
+        _string_value(data.get("git_hash"))
+        or _string_value(data.get("git_commit_short"))
+        or _short_commit(_string_value(data.get("git_commit")))
+    )
+    if not git_hash:
+        git_hash = _run_git(project_root, "rev-parse", "--short=7", "HEAD") or "unknown"
+    title = _string_value(data.get("title")) or _run_git(project_root, "log", "-1", "--format=%s") or "unknown"
+    return [VersionEntry(version=version, git_hash=git_hash, title=title)]
+
+
+def _entry_state(entry: VersionEntry) -> dict[str, str]:
+    return {
+        "version": entry.version,
+        "git_hash": entry.git_hash,
+        "title": entry.title,
+    }
 
 
 def _read_project_version(project_root: Path) -> str:
@@ -147,7 +219,7 @@ def _run_git(project_root: Path, *args: str) -> str:
 def _short_commit(commit: str) -> str:
     commit = _string_value(commit)
     if not commit or commit == "unknown":
-        return "unknown"
+        return ""
     return commit[:7]
 
 

@@ -4,6 +4,11 @@ async function fetchState() {
   state.packs = data.packs || [];
   state.keywords = data.keywords || [];
   state.totalStickers = Number(data.total_stickers || 0);
+  try {
+    await fetchVersionInfo(false);
+  } catch (err) {
+    state.versionError = err.message;
+  }
   await fetchVoiceState(false);
   await fetchTtsConfig(false);
   await fetchAiAgentConfig(false);
@@ -126,6 +131,16 @@ async function fetchSystemProbe(shouldRender = true) {
   state.systemProbeError = "";
   if (shouldRender) {
     renderSystemProbe();
+  }
+}
+
+async function fetchVersionInfo(shouldRender = true) {
+  const res = await fetch("/api/version", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取版本信息失败");
+  state.versionInfo = data || null;
+  state.versionError = "";
+  if (shouldRender) {
+    renderVersionInfo();
   }
 }
 

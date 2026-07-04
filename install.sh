@@ -39,41 +39,48 @@ create_searxng_settings() {
   sed -i "s/__SEARXNG_SECRET__/$secret/g" "$settings_file"
 }
 
-project_version() {
-  awk '
-    /^\[project\]$/ { in_project = 1; next }
-    /^\[/ && in_project { exit }
-    in_project && $1 == "version" {
-      gsub(/"/, "", $3)
-      print $3
-      exit
+write_version_file() {
+  git -C "$APP_DIR" log --reverse --format='%h%x09%s' | awk '
+    BEGIN {
+      count = 0
+      print "{"
+      print "  \"versions\": ["
     }
-  ' "$APP_DIR/pyproject.toml"
+    function json_escape(value) {
+      gsub(/\\/, "\\\\", value)
+      gsub(/"/, "\\\"", value)
+      gsub(/\t/, "\\t", value)
+      gsub(/\r/, "\\r", value)
+      return value
+    }
+    {
+      hash = $1
+      title = $0
+      sub(/^[^\t]*\t/, "", title)
+      if (count > 0) {
+        print ","
+      }
+      count += 1
+      printf "    {\n      \"version\": \"0.0.%d\",\n      \"git_hash\": \"%s\",\n      \"title\": \"%s\"\n    }", count, json_escape(hash), json_escape(title)
+    }
+    END {
+      print ""
+      print "  ]"
+      print "}"
+    }
+  ' > "$APP_DIR/version.json"
+  current="$(git -C "$APP_DIR" log -1 --format='%h' 2>/dev/null || printf unknown)"
+  echo "已刷新版本文件：$APP_DIR/version.json ($current)"
 }
 
-write_version_file() {
-  version="$(project_version)"
-  if [ -z "$version" ]; then
-    version="unknown"
+ensure_full_git_history() {
+  if [ -f "$APP_DIR/.git/shallow" ]; then
+    echo "检测到浅克隆，正在补全 Git 历史..."
+    git -C "$APP_DIR" fetch --unshallow origin || {
+      echo "补全 Git 历史失败，无法生成完整版本列表。" >&2
+      exit 1
+    }
   fi
-  git_commit="$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || printf unknown)"
-  git_commit_short="$(git -C "$APP_DIR" rev-parse --short=7 HEAD 2>/dev/null || printf unknown)"
-  if [ -n "$(git -C "$APP_DIR" status --porcelain 2>/dev/null)" ]; then
-    git_dirty=true
-  else
-    git_dirty=false
-  fi
-  generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  cat > "$APP_DIR/version.json" <<EOF
-{
-  "version": "$version",
-  "git_commit": "$git_commit",
-  "git_commit_short": "$git_commit_short",
-  "git_dirty": $git_dirty,
-  "generated_at": "$generated_at"
-}
-EOF
-  echo "已刷新版本文件：$APP_DIR/version.json ($git_commit_short)"
 }
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -96,7 +103,7 @@ if [ -d "$APP_DIR/.git" ]; then
   fi
 
   echo "更新机器人源码（$BRANCH）..."
-  git -C "$APP_DIR" fetch --depth 1 origin "$BRANCH"
+  git -C "$APP_DIR" fetch origin "$BRANCH"
   git -C "$APP_DIR" checkout --quiet "$BRANCH"
   git -C "$APP_DIR" reset --hard "origin/$BRANCH"
 else
@@ -107,8 +114,10 @@ else
 
   echo "拉取机器人源码（$BRANCH）..."
   mkdir -p "$DEPLOY_DIR"
-  git clone --depth 1 --branch "$BRANCH" "$REPOSITORY_URL" "$APP_DIR"
+  git clone --branch "$BRANCH" "$REPOSITORY_URL" "$APP_DIR"
 fi
+
+ensure_full_git_history
 
 if [ -d "$DEPLOY_DIR/sharedFolder" ] && [ ! -e "$DEPLOY_DIR/runtime/shared" ]; then
   mkdir -p "$DEPLOY_DIR/runtime"

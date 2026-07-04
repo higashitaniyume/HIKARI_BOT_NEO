@@ -16,7 +16,7 @@
   },
   "about": {
     "description": "基于 NoneBot 2 和 NapCat 的 QQ 机器人，主要用于媒体链接解析、贴纸包、推送和查询辅助。",
-    "response": "{name}\n{description}\n\n版本：{version}\n提交：{git_commit}\n已运行：{uptime}\n\n贴纸库：{total_stickers} 张贴纸 / {pack_count} 个贴纸包 / {keyword_count} 个关键词"
+    "response": "{name}\n{description}\n\n版本：{version}\n提交：{git_hash}\n标题：{title}\n已运行：{uptime}\n\n贴纸库：{total_stickers} 张贴纸 / {pack_count} 个贴纸包 / {keyword_count} 个关键词"
   },
   "sticker": {
     "empty_library": "贴纸包都是空的，请先添加一些表情包。",

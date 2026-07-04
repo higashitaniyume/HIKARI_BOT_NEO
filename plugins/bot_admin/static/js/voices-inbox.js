@@ -163,6 +163,49 @@ function renderSystemProbe() {
   setText("#probePid", process.pid ? String(process.pid) : "未知");
 }
 
+function renderVersionInfo() {
+  const info = state.versionInfo || {};
+  const current = info.current || {};
+  const versions = Array.isArray(info.versions) ? info.versions : [];
+  const errorNode = $("#versionError");
+  const list = $("#versionHistoryList");
+
+  if (errorNode) {
+    errorNode.hidden = !state.versionError;
+    errorNode.textContent = state.versionError || "";
+  }
+  setText("#versionSummary", versions.length ? `共 ${versions.length} 个版本记录` : "等待刷新");
+  setText("#currentVersion", current.version || "未知");
+  setText("#currentGitHash", current.git_hash || "未知");
+  setText("#currentVersionTitle", current.title || "未知");
+
+  if (!list) {
+    return;
+  }
+  list.replaceChildren();
+  if (!versions.length) {
+    list.className = "version-history-list empty";
+    list.textContent = "暂无版本记录";
+    return;
+  }
+
+  list.className = "version-history-list";
+  for (const item of versions.slice().reverse()) {
+    const row = document.createElement("article");
+    row.className = "version-history-item";
+
+    const version = document.createElement("strong");
+    version.textContent = item.version || "未知版本";
+    const hash = document.createElement("code");
+    hash.textContent = item.git_hash || "unknown";
+    const title = document.createElement("span");
+    title.textContent = item.title || "未知提交";
+
+    row.append(version, hash, title);
+    list.append(row);
+  }
+}
+
 function getSelectedInboxIds() {
   return Array.from(document.querySelectorAll(".inbox-check:checked")).map((input) => input.value);
 }
@@ -323,6 +366,7 @@ function render() {
   $("#keywordCount").textContent = state.keywords.length;
   $("#voiceCount").textContent = state.totalVoices;
   $("#voiceKeywordCount").textContent = state.totalVoiceKeywords;
+  renderVersionInfo();
   renderSystemProbe();
   renderSelects();
   renderInbox();

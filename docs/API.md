@@ -145,6 +145,40 @@ application/x-www-form-urlencoded
 
 返回后台静态文件。只允许读取 Bot Admin static 目录内的文件。
 
+### 运行版本
+
+#### `GET /api/version`
+
+读取机器人运行版本和版本历史。
+
+响应：
+
+```json
+{
+  "current": {
+    "version": "0.0.42",
+    "git_hash": "9d3b4d1",
+    "title": "Add about command with runtime version info"
+  },
+  "versions": [
+    {
+      "version": "0.0.1",
+      "git_hash": "abc1234",
+      "title": "Initial commit"
+    }
+  ]
+}
+```
+
+字段说明：
+
+| 字段 | 说明 |
+| --- | --- |
+| `current` | 当前运行版本，等同 `versions` 的最后一项 |
+| `versions[].version` | 根据 Git 历史顺序生成的 `0.0.x` 版本号 |
+| `versions[].git_hash` | 对应提交的短 hash |
+| `versions[].title` | 对应提交标题 |
+
 ### 贴纸库状态
 
 #### `GET /api/state`

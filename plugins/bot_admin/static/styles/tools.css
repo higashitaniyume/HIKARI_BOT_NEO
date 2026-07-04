@@ -65,18 +65,97 @@
   background: var(--accent-tint);
 }
 
+.overview-version-panel .panel-heading,
 .overview-probe-panel .panel-heading {
   align-items: start;
 }
 
+.overview-version-panel .ghost,
 .overview-probe-panel .ghost {
   width: auto;
 }
 
+.overview-version-panel .toast,
 .overview-probe-panel .toast {
   position: static;
   margin: 0 0 12px;
   box-shadow: none;
+}
+
+.version-current {
+  display: grid;
+  grid-template-columns: 140px 140px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.version-current > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 14px;
+}
+
+.version-current span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.version-current strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.version-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.version-history-list.empty {
+  display: block;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--muted);
+}
+
+.version-history-item {
+  display: grid;
+  grid-template-columns: 82px 78px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.version-history-item strong {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.version-history-item code {
+  color: #0f655f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.version-history-item span {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .probe-grid {
@@ -290,12 +369,19 @@
 }
 
 @media (max-width: 720px) {
+  .version-current,
   .probe-grid,
   .pack-sticker-toolbar,
   .sticker-grid {
     grid-template-columns: 1fr;
   }
 
+  .version-history-item {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .overview-version-panel .ghost,
   .overview-probe-panel .ghost,
   .pack-sticker-toolbar .primary,
   .pack-sticker-toolbar .danger-button,

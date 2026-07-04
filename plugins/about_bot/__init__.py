@@ -18,10 +18,6 @@ async def handle_about(ctx: CommandContext) -> None:
     state = sticker_library.get_state()
     runtime = get_runtime_info()
 
-    commit = runtime.git_commit_short
-    if runtime.git_dirty and commit != "unknown":
-        commit = f"{commit}-dirty"
-
     await ctx.send(
         Message(
             msg(
@@ -29,7 +25,8 @@ async def handle_about(ctx: CommandContext) -> None:
                 name=bot_cfg.get("name", "HikariBotNeo"),
                 description=msg("about.description"),
                 version=runtime.version,
-                git_commit=commit,
+                git_hash=runtime.git_hash,
+                title=runtime.title,
                 uptime=format_duration(get_uptime_seconds()),
                 total_stickers=state.get("total_stickers", 0),
                 pack_count=len(state.get("packs") or []),
