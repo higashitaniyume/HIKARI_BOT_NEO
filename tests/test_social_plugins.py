@@ -176,6 +176,32 @@ class MentionReactionTests(unittest.TestCase):
             )
         )
 
+    def test_reacts_when_adapter_strips_at_segment(self) -> None:
+        self.assertTrue(
+            should_react_to_empty_mention(
+                is_group=True,
+                is_tome=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.text("  ")],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
+    def test_stripped_tome_still_requires_blank_text(self) -> None:
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                is_tome=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.text("你好")],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
     def test_ignores_non_text_segments(self) -> None:
         self.assertFalse(
             should_react_to_empty_mention(

@@ -41,6 +41,7 @@ async def handle_mention_reaction(bot: Bot, event: MessageEvent) -> None:
 
     if not should_react_to_empty_mention(
         is_group=True,
+        is_tome=_looks_like_tome(event),
         sender_id=sender_id,
         self_id=self_id,
         group_id=int(event.group_id),
@@ -87,6 +88,7 @@ async def handle_mention_reaction(bot: Bot, event: MessageEvent) -> None:
 def should_react_to_empty_mention(
     *,
     is_group: bool,
+    is_tome: bool = False,
     sender_id: int,
     self_id: int,
     group_id: int | None,
@@ -108,7 +110,9 @@ def should_react_to_empty_mention(
     if allowed_groups and str(group_id or "") not in allowed_groups:
         return False
 
-    return _contains_only_self_at_and_blank_text(message, self_id)
+    return _contains_only_self_at_and_blank_text(message, self_id) or (
+        bool(is_tome) and _contains_only_blank_text(message)
+    )
 
 
 def choose_emoji_id(config: dict[str, Any]) -> str:
@@ -146,6 +150,16 @@ def summarize_segments(message: Iterable[Any]) -> str:
             keys = ",".join(sorted(str(key) for key in data.keys())[:4])
             parts.append(f"{segment_type}<{keys}>")
     return "[" + ", ".join(parts) + "]"
+
+
+def _contains_only_blank_text(message: Iterable[Any]) -> bool:
+    for segment in message:
+        segment_type = getattr(segment, "type", "")
+        data = getattr(segment, "data", {}) or {}
+        if segment_type == "text" and not str(data.get("text") or "").strip():
+            continue
+        return False
+    return True
 
 
 def _contains_only_self_at_and_blank_text(message: Iterable[Any], self_id: int) -> bool:
