@@ -7,6 +7,7 @@ from nonebot.adapters.onebot.v11 import ActionFailed, MessageSegment
 
 from plugins.mention_reaction import (
     choose_emoji_id,
+    event_self_id,
     parse_message_id,
     send_msg_emoji_like,
     should_react_to_empty_mention,
@@ -227,6 +228,12 @@ class MentionReactionTests(unittest.TestCase):
     def test_parse_message_id_rejects_non_numeric_value(self) -> None:
         self.assertEqual(parse_message_id("12345"), 12345)
         self.assertIsNone(parse_message_id("abc"))
+
+    def test_event_self_id_prefers_event_value(self) -> None:
+        event = type("Event", (), {"self_id": 456})()
+        bot = type("Bot", (), {"self_id": 789})()
+
+        self.assertEqual(event_self_id(event, bot), 456)
 
 
 class MentionReactionApiTests(unittest.IsolatedAsyncioTestCase):

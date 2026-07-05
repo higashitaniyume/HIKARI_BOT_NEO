@@ -18,6 +18,7 @@ from .config import get_config
 logger = logging.getLogger("HikariBot.MentionReaction")
 
 mention_reaction_matcher = on_message(priority=5, block=False)
+logger.info("[MentionReaction] 空 @ 表情回应插件已加载")
 
 
 @mention_reaction_matcher.handle()
@@ -26,9 +27,16 @@ async def handle_mention_reaction(bot: Bot, event: MessageEvent) -> None:
         return
 
     cfg = get_config()
-    self_id = _parse_int(bot.self_id)
+    self_id = event_self_id(event, bot)
     sender_id = _parse_int(event.get_user_id())
     if self_id is None or sender_id is None:
+        logger.warning(
+            "[MentionReaction] 缺少有效账号 ID self_id=%r bot_self_id=%r sender_id=%r %s",
+            getattr(event, "self_id", None),
+            getattr(bot, "self_id", None),
+            event.get_user_id(),
+            describe_event(event),
+        )
         return
 
     if not should_react_to_empty_mention(
@@ -39,6 +47,13 @@ async def handle_mention_reaction(bot: Bot, event: MessageEvent) -> None:
         message=event.get_message(),
         config=cfg,
     ):
+        if _looks_like_tome(event):
+            logger.info(
+                "[MentionReaction] 跳过 @ 消息 self_id=%s segments=%s %s",
+                self_id,
+                summarize_segments(event.get_message()),
+                describe_event(event, event.get_plaintext()),
+            )
         return
 
     emoji_id = choose_emoji_id(cfg)
@@ -109,8 +124,28 @@ async def send_msg_emoji_like(bot: Any, *, message_id: int, emoji_id: str) -> An
     return await bot.call_api("set_msg_emoji_like", message_id=message_id, emoji_id=str(emoji_id))
 
 
+def event_self_id(event: Any, bot: Any) -> int | None:
+    return _parse_int(getattr(event, "self_id", None)) or _parse_int(getattr(bot, "self_id", None))
+
+
 def parse_message_id(value: Any) -> int | None:
     return _parse_int(value)
+
+
+def summarize_segments(message: Iterable[Any]) -> str:
+    parts: list[str] = []
+    for segment in message:
+        segment_type = str(getattr(segment, "type", "") or "")
+        data = getattr(segment, "data", {}) or {}
+        if segment_type == "text":
+            text = str(data.get("text") or "")
+            parts.append(f"text:{text!r}")
+        elif segment_type == "at":
+            parts.append(f"at:{data.get('qq')!r}")
+        else:
+            keys = ",".join(sorted(str(key) for key in data.keys())[:4])
+            parts.append(f"{segment_type}<{keys}>")
+    return "[" + ", ".join(parts) + "]"
 
 
 def _contains_only_self_at_and_blank_text(message: Iterable[Any], self_id: int) -> bool:
@@ -140,3 +175,10 @@ def _as_str_set(value: Any) -> set[str]:
     if not isinstance(value, list):
         return set()
     return {str(item).strip() for item in value if str(item).strip()}
+
+
+def _looks_like_tome(event: MessageEvent) -> bool:
+    try:
+        return bool(event.is_tome())
+    except Exception:
+        return False
