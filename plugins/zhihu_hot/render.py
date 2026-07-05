@@ -10,7 +10,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from core.bot_identity import get_bot_name
-from core.rendering import load_font
+from core.rendering import draw_text, load_font, text_size
 
 from .api import ZhihuHotItem
 
@@ -71,16 +71,16 @@ async def render_hot_list(
 
     draw.rectangle((0, 0, width, header_h), fill=HEADER)
     draw.rectangle((0, header_h - 5, width, header_h), fill=ZHIHU_BLUE)
-    draw.text((pad, 32), "知乎热搜", font=title_font, fill=(255, 255, 255))
+    draw_text(draw, (pad, 32), "知乎热搜", font=title_font, fill=(255, 255, 255))
     local_time = generated_at.astimezone().strftime("%Y-%m-%d %H:%M")
-    draw.text((pad, 94), f"{local_time} 生成 · {len(items)} 条热榜问题", font=subtitle_font, fill=(210, 219, 230))
-    draw.text((pad, 130), "来源：知乎 Topstory Hot List · 默认以图片形式推送", font=meta_font, fill=(164, 178, 196))
+    draw_text(draw, (pad, 94), f"{local_time} 生成 · {len(items)} 条热榜问题", font=subtitle_font, fill=(210, 219, 230))
+    draw_text(draw, (pad, 130), "来源：知乎 Topstory Hot List · 默认以图片形式推送", font=meta_font, fill=(164, 178, 196))
     _draw_header_mark(draw, (width - pad - 122, 36, width - pad, 118), title_font=load_font(32, bold=True))
 
     y = header_h + pad
     if not items:
         _rounded_rect(draw, (pad, y, width - pad, y + 116), radius=8, fill=PANEL, outline=SOFT)
-        draw.text((pad + 28, y + 38), "暂时没有读取到知乎热搜。", font=item_title_font, fill=INK)
+        draw_text(draw, (pad + 28, y + 38), "暂时没有读取到知乎热搜。", font=item_title_font, fill=INK)
 
     for item, layout in zip(items, layouts, strict=False):
         x0, x1 = pad, width - pad
@@ -92,29 +92,29 @@ async def render_hot_list(
         rank_label = f"{item.rank:02d}"
         draw.ellipse((x0 + 24, y0 + 24, x0 + 74, y0 + 74), fill=accent)
         rank_w, rank_h = _text_size(draw, rank_label, rank_font)
-        draw.text((x0 + 24 + (50 - rank_w) / 2, y0 + 24 + (50 - rank_h) / 2 - 1), rank_label, font=rank_font, fill=(255, 255, 255))
+        draw_text(draw, (x0 + 24 + (50 - rank_w) / 2, y0 + 24 + (50 - rank_h) / 2 - 1), rank_label, font=rank_font, fill=(255, 255, 255))
 
         text_x = x0 + 96
         meta = _item_meta(item)
-        draw.text((text_x, y0 + 22), meta, font=small_font, fill=MUTED)
+        draw_text(draw, (text_x, y0 + 22), meta, font=small_font, fill=MUTED)
         if item.heat:
             _draw_pill(draw, item.heat, (x1 - 194, y0 + 20), badge_font)
 
         title_y = y0 + 52
         for line in layout.title_lines:
-            draw.text((text_x, title_y), line, font=item_title_font, fill=INK)
+            draw_text(draw, (text_x, title_y), line, font=item_title_font, fill=INK)
             title_y += 34
 
         if layout.excerpt_lines:
             summary_y = title_y + 7
             for line in layout.excerpt_lines:
-                draw.text((text_x, summary_y), line, font=summary_font, fill=(70, 82, 100))
+                draw_text(draw, (text_x, summary_y), line, font=summary_font, fill=(70, 82, 100))
                 summary_y += 27
 
         y = y1 + row_gap
 
     footer = f"{get_bot_name()} · Zhihu Hot Source"
-    draw.text((pad, height - 40), footer, font=small_font, fill=MUTED)
+    draw_text(draw, (pad, height - 40), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "PNG").strip().upper()
     suffix = ".jpg" if image_format in {"JPEG", "JPG"} else ".png"
@@ -160,7 +160,7 @@ def _draw_header_mark(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int],
     draw.rectangle((x0, y1 - 8, x1, y1), fill=ZHIHU_BLUE)
     label = "知"
     label_w, label_h = _text_size(draw, label, title_font)
-    draw.text((x0 + (x1 - x0 - label_w) / 2, y0 + (y1 - y0 - label_h) / 2 - 3), label, font=title_font, fill=(255, 255, 255))
+    draw_text(draw, (x0 + (x1 - x0 - label_w) / 2, y0 + (y1 - y0 - label_h) / 2 - 3), label, font=title_font, fill=(255, 255, 255))
 
 
 def _draw_pill(draw: ImageDraw.ImageDraw, text: str, origin: tuple[int, int], font) -> None:
@@ -168,7 +168,7 @@ def _draw_pill(draw: ImageDraw.ImageDraw, text: str, origin: tuple[int, int], fo
     w, h = _text_size(draw, text, font)
     box = (x, y, x + max(148, w + 30), y + 36)
     _rounded_rect(draw, box, radius=8, fill=(238, 246, 255), outline=(191, 216, 248))
-    draw.text((box[0] + (box[2] - box[0] - w) / 2, y + (36 - h) / 2 - 1), text, font=font, fill=ZHIHU_BLUE)
+    draw_text(draw, (box[0] + (box[2] - box[0] - w) / 2, y + (36 - h) / 2 - 1), text, font=font, fill=ZHIHU_BLUE)
 
 
 def _clean_summary(value: str, *, max_chars: int) -> str:
@@ -239,8 +239,7 @@ def _rounded_rect(
 
 
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int]:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    return text_size(draw, text, font)
 
 
 def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:

@@ -9,7 +9,7 @@ from typing import Any
 from PIL import Image, ImageDraw
 
 from core.bot_identity import get_bot_name
-from core.rendering import load_font
+from core.rendering import draw_text, load_font, text_size
 
 from .ai_summary import AiDigestSummary
 from .feed import NewsItem
@@ -65,14 +65,14 @@ async def render_digest(
 
     draw.rectangle((0, 0, width, header_h), fill=HEADER)
     draw.rectangle((0, header_h - 5, width, header_h), fill=(72, 179, 157))
-    draw.text((pad, 32), "AI 最新资讯", font=title_font, fill=(255, 255, 255))
+    draw_text(draw, (pad, 32), "AI 最新资讯", font=title_font, fill=(255, 255, 255))
     local_time = generated_at.astimezone().strftime("%Y-%m-%d %H:%M")
     mode = "AI 总结 + 翻译" if ai_summary is not None else "规则筛选"
-    draw.text((pad, 94), f"{local_time} 生成 · {len(items)} 条精选 · {mode}", font=subtitle_font, fill=(207, 216, 226))
+    draw_text(draw, (pad, 94), f"{local_time} 生成 · {len(items)} 条精选 · {mode}", font=subtitle_font, fill=(207, 216, 226))
     subtitle = "来源按官方发布、研究社区与科技媒体综合排序"
     if ai_summary is not None and ai_summary.model_label:
         subtitle = f"{subtitle} · {ai_summary.model_label}"
-    draw.text((pad, 130), subtitle, font=meta_font, fill=(162, 176, 194))
+    draw_text(draw, (pad, 130), subtitle, font=meta_font, fill=(162, 176, 194))
 
     y = header_h + pad
     if ai_summary is not None:
@@ -81,7 +81,7 @@ async def render_digest(
 
     if not items:
         _rounded_rect(draw, (pad, y, width - pad, y + 116), radius=8, fill=PANEL, outline=SOFT)
-        draw.text((pad + 28, y + 38), "暂时没有筛到新的 AI 资讯。", font=item_title_font, fill=INK)
+        draw_text(draw, (pad + 28, y + 38), "暂时没有筛到新的 AI 资讯。", font=item_title_font, fill=INK)
     for index, item in enumerate(items, start=1):
         row_h = row_heights[index - 1]
         x0, x1 = pad, width - pad
@@ -93,18 +93,18 @@ async def render_digest(
         rank = f"{index:02d}"
         rank_w, rank_h = _text_size(draw, rank, badge_font)
         draw.ellipse((x0 + 24, y0 + 24, x0 + 74, y0 + 74), fill=accent)
-        draw.text((x0 + 24 + (50 - rank_w) / 2, y0 + 24 + (50 - rank_h) / 2 - 1), rank, font=badge_font, fill=(255, 255, 255))
+        draw_text(draw, (x0 + 24 + (50 - rank_w) / 2, y0 + 24 + (50 - rank_h) / 2 - 1), rank, font=badge_font, fill=(255, 255, 255))
 
         text_x = x0 + 96
         source_text = f"{item.source_title} · {item.source_group}"
         if item.published is not None:
             source_text = f"{source_text} · {_format_time(item.published)}"
-        draw.text((text_x, y0 + 24), source_text, font=small_font, fill=MUTED)
+        draw_text(draw, (text_x, y0 + 24), source_text, font=small_font, fill=MUTED)
 
         title_lines = _wrap_text(draw, item.title or "未命名资讯", item_title_font, width=x1 - text_x - 38, max_lines=2)
         title_y = y0 + 52
         for line in title_lines:
-            draw.text((text_x, title_y), line, font=item_title_font, fill=INK)
+            draw_text(draw, (text_x, title_y), line, font=item_title_font, fill=INK)
             title_y += 34
 
         summary = _clean_summary(item.summary, max_chars=summary_max_chars)
@@ -112,13 +112,13 @@ async def render_digest(
             summary_lines = _wrap_text(draw, summary, summary_font, width=x1 - text_x - 38, max_lines=2)
             summary_y = title_y + 6
             for line in summary_lines:
-                draw.text((text_x, summary_y), line, font=summary_font, fill=(76, 88, 106))
+                draw_text(draw, (text_x, summary_y), line, font=summary_font, fill=(76, 88, 106))
                 summary_y += 27
 
         y = y1 + row_gap
 
     footer = f"{get_bot_name()} · AI News Source"
-    draw.text((pad, height - 40), footer, font=small_font, fill=MUTED)
+    draw_text(draw, (pad, height - 40), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "PNG").strip().upper()
     suffix = ".jpg" if image_format in {"JPEG", "JPG"} else ".png"
@@ -154,18 +154,18 @@ def _draw_summary_panel(
 ) -> int:
     x0, y0, x1, y1 = box
     _rounded_rect(draw, box, radius=8, fill=(235, 244, 250), outline=(197, 215, 228))
-    draw.text((x0 + 28, y0 + 22), summary.title or "AI 摘要", font=title_font, fill=INK)
+    draw_text(draw, (x0 + 28, y0 + 22), summary.title or "AI 摘要", font=title_font, fill=INK)
     bullets = summary.bullets or ["已根据当前资讯生成中文摘要。"]
     y = y0 + 66
     for bullet in bullets[:4]:
         draw.ellipse((x0 + 32, y + 8, x0 + 42, y + 18), fill=(72, 179, 157))
         lines = _wrap_text(draw, bullet, text_font, width=x1 - x0 - 96, max_lines=1)
-        draw.text((x0 + 54, y), lines[0], font=text_font, fill=(46, 61, 78))
+        draw_text(draw, (x0 + 54, y), lines[0], font=text_font, fill=(46, 61, 78))
         y += 34
     if summary.model_label:
         label = f"由 {summary.model_label} 生成"
         label_w, _ = _text_size(draw, label, small_font)
-        draw.text((x1 - 28 - label_w, y1 - 32), label, font=small_font, fill=MUTED)
+        draw_text(draw, (x1 - 28 - label_w, y1 - 32), label, font=small_font, fill=MUTED)
     return y1
 
 
@@ -241,8 +241,7 @@ def _rounded_rect(
 
 
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int]:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    return text_size(draw, text, font)
 
 
 def _safe_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:

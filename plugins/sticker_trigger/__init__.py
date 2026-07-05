@@ -24,7 +24,7 @@ from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.error_notifier import notify_error_to_superuser
-from core.rendering import load_font
+from core.rendering import draw_text, load_font, text_size
 from core.stats_tracker import increment as stats_increment, format_stats
 from plugins import sticker_library
 
@@ -217,13 +217,11 @@ async def _make_collage(files: list[Path], folder_name: str) -> Path:
 
 
 def _text_width(draw, text: str, font) -> int:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0]
+    return text_size(draw, text, font)[0]
 
 
 def _line_height(draw, font) -> int:
-    bbox = draw.textbbox((0, 0), "Ag国", font=font)
-    return max(1, bbox[3] - bbox[1])
+    return max(1, text_size(draw, "Ag国", font)[1])
 
 
 def _wrap_text(draw, text: str, font, max_width: int, max_lines: int) -> list[str]:
@@ -342,7 +340,7 @@ async def _make_pack_preview_image() -> Path:
         draw = ImageDraw.Draw(image)
 
         y = margin
-        draw.text((margin, y), msg("sticker.preview_title"), fill=(26, 33, 28), font=title_font)
+        draw_text(draw, (margin, y), msg("sticker.preview_title"), fill=(26, 33, 28), font=title_font)
         y += 48
         summary = msg(
             "sticker.preview_summary",
@@ -350,7 +348,7 @@ async def _make_pack_preview_image() -> Path:
             sticker_count=state.get("total_stickers", 0),
             keyword_count=len(state.get("keywords") or []),
         )
-        draw.text((margin, y), summary, fill=(92, 104, 96), font=subtitle_font)
+        draw_text(draw, (margin, y), summary, fill=(92, 104, 96), font=subtitle_font)
         y = margin + header_height
 
         for row in rows:
@@ -370,10 +368,11 @@ async def _make_pack_preview_image() -> Path:
             text_x = card_x + card_padding
             text_y = card_y + card_padding
             for line in row["title_lines"]:
-                draw.text((text_x, text_y), line, fill=(24, 32, 27), font=name_font)
+                draw_text(draw, (text_x, text_y), line, fill=(24, 32, 27), font=name_font)
                 text_y += _line_height(draw, name_font) + 4
             text_y += 8
-            draw.text(
+            draw_text(
+                draw,
                 (text_x, text_y),
                 msg("sticker.preview_pack_count", count=pack.get("count", 0)),
                 fill=(92, 104, 96),
@@ -381,7 +380,7 @@ async def _make_pack_preview_image() -> Path:
             )
             text_y += _line_height(draw, meta_font) + 12
             for line in row["keyword_lines"]:
-                draw.text((text_x, text_y), line, fill=(54, 68, 58), font=keyword_font)
+                draw_text(draw, (text_x, text_y), line, fill=(54, 68, 58), font=keyword_font)
                 text_y += _line_height(draw, keyword_font) + 5
 
             preview_x = card_x + card_w - card_padding - preview_area_width
@@ -408,7 +407,7 @@ async def _make_pack_preview_image() -> Path:
                 empty_text = msg("sticker.preview_empty")
                 tx = preview_x + (preview_area_width - _text_width(draw, empty_text, keyword_font)) // 2
                 ty = card_y + card_h // 2 - _line_height(draw, keyword_font) // 2
-                draw.text((tx, ty), empty_text, fill=(139, 149, 140), font=keyword_font)
+                draw_text(draw, (tx, ty), empty_text, fill=(139, 149, 140), font=keyword_font)
 
             y += card_h + card_gap
 

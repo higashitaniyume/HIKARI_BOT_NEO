@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PIL import ImageFont
+from PIL import ImageDraw, ImageFont
 
 from core.resources import load_json_resource
 
@@ -59,3 +59,33 @@ def load_font(size: int, *, bold: bool = False):
         except Exception:
             continue
     return ImageFont.load_default()
+
+
+def text_bbox(
+    draw: ImageDraw.ImageDraw,
+    text: Any,
+    font,
+    *,
+    xy: tuple[float, float] = (0, 0),
+    anchor: str = "lt",
+) -> tuple[int, int, int, int]:
+    """Measure text from the visible top-left instead of Pillow's ascender anchor."""
+    return draw.textbbox(xy, str(text), font=font, anchor=anchor)
+
+
+def text_size(draw: ImageDraw.ImageDraw, text: Any, font) -> tuple[int, int]:
+    left, top, right, bottom = text_bbox(draw, text, font)
+    return right - left, bottom - top
+
+
+def draw_text(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[float, float],
+    text: Any,
+    *,
+    font,
+    fill,
+    anchor: str = "lt",
+) -> None:
+    """Draw text with the same top-left anchor used by text_size()."""
+    draw.text(xy, str(text), font=font, fill=fill, anchor=anchor)

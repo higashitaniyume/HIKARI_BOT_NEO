@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from PIL import Image, ImageDraw, ImageFilter
 
-from core.rendering import load_font
+from core.rendering import draw_text, load_font
 
 from .api import mode_label
 
@@ -226,23 +226,26 @@ class Canvas:
         self.width = width
         self.height = height
 
+    def text(self, xy, text: str, *, font, fill) -> None:
+        draw_text(self.draw, xy, text, font=font, fill=fill)
+
     def title(self, x: int, y: int, title: str, subtitle: str = "") -> None:
-        self.draw.text((x, y), title, font=_font(34, bold=True), fill=TEXT)
+        self.text((x, y), title, font=_font(34, bold=True), fill=TEXT)
         if subtitle:
-            self.draw.text((x, y + 44), subtitle, font=_font(18), fill=MUTED)
+            self.text((x, y + 44), subtitle, font=_font(18), fill=MUTED)
 
     def tag(self, x: int, y: int, text: str, fill=ACCENT) -> None:
         font = _font(18, bold=True)
         w = int(self.draw.textlength(text, font=font)) + 24
         _rounded(self.draw, (x, y, x + w, y + 34), 17, fill)
-        self.draw.text((x + 12, y + 6), text, font=font, fill=(255, 255, 255))
+        self.text((x + 12, y + 6), text, font=font, fill=(255, 255, 255))
 
     def card(self, xy, radius: int = 12, fill=PANEL) -> None:
         _rounded(self.draw, xy, radius, fill)
 
     def metric(self, x: int, y: int, label: str, value: str, color=TEXT) -> None:
-        self.draw.text((x, y), label, font=_font(17), fill=MUTED)
-        self.draw.text((x, y + 24), value, font=_font(27, bold=True), fill=color)
+        self.text((x, y), label, font=_font(17), fill=MUTED)
+        self.text((x, y + 24), value, font=_font(27, bold=True), fill=color)
 
     def save(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,11 +265,11 @@ def _draw_header(canvas: Canvas, user: dict[str, Any], mode: str, avatar: Image.
         _paste_circle(canvas.image, avatar, (58, 58, 178, 178))
     else:
         _paste_circle(canvas.image, _placeholder((120, 120)), (58, 58, 178, 178))
-    canvas.draw.text((204, 58), _fit_text(canvas.draw, username, _font(34, bold=True), 560), font=_font(34, bold=True), fill=TEXT)
+    canvas.text((204, 58), _fit_text(canvas.draw, username, _font(34, bold=True), 560), font=_font(34, bold=True), fill=TEXT)
     country = user.get("country") or {}
     subtitle = f"#{user.get('id')}  ·  {mode_label(mode)}  ·  {country.get('code') or '--'}"
-    canvas.draw.text((206, 104), subtitle, font=_font(19), fill=MUTED)
-    canvas.draw.text((206, 138), f"加入：{_date(user.get('join_date'))}", font=_font(18), fill=MUTED)
+    canvas.text((206, 104), subtitle, font=_font(19), fill=MUTED)
+    canvas.text((206, 138), f"加入：{_date(user.get('join_date'))}", font=_font(18), fill=MUTED)
     if cover.get("custom_url") or cover.get("url"):
         canvas.tag(canvas.width - 180, 58, "profile", BLUE)
 
@@ -313,35 +316,35 @@ async def render_user_card(
         f"S {grades.get('sh', 0) + grades.get('s', 0)}   "
         f"A {grades.get('a', 0)}"
     )
-    canvas.draw.text((60, 538), f"成绩等级：{rank_text}", font=_font(21, bold=True), fill=TEXT)
-    canvas.draw.text((620, 540), "osu.ppy.sh/users/" + str(user.get("id")), font=_font(17), fill=MUTED)
+    canvas.text((60, 538), f"成绩等级：{rank_text}", font=_font(21, bold=True), fill=TEXT)
+    canvas.text((620, 540), "osu.ppy.sh/users/" + str(user.get("id")), font=_font(17), fill=MUTED)
     y = 608
     for idx, score in enumerate(visible_scores, start=1):
         score_title, version = _score_title(score)
         pp = score.get("pp")
         mods_text = _score_mods(score) or "NM"
         canvas.card((38, y, 862, y + 76), 12, PANEL)
-        canvas.draw.text((60, y + 16), f"最近 #{idx}", font=_font(18, bold=True), fill=ACCENT)
-        canvas.draw.text(
+        canvas.text((60, y + 16), f"最近 #{idx}", font=_font(18, bold=True), fill=ACCENT)
+        canvas.text(
             (156, y + 12),
             _fit_text(canvas.draw, score_title, _font(20, bold=True), 420),
             font=_font(20, bold=True),
             fill=TEXT,
         )
-        canvas.draw.text(
+        canvas.text(
             (156, y + 40),
             _fit_text(canvas.draw, f"[{version}]  {mods_text}", _font(15), 420),
             font=_font(15),
             fill=MUTED,
         )
-        canvas.draw.text((620, y + 14), _safe(score.get("rank")), font=_font(23, bold=True), fill=YELLOW)
-        canvas.draw.text(
+        canvas.text((620, y + 14), _safe(score.get("rank")), font=_font(23, bold=True), fill=YELLOW)
+        canvas.text(
             (680, y + 15),
             f"{_num(pp, 2)}pp" if pp is not None else "no pp",
             font=_font(19, bold=True),
             fill=ACCENT if pp is not None else MUTED,
         )
-        canvas.draw.text(
+        canvas.text(
             (680, y + 42),
             f"{_pct(score.get('accuracy'))} · {_date(score.get('created_at'))}",
             font=_font(14),
@@ -398,24 +401,24 @@ async def render_dashboard(
         f"A {grades.get('a', 0)}"
     )
     canvas.card((38, 508, 902, 558), 12, PANEL)
-    canvas.draw.text((60, 523), f"成绩等级：{rank_text}", font=_font(19, bold=True), fill=TEXT)
-    canvas.draw.text((690, 524), "最近成绩", font=_font(19, bold=True), fill=MUTED)
+    canvas.text((60, 523), f"成绩等级：{rank_text}", font=_font(19, bold=True), fill=TEXT)
+    canvas.text((690, 524), "最近成绩", font=_font(19, bold=True), fill=MUTED)
 
     y = score_start_y
     if not visible_scores:
         canvas.card((38, y, 902, y + 86), 12, PANEL)
-        canvas.draw.text((62, y + 29), "暂无最近成绩。", font=_font(24, bold=True), fill=MUTED)
+        canvas.text((62, y + 29), "暂无最近成绩。", font=_font(24, bold=True), fill=MUTED)
     for idx, score in enumerate(visible_scores, start=1):
         canvas.card((38, y, 902, y + 86), 12, PANEL)
         rank = _safe(score.get("rank"))
         pp = score.get("pp")
         title, version = _score_title(score)
-        canvas.draw.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
-        canvas.draw.text((112, y + 14), _fit_text(canvas.draw, title, _font(22, bold=True), 500), font=_font(22, bold=True), fill=TEXT)
-        canvas.draw.text((112, y + 44), _fit_text(canvas.draw, f"[{version}]", _font(17), 500), font=_font(17), fill=MUTED)
-        canvas.draw.text((650, y + 14), f"{rank}", font=_font(26, bold=True), fill=YELLOW)
-        canvas.draw.text((710, y + 18), f"{_num(pp, 2)}pp", font=_font(22, bold=True), fill=ACCENT if pp else MUTED)
-        canvas.draw.text((710, y + 48), f"{_pct(score.get('accuracy'))} · {_num(score.get('score'))}", font=_font(16), fill=MUTED)
+        canvas.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
+        canvas.text((112, y + 14), _fit_text(canvas.draw, title, _font(22, bold=True), 500), font=_font(22, bold=True), fill=TEXT)
+        canvas.text((112, y + 44), _fit_text(canvas.draw, f"[{version}]", _font(17), 500), font=_font(17), fill=MUTED)
+        canvas.text((650, y + 14), f"{rank}", font=_font(26, bold=True), fill=YELLOW)
+        canvas.text((710, y + 18), f"{_num(pp, 2)}pp", font=_font(22, bold=True), fill=ACCENT if pp else MUTED)
+        canvas.text((710, y + 48), f"{_pct(score.get('accuracy'))} · {_num(score.get('score'))}", font=_font(16), fill=MUTED)
         y += 98
     return canvas.save(_output_path(cache_dir, "dashboard"))
 
@@ -433,17 +436,17 @@ async def render_scores(
     y = 126
     if not scores:
         canvas.card((38, y, 942, y + 92), 12, PANEL)
-        canvas.draw.text((62, y + 32), "暂无成绩。", font=_font(24, bold=True), fill=MUTED)
+        canvas.text((62, y + 32), "暂无成绩。", font=_font(24, bold=True), fill=MUTED)
     for idx, score in enumerate(scores, start=1):
         canvas.card((38, y, 942, y + 92), 12, PANEL)
         title, version = _score_title(score)
         mods_text = _score_mods(score)
-        canvas.draw.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
-        canvas.draw.text((116, y + 14), _fit_text(canvas.draw, title, _font(21, bold=True), 520), font=_font(21, bold=True), fill=TEXT)
-        canvas.draw.text((116, y + 44), _fit_text(canvas.draw, f"[{version}]  {mods_text or 'NM'}", _font(16), 520), font=_font(16), fill=MUTED)
-        canvas.draw.text((674, y + 14), _safe(score.get("rank")), font=_font(26, bold=True), fill=YELLOW)
-        canvas.draw.text((736, y + 16), f"{_num(score.get('pp'), 2)}pp", font=_font(21, bold=True), fill=ACCENT if score.get("pp") else MUTED)
-        canvas.draw.text((736, y + 46), f"{_pct(score.get('accuracy'))} · {_num(score.get('max_combo'))}x · {_date(score.get('created_at'))}", font=_font(16), fill=MUTED)
+        canvas.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
+        canvas.text((116, y + 14), _fit_text(canvas.draw, title, _font(21, bold=True), 520), font=_font(21, bold=True), fill=TEXT)
+        canvas.text((116, y + 44), _fit_text(canvas.draw, f"[{version}]  {mods_text or 'NM'}", _font(16), 520), font=_font(16), fill=MUTED)
+        canvas.text((674, y + 14), _safe(score.get("rank")), font=_font(26, bold=True), fill=YELLOW)
+        canvas.text((736, y + 16), f"{_num(score.get('pp'), 2)}pp", font=_font(21, bold=True), fill=ACCENT if score.get("pp") else MUTED)
+        canvas.text((736, y + 46), f"{_pct(score.get('accuracy'))} · {_num(score.get('max_combo'))}x · {_date(score.get('created_at'))}", font=_font(16), fill=MUTED)
         y += 104
     return canvas.save(_output_path(cache_dir, "scores"))
 
@@ -457,18 +460,18 @@ async def render_ranking(ranking: dict[str, Any], mode: str, cache_dir: Path, *,
     y = 126
     if not entries:
         canvas.card((38, y, 882, y + 72), 12, PANEL)
-        canvas.draw.text((62, y + 22), "没有查询到排行榜数据。", font=_font(22, bold=True), fill=MUTED)
+        canvas.text((62, y + 22), "没有查询到排行榜数据。", font=_font(22, bold=True), fill=MUTED)
     for idx, entry in enumerate(entries, start=1):
         user = entry.get("user") if isinstance(entry.get("user"), dict) else entry
         stats = entry if "pp" in entry or "global_rank" in entry else user.get("statistics") or {}
         rank = idx if country else stats.get("global_rank") or idx
         canvas.card((38, y, 882, y + 64), 10, PANEL)
-        canvas.draw.text((62, y + 16), f"#{_num(rank)}", font=_font(22, bold=True), fill=ACCENT)
+        canvas.text((62, y + 16), f"#{_num(rank)}", font=_font(22, bold=True), fill=ACCENT)
         country_code = (user.get("country") or {}).get("code") or user.get("country_code") or "--"
         username = f"{_safe(user.get('username'), 'Unknown')} · {country_code}"
-        canvas.draw.text((172, y + 16), _fit_text(canvas.draw, username, _font(22, bold=True), 360), font=_font(22, bold=True), fill=TEXT)
-        canvas.draw.text((560, y + 16), f"{_num(stats.get('pp'), 2)}pp", font=_font(21, bold=True), fill=BLUE)
-        canvas.draw.text((708, y + 18), _pct(stats.get("hit_accuracy")), font=_font(18), fill=MUTED)
+        canvas.text((172, y + 16), _fit_text(canvas.draw, username, _font(22, bold=True), 360), font=_font(22, bold=True), fill=TEXT)
+        canvas.text((560, y + 16), f"{_num(stats.get('pp'), 2)}pp", font=_font(21, bold=True), fill=BLUE)
+        canvas.text((708, y + 18), _pct(stats.get("hit_accuracy")), font=_font(18), fill=MUTED)
         y += 76
     return canvas.save(_output_path(cache_dir, "ranking"))
 
@@ -486,8 +489,8 @@ async def render_beatmap(beatmap: dict[str, Any], cache_dir: Path, *, proxy: str
         canvas.image.paste(_placeholder((940, 240)), (0, 0))
 
     title = f"{beatmapset.get('artist') or '?'} - {beatmapset.get('title') or '?'}"
-    canvas.draw.text((38, 42), _fit_text(canvas.draw, title, _font(32, bold=True), 850), font=_font(32, bold=True), fill=TEXT)
-    canvas.draw.text((40, 90), f"[{beatmap.get('version') or '?'}]", font=_font(22), fill=TEXT)
+    canvas.text((38, 42), _fit_text(canvas.draw, title, _font(32, bold=True), 850), font=_font(32, bold=True), fill=TEXT)
+    canvas.text((40, 90), f"[{beatmap.get('version') or '?'}]", font=_font(22), fill=TEXT)
     canvas.tag(40, 138, _safe(beatmapset.get("status"), "unknown"), ACCENT)
 
     metrics = [
@@ -507,7 +510,7 @@ async def render_beatmap(beatmap: dict[str, Any], cache_dir: Path, *, proxy: str
 
     url = beatmap.get("url") or f"https://osu.ppy.sh/beatmaps/{beatmap.get('id')}"
     canvas.card((38, 512, 902, 572), 12, PANEL)
-    canvas.draw.text((60, 530), _fit_text(canvas.draw, url, _font(19), 800), font=_font(19), fill=MUTED)
+    canvas.text((60, 530), _fit_text(canvas.draw, url, _font(19), 800), font=_font(19), fill=MUTED)
     return canvas.save(_output_path(cache_dir, "beatmap"))
 
 
@@ -518,7 +521,7 @@ async def render_beatmap_search(result: dict[str, Any], query: str, mode: str, c
     y = 126
     if not sets:
         canvas.card((38, y, 942, y + 92), 12, PANEL)
-        canvas.draw.text((62, y + 32), "没有找到谱面。", font=_font(24, bold=True), fill=MUTED)
+        canvas.text((62, y + 32), "没有找到谱面。", font=_font(24, bold=True), fill=MUTED)
     for idx, beatmapset in enumerate(sets, start=1):
         beatmaps = beatmapset.get("beatmaps") or []
         stars = [b.get("difficulty_rating") for b in beatmaps if b.get("difficulty_rating") is not None]
@@ -527,10 +530,10 @@ async def render_beatmap_search(result: dict[str, Any], query: str, mode: str, c
             star_text = f"{min(stars):.2f}★ - {max(stars):.2f}★"
         title = f"{beatmapset.get('artist') or '?'} - {beatmapset.get('title') or '?'}"
         canvas.card((38, y, 942, y + 86), 12, PANEL)
-        canvas.draw.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
-        canvas.draw.text((118, y + 14), _fit_text(canvas.draw, title, _font(22, bold=True), 560), font=_font(22, bold=True), fill=TEXT)
-        canvas.draw.text((118, y + 44), f"ID {beatmapset.get('id')} · {beatmapset.get('status')} · {len(beatmaps)} 难度", font=_font(16), fill=MUTED)
-        canvas.draw.text((730, y + 18), star_text, font=_font(22, bold=True), fill=YELLOW)
+        canvas.text((62, y + 18), f"#{idx}", font=_font(24, bold=True), fill=ACCENT)
+        canvas.text((118, y + 14), _fit_text(canvas.draw, title, _font(22, bold=True), 560), font=_font(22, bold=True), fill=TEXT)
+        canvas.text((118, y + 44), f"ID {beatmapset.get('id')} · {beatmapset.get('status')} · {len(beatmaps)} 难度", font=_font(16), fill=MUTED)
+        canvas.text((730, y + 18), star_text, font=_font(22, bold=True), fill=YELLOW)
         y += 100
     return canvas.save(_output_path(cache_dir, "beatmap_search"))
 
@@ -543,6 +546,6 @@ async def render_notice(title: str, lines: list[str], cache_dir: Path) -> Path:
     canvas.card((38, y - 12, 782, height - 34), 12, PANEL)
     for line in lines:
         for wrapped in _wrap_text(canvas.draw, line, _font(20), 690, 3):
-            canvas.draw.text((62, y), wrapped, font=_font(20), fill=TEXT)
+            canvas.text((62, y), wrapped, font=_font(20), fill=TEXT)
             y += 34
     return canvas.save(_output_path(cache_dir, "notice"))

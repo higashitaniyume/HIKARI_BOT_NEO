@@ -10,7 +10,7 @@ import httpx
 from PIL import Image, ImageDraw, ImageOps
 
 from core.bot_identity import bot_user_agent
-from core.rendering import load_font
+from core.rendering import draw_text, load_font, text_size
 
 from .api import SteamDeal
 
@@ -67,16 +67,16 @@ async def render_report(
 
     draw.rectangle((0, 0, width, header_h), fill=STEAM)
     draw.rectangle((0, header_h - 5, width, header_h), fill=ACCENT)
-    draw.text((pad, 32), _title_for_mode(mode), font=title_font, fill=(255, 255, 255))
+    draw_text(draw, (pad, 32), _title_for_mode(mode), font=title_font, fill=(255, 255, 255))
     subtitle = generated_at.strftime("%Y-%m-%d %H:%M")
-    draw.text((pad, 96), f"Steam 热卖榜 + 官方特惠 + SteamDB 限免 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
+    draw_text(draw, (pad, 96), f"Steam 热卖榜 + 官方特惠 + SteamDB 限免 · {subtitle}", font=subtitle_font, fill=(199, 211, 225))
     summary = _summary(deals, config)
-    draw.text((pad, 133), summary, font=meta_font, fill=(152, 197, 227))
+    draw_text(draw, (pad, 133), summary, font=meta_font, fill=(152, 197, 227))
 
     y = header_h + 22
     if not deals:
         _rounded_rect(draw, (pad, y, width - pad, y + 112), radius=8, fill=PANEL, outline=LINE)
-        draw.text((pad + 28, y + 34), "今天暂时没有筛到符合条件的游戏。", font=name_font, fill=INK)
+        draw_text(draw, (pad + 28, y + 34), "今天暂时没有筛到符合条件的游戏。", font=name_font, fill=INK)
     for index, deal in enumerate(deals, start=1):
         x0 = pad
         x1 = width - pad
@@ -89,10 +89,10 @@ async def render_report(
 
         text_x = x0 + 276
         name = f"{index}. {deal.name}"
-        draw.text((text_x, y0 + 20), _ellipsize(draw, name, name_font, 530), font=name_font, fill=INK)
-        draw.text((text_x, y0 + 58), _meta_line(deal), font=small_font, fill=MUTED)
+        draw_text(draw, (text_x, y0 + 20), _ellipsize(draw, name, name_font, 530), font=name_font, fill=INK)
+        draw_text(draw, (text_x, y0 + 58), _meta_line(deal), font=small_font, fill=MUTED)
         if deal.review_summary:
-            draw.text((text_x, y0 + 84), _ellipsize(draw, deal.review_summary, small_font, 440), font=small_font, fill=(176, 214, 245))
+            draw_text(draw, (text_x, y0 + 84), _ellipsize(draw, deal.review_summary, small_font, 440), font=small_font, fill=(176, 214, 245))
         _draw_tags(draw, text_x, y0 + 113, deal.categories, small_font)
 
         _draw_price_panel(draw, (x1 - 260, y0 + 28, x1 - 24, y0 + 112), deal, config, price_font, small_font)
@@ -100,7 +100,7 @@ async def render_report(
         y += row_h
 
     footer = "数据来自 Steam Store 与 SteamDB Free Promotions；新打折/折扣加深由本地价格快照辅助判断。"
-    draw.text((pad, height - 42), footer, font=small_font, fill=MUTED)
+    draw_text(draw, (pad, height - 42), footer, font=small_font, fill=MUTED)
 
     image_format = str(render_cfg.get("image_format") or "JPEG").strip().upper()
     suffix = ".jpg" if image_format in {"JPEG", "JPG"} else ".png"
@@ -152,7 +152,7 @@ async def _download_covers(
 def _draw_cover(image: Image.Image, draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], path: Path | None) -> None:
     _rounded_rect(draw, box, radius=6, fill=(42, 58, 73))
     if path is None or not path.exists():
-        draw.text((box[0] + 52, box[1] + 30), "STEAM", font=load_font(22, bold=True), fill=MUTED)
+        draw_text(draw, (box[0] + 52, box[1] + 30), "STEAM", font=load_font(22, bold=True), fill=MUTED)
         return
     try:
         cover = Image.open(path).convert("RGB")
@@ -192,7 +192,7 @@ def _draw_tags(
         rect = (current_x, y, current_x + text_w + 20, y + text_h + 10)
         _rounded_rect(draw, rect, radius=5, fill=color)
         fill = (255, 255, 255) if tag != "低价" else (20, 30, 18)
-        draw.text((current_x + 10, y + 5), tag, font=font, fill=fill)
+        draw_text(draw, (current_x + 10, y + 5), tag, font=font, fill=fill)
         current_x = rect[2] + 8
 
 
@@ -210,7 +210,7 @@ def _draw_price_panel(
         draw.rectangle(discount_box, fill=DISCOUNT)
         discount_text = f"-{deal.discount_percent}%"
         dw, dh = _text_size(draw, discount_text, price_font)
-        draw.text((discount_box[0] + (82 - dw) // 2, y0 + (y1 - y0 - dh) // 2 - 2), discount_text, font=price_font, fill=LOW)
+        draw_text(draw, (discount_box[0] + (82 - dw) // 2, y0 + (y1 - y0 - dh) // 2 - 2), discount_text, font=price_font, fill=LOW)
         price_x = x0 + 82
     else:
         price_x = x0
@@ -218,13 +218,13 @@ def _draw_price_panel(
     draw.rectangle((price_x, y0, x1, y1), fill=PRICE_BG)
     price_text = _price_text(deal, config)
     price_w, _ = _text_size(draw, price_text, price_font)
-    draw.text((x1 - 14 - price_w, y0 + 32), price_text, font=price_font, fill=_price_color(deal))
+    draw_text(draw, (x1 - 14 - price_w, y0 + 32), price_text, font=price_font, fill=_price_color(deal))
     original = _original_price_text(deal, config)
     if original:
         ow, oh = _text_size(draw, original, small_font)
         ox = x1 - 14 - ow
         oy = y0 + 12
-        draw.text((ox, oy), original, font=small_font, fill=MUTED)
+        draw_text(draw, (ox, oy), original, font=small_font, fill=MUTED)
         draw.line((ox, oy + oh // 2 + 2, ox + ow, oy + oh // 2 + 2), fill=MUTED, width=2)
 
 
@@ -310,5 +310,4 @@ def _ellipsize(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> st
 
 
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font) -> tuple[int, int]:
-    box = draw.textbbox((0, 0), text, font=font)
-    return box[2] - box[0], box[3] - box[1]
+    return text_size(draw, text, font)
