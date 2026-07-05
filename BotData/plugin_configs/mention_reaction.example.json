@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "group_enabled": true,
+  "emoji_ids": [
+    "66"
+  ],
+  "random": false,
+  "allowed_groups": [],
+  "ignored_users": []
+}

@@ -5,6 +5,12 @@ from unittest.mock import AsyncMock, patch
 
 from nonebot.adapters.onebot.v11 import ActionFailed, MessageSegment
 
+from plugins.mention_reaction import (
+    choose_emoji_id,
+    parse_message_id,
+    send_msg_emoji_like,
+    should_react_to_empty_mention,
+)
 from plugins.poke_back import should_poke_back
 from plugins.profile_like import extract_at_user_ids, handle_profile_like, parse_like_request
 
@@ -142,6 +148,101 @@ class PokeBackTests(unittest.TestCase):
                 config={"enabled": True, "private_enabled": False},
             )
         )
+
+
+class MentionReactionTests(unittest.TestCase):
+    def test_reacts_to_only_self_at_in_group(self) -> None:
+        self.assertTrue(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456), MessageSegment.text("  ")],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
+    def test_ignores_text_after_mention(self) -> None:
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456), MessageSegment.text("你好")],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
+    def test_ignores_non_text_segments(self) -> None:
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456), MessageSegment.face(66)],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
+    def test_ignores_other_at_targets(self) -> None:
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456), MessageSegment.at(888)],
+                config={"enabled": True, "group_enabled": True, "emoji_ids": ["66"]},
+            )
+        )
+
+    def test_respects_group_and_user_filters(self) -> None:
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456)],
+                config={"enabled": True, "allowed_groups": ["1000"], "ignored_users": []},
+            )
+        )
+        self.assertFalse(
+            should_react_to_empty_mention(
+                is_group=True,
+                sender_id=123,
+                self_id=456,
+                group_id=789,
+                message=[MessageSegment.at(456)],
+                config={"enabled": True, "allowed_groups": [], "ignored_users": ["123"]},
+            )
+        )
+
+    def test_choose_emoji_uses_first_by_default(self) -> None:
+        self.assertEqual(choose_emoji_id({"emoji_ids": ["66", "76"], "random": False}), "66")
+
+    def test_parse_message_id_rejects_non_numeric_value(self) -> None:
+        self.assertEqual(parse_message_id("12345"), 12345)
+        self.assertIsNone(parse_message_id("abc"))
+
+
+class MentionReactionApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_send_msg_emoji_like_uses_napcat_api(self) -> None:
+        class FakeBot:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, dict[str, object]]] = []
+
+            async def call_api(self, action: str, **data: object) -> None:
+                self.calls.append((action, data))
+
+        bot = FakeBot()
+
+        await send_msg_emoji_like(bot, message_id=12345, emoji_id="66")
+
+        self.assertEqual(bot.calls, [("set_msg_emoji_like", {"message_id": 12345, "emoji_id": "66"})])
 
 
 if __name__ == "__main__":
