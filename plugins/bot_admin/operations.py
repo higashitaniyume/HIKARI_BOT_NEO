@@ -324,17 +324,33 @@ def _push_run_payload(result: Any) -> dict[str, Any]:
     }
 
 
-def _access_rule_item(path: Path) -> dict[str, Any]:
+def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
     except json.JSONDecodeError as e:
         raise ValueError(f"{path.name} JSON 格式错误：{e}") from e
     if not isinstance(data, dict):
         raise ValueError(f"{path.name} 顶层必须是 JSON 对象。")
+
+    if "/" in name:
+        _, platform = name.split("/", 1)
+        permissions_dict = data.get("permissions", {})
+        if not isinstance(permissions_dict, dict):
+            permissions_dict = {}
+        if platform in permissions_dict:
+            platform_permissions = permissions_dict[platform]
+        elif "whitelist" in permissions_dict or "blacklist" in permissions_dict:
+            platform_permissions = permissions_dict
+        else:
+            platform_permissions = {}
+        permissions = normalize_access_rules(platform_permissions)
+    else:
+        permissions = normalize_access_rules(data.get("permissions", {}))
+
     return {
-        "name": path.name,
-        "label": _ACCESS_RULE_PLUGINS.get(path.name, path.stem),
-        "permissions": normalize_access_rules(data.get("permissions", {})),
+        "name": name,
+        "label": _ACCESS_RULE_PLUGINS.get(name, path.stem),
+        "permissions": permissions,
         "mtime": path.stat().st_mtime,
     }
 
@@ -342,10 +358,15 @@ def _access_rule_item(path: Path) -> dict[str, Any]:
 def _access_rules_state() -> dict[str, Any]:
     _PLUGIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     plugins: list[dict[str, Any]] = []
-    for file_name in _ACCESS_RULE_PLUGINS:
+    for name in _ACCESS_RULE_PLUGINS:
+        if "/" in name:
+            file_name, _ = name.split("/", 1)
+        else:
+            file_name = name
+
         path = _PLUGIN_CONFIG_DIR / file_name
         if path.is_file():
-            plugins.append(_access_rule_item(path))
+            plugins.append(_access_rule_item(name, path))
     return {"plugins": plugins}
 
 
@@ -353,7 +374,13 @@ def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
     name = str(data.get("plugin") or "").strip()
     if name not in _ACCESS_RULE_PLUGINS:
         raise ValueError("不支持管理这个插件的权限。")
-    path = _safe_config_file(name)
+
+    if "/" in name:
+        file_name, platform = name.split("/", 1)
+    else:
+        file_name, platform = name, None
+
+    path = _safe_config_file(file_name)
     try:
         current = json.loads(path.read_text(encoding="utf-8") or "{}")
     except json.JSONDecodeError as e:
@@ -361,7 +388,25 @@ def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(current, dict):
         raise ValueError("配置文件顶层必须是 JSON 对象。")
 
-    current["permissions"] = normalize_access_rules(data.get("permissions", {}))
+    new_permissions = normalize_access_rules(data.get("permissions", {}))
+
+    if platform:
+        if "permissions" not in current or not isinstance(current["permissions"], dict):
+            current["permissions"] = {}
+        permissions_dict = current["permissions"]
+        if "whitelist" in permissions_dict or "blacklist" in permissions_dict:
+            # It's old-style! Let's convert it to platform-specific settings for ALL platforms.
+            converted_permissions = {}
+            for other_name in _ACCESS_RULE_PLUGINS:
+                if other_name.startswith("media_parser.json/"):
+                    _, other_platform = other_name.split("/", 1)
+                    converted_permissions[other_platform] = normalize_access_rules(permissions_dict)
+            current["permissions"] = converted_permissions
+
+        current["permissions"][platform] = new_permissions
+    else:
+        current["permissions"] = new_permissions
+
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp_path, path)

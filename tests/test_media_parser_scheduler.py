@@ -154,7 +154,7 @@ class MediaParserRetryTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(media_parser, "_runtime_from_config", Mock(return_value=runtime)),
-            patch.object(media_parser, "_scope_allowed", Mock(return_value=True)),
+            patch.object(media_parser, "is_platform_allowed", Mock(return_value=True)),
             patch.object(media_parser, "_create_record_manager", Mock(return_value=SimpleNamespace(enabled=False))),
         ):
             result = await media_parser._prepare_text(
@@ -295,6 +295,56 @@ class MediaParserBilibiliLoginCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(fake_assist.started[0]["auth_runtime"], auth_runtime)
         self.assertEqual(fake_assist.started[0]["reply_timeout_minutes"], 9)
         ctx.send.assert_not_awaited()
+
+class MediaParserPermissionTests(unittest.TestCase):
+    @patch("plugins.media_parser.get_config")
+    def test_is_platform_allowed_defaults(self, mock_get_config: Mock) -> None:
+        mock_get_config.return_value = {
+            "permissions": {}
+        }
+        event = SimpleNamespace(
+            get_user_id=lambda: "10001",
+            group_id=100,
+        )
+        # By default (empty permissions), everything should be allowed
+        self.assertTrue(media_parser.is_platform_allowed("bilibili", event))
+
+    @patch("plugins.media_parser.get_config")
+    def test_is_platform_allowed_blacklist(self, mock_get_config: Mock) -> None:
+        mock_get_config.return_value = {
+            "permissions": {
+                "bilibili": {
+                    "admin_id": "",
+                    "whitelist": {"enable": False, "user": [], "group": []},
+                    "blacklist": {"enable": True, "user": ["10001"], "group": []},
+                }
+            }
+        }
+        event = SimpleNamespace(
+            get_user_id=lambda: "10001",
+            group_id=100,
+        )
+        # Bilibili should be blocked for user 10001
+        self.assertFalse(media_parser.is_platform_allowed("bilibili", event))
+        # Douyin should be allowed since it's not configured
+        self.assertTrue(media_parser.is_platform_allowed("douyin", event))
+
+    @patch("plugins.media_parser.get_config")
+    def test_is_platform_allowed_old_global_fallback(self, mock_get_config: Mock) -> None:
+        mock_get_config.return_value = {
+            "permissions": {
+                "admin_id": "",
+                "whitelist": {"enable": False, "user": [], "group": []},
+                "blacklist": {"enable": True, "user": ["10001"], "group": []},
+            }
+        }
+        event = SimpleNamespace(
+            get_user_id=lambda: "10001",
+            group_id=100,
+        )
+        # All platforms should fallback to the global blacklist of 10001
+        self.assertFalse(media_parser.is_platform_allowed("bilibili", event))
+        self.assertFalse(media_parser.is_platform_allowed("douyin", event))
 
 
 if __name__ == "__main__":

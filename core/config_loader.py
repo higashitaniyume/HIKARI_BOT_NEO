@@ -179,19 +179,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
             "xiaohongshu": True,
         },
     },
-    "permissions": {
-        "admin_id": "",
-        "whitelist": {
-            "enable": False,
-            "user": [],
-            "group": [],
-        },
-        "blacklist": {
-            "enable": False,
-            "user": [],
-            "group": [],
-        },
-    },
+    "permissions": {},
     "download": {
         "max_video_size_mb": 1000,
         "large_video_threshold_mb": 100,

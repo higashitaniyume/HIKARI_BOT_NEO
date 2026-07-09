@@ -130,14 +130,27 @@ def _runtime_from_config() -> MediaParserRuntime | None:
     return runtime
 
 
-def _scope_allowed(runtime: MediaParserRuntime, event: MessageEvent) -> bool:
-    is_private = not isinstance(event, GroupMessageEvent)
-    group_id = None if is_private else event.group_id
-    return runtime.config_manager.permission.check(
-        is_private=is_private,
-        sender_id=event.get_user_id(),
-        group_id=group_id,
-    )
+def is_platform_allowed(platform: str, event: MessageEvent) -> bool:
+    cfg = get_config()
+    permissions_dict = cfg.get("permissions", {})
+    if not isinstance(permissions_dict, dict):
+        permissions_dict = {}
+
+    platform_permissions = None
+    if platform in permissions_dict:
+        val = permissions_dict[platform]
+        if isinstance(val, dict) and (val.get("whitelist", {}).get("enable") or val.get("blacklist", {}).get("enable") or val.get("admin_id")):
+            platform_permissions = val
+
+    if platform_permissions is None:
+        if "whitelist" in permissions_dict or "blacklist" in permissions_dict:
+            platform_permissions = permissions_dict
+        else:
+            platform_permissions = {}
+
+    mock_config = {"permissions": platform_permissions}
+    from core.access_control import is_event_allowed
+    return is_event_allowed(mock_config, event)
 
 
 def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -204,12 +217,14 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
     runtime = _runtime_from_config()
     if runtime is None:
         return
-    if not _scope_allowed(runtime, event):
-        return
     if not force and not runtime.config_manager.trigger.should_parse(text):
         return
 
     links = runtime.parser_manager.extract_all_links(text)
+    links = [
+        (url, parser) for url, parser in links
+        if is_platform_allowed(getattr(parser, "name", "unknown"), event)
+    ]
     if not links:
         if force:
             await bot.send(event, Message(msg("media_parser.no_link")))
@@ -386,10 +401,11 @@ async def _prepare_text(
     runtime = _runtime_from_config()
     if runtime is None:
         return None
-    if not _scope_allowed(runtime, event):
-        return None
-
     links = list(links_with_parser) if links_with_parser is not None else runtime.parser_manager.extract_all_links(text)
+    links = [
+        (url, parser) for url, parser in links
+        if is_platform_allowed(getattr(parser, "name", "unknown"), event)
+    ]
     if not links:
         if force:
             await bot.send(event, Message(msg("media_parser.no_link")))
@@ -489,8 +505,12 @@ async def _prepare_links_once(
     runtime = _runtime_from_config()
     if runtime is None:
         return None
-    if not _scope_allowed(runtime, event):
-        return None
+    links = [
+        (url, parser) for url, parser in links
+        if is_platform_allowed(getattr(parser, "name", "unknown"), event)
+    ]
+    if not links:
+        return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
     links = _links_for_runtime(runtime, links)
     if not links:
         return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
@@ -733,11 +753,14 @@ class AutoMediaParserHandler:
         runtime = _runtime_from_config()
         if runtime is None:
             return False
-        if not _scope_allowed(runtime, event):
-            return False
         if not runtime.config_manager.trigger.should_parse(parse_text):
             return False
-        return bool(runtime.parser_manager.extract_all_links(parse_text))
+        links = runtime.parser_manager.extract_all_links(parse_text)
+        allowed_links = [
+            (url, parser) for url, parser in links
+            if is_platform_allowed(getattr(parser, "name", "unknown"), event)
+        ]
+        return bool(allowed_links)
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
         await _enqueue_text(bot, event, _event_text(event))
