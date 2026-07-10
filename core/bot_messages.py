@@ -277,6 +277,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "failed": "AI Agent 暂时聊不动，请稍后再试。",
         "reset_done": "已清空当前会话的 AI Agent 上下文和持久化记忆。",
         "reply_truncated": "（回复过长，已截断）",
+        "tool_limit_reached": "这个问题我暂时回答不了，换个问法试试？",
     },
 }
 

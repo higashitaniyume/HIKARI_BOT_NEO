@@ -389,7 +389,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         ):
             reply = await aiagent._request_chat_completion(
                 base_cfg(),
-                [{"role": "user", "content": "你好"}],
+                [{"role": "user", "content": "今天的新闻"}],
             )
 
         self.assertEqual(reply, "降级回复")

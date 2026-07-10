@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from core.ai_tool_registry import AIToolContext
+from core.bot_messages import get_message as msg
 
 from .tools import available_tools, execute_tool_call
 from .utils import safe_float, safe_int
@@ -80,6 +81,34 @@ _LEADING_QUERY_FILLERS = (
     "一下",
 )
 _LEADING_PUNCT_RE = re.compile(r"^[\s:：,，.。;；!?！？\-_/\\|]+")
+
+
+_simple_chat_re = re.compile(
+    r"^(?:\
+        (?:你好|您好|你好呀|你好啊|嗨|hi|hello|hey|哈[喽罗]|在[吗嘛]|在不在)\
+        |(?:谢谢|感谢|多谢|辛苦了|好的|好哒|好嘞|OK|ok|嗯|嗯嗯|行|可以)\
+        |(?:再见|拜拜|白白|晚安|早安|早上好|下午好|晚上好|再见啦)\
+        |(?:是[的哒]|不是|对|不对|没[事关系]|算[了吧]|好吧|就这样吧)\
+        |(?:哈哈|哈哈哈|笑死|笑了|😊|😄|😂|🤣|👍|👌|❤️|💕)\
+        |(?:明白|懂了|理解|知道了|收到|了解)\
+        |(?:不知道|不会|不懂|不太清楚|没明白)\
+    )$\
+", re.IGNORECASE)
+
+
+def _tool_wanted(text: str) -> bool:
+    """Return True if the message plausibly needs external tools.
+
+    Greetings, thanks, short affirmations, and emotional responses skip
+    tool injection so the model replies naturally without hallucinating
+    tool calls on simple chat.
+    """
+    stripped = text.strip()
+    if not stripped or len(stripped) <= 2:
+        return False
+    if _simple_chat_re.match(stripped):
+        return False
+    return True
 
 
 class AIAgentRequestError(RuntimeError):
@@ -293,9 +322,11 @@ async def request_chat_completion(
 ) -> str:
     plain_request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
-    tools = available_tools(cfg, tool_context)
+    all_tools = available_tools(cfg, tool_context)
+    user_text = _latest_user_text(request_messages)
+    tools = all_tools if _tool_wanted(user_text) else []
     max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 2, minimum=0, maximum=5)
-    if max_rounds > 0:
+    if tools and max_rounds > 0:
         await _prefetch_wiki_priority_tools(cfg, request_messages, tools, tool_context)
 
     for round_index in range(max_rounds + 1):
@@ -319,7 +350,15 @@ async def request_chat_completion(
         if round_index >= max_rounds:
             if content:
                 return content
-            raise RuntimeError("AI Agent 工具调用轮数已达上限且没有最终回复。")
+            last_tool_names = ", ".join(
+                str(tc.get("function", {}).get("name", "?"))
+                for tc in tool_calls if isinstance(tc, dict)
+            ) or "?"
+            logger.warning(
+                "[AIAgent] 工具调用轮数已达上限且无文字回复，跳过 tools=%s",
+                last_tool_names,
+            )
+            return msg("aiagent.tool_limit_reached")
 
         request_messages.append(_assistant_tool_message(message))
         for tool_call in tool_calls:
