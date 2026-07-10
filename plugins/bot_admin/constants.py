@@ -31,5 +31,6 @@ _ACCESS_RULE_PLUGINS = {
     "pixiv_parser.json": "Pixiv 解析",
     "cobalt_parser.json": "Instagram / Facebook 解析",
     "youtube_downloader.json": "YouTube 下载",
+    "aiagent.json": "AI Agent 聊天",
 }
 
