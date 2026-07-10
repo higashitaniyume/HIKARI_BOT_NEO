@@ -31,6 +31,10 @@ _request_chat_completion = request_chat_completion
 _available_tools = available_tools
 _execute_tool_call = execute_tool_call
 
+# Ensure config file exists on plugin load (creates aiagent.json with defaults,
+# including permissions block, so the admin permissions page can discover it).
+get_config()
+
 
 def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
     cooldown = safe_int(cooldown_seconds, 3, minimum=0, maximum=3600)
