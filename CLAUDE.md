@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Workflow
+
+- After each completed task, commit the changes to the repository. Stage only files that belong to the current task, leave unrelated dirty files alone, and use a descriptive commit message ending with `Co-Authored-By: Claude <noreply@anthropic.com>`.
+- Before changing code or docs, inspect the relevant project structure and current implementation. Ground answers in the repo's actual behavior, runtime paths, logs, and README rather than generic assumptions.
+- If the working tree is dirty, assume unrelated changes belong to the user or another task. Do not revert them; work around them and keep the current task's diff narrow.
+- Validate before finishing and before committing. Run `uv run python -m compileall <changed paths>` at minimum; add targeted tests when behavior changes.
+
 ## Commands
 
 ```bash
