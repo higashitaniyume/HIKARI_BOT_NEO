@@ -76,5 +76,18 @@
       "disabled_names": []
     },
     "max_tool_rounds": 2
-  }
+  },
+    "permissions": {
+      "admin_id": "",
+      "whitelist": {
+        "enable": false,
+        "user": [],
+        "group": []
+      },
+      "blacklist": {
+        "enable": false,
+        "user": [],
+        "group": []
+      }
+    }
 }

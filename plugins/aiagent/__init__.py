@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 
+from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
 from core.bot_messages import get_message as msg
 from core.command_router import is_command_handled, mark_event_handled
@@ -84,6 +85,8 @@ def _is_blocked_media_link(text: str, cfg: dict[str, Any]) -> bool:
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
     cfg = get_config()
     if not cfg.get("enabled", False):
+        return
+    if not is_event_allowed(cfg, event):
         return
 
     text = normalize_text(text)

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from core.access_control import DEFAULT_ACCESS_RULES
 from core.bot_identity import format_bot_name_text
 
 logger = logging.getLogger("HikariBot.AIAgent.Config")
@@ -94,6 +95,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "max_tool_rounds": 2,
     },
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
 _REFERENCE_EXTENSIONS = {".md", ".txt", ".json"}
