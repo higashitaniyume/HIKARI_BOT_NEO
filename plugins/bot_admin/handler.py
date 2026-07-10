@@ -52,6 +52,7 @@ from .stickers import (
 )
 from .uploads import _get_upload_job, _new_upload_job, _process_tg_sticker_link, _process_upload_files, _process_voice_uploads, _update_upload_job
 from .system_probe import system_probe_state
+from .activities import activity_state
 from .utils import _safe_pack_name, _safe_voice_name
 
 logger = logging.getLogger("HikariBot.BotAdmin")
@@ -310,6 +311,12 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 self._unauthorized_json()
                 return
             self._send_json(system_probe_state())
+            return
+        if parsed.path == "/api/activities":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            self._send_json(activity_state())
             return
         if parsed.path == "/api/version":
             if not self._is_authenticated():

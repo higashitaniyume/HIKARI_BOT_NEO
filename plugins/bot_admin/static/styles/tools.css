@@ -213,6 +213,92 @@
   overflow-wrap: anywhere;
 }
 
+/* ── Activities panel (overview) ── */
+
+.activities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.activity-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--surface2);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.activity-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+.activity-card.status-pending .activity-dot {
+  background: var(--muted);
+  animation: none;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.activity-label {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.activity-detail {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-elapsed {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.activities-queues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.queues-label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.queue-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--surface2);
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .pack-card.is-active-pack {
   border-color: var(--accent);
   background: var(--accent-tint);

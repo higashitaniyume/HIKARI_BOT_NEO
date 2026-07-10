@@ -12,6 +12,7 @@ import logging
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from core.access_control import is_event_allowed
+from core.activity_tracker import ActivityScope
 from core.message_pipeline import register_handler
 from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.stats_tracker import increment as stats_increment
@@ -115,7 +116,8 @@ class AutoCobaltHandler:
         for i, url in enumerate(urls_to_process):
             logger.debug(f"[Cobalt] 处理第 {i+1}/{len(urls_to_process)} 个 → {url[:60]}...")
             try:
-                result = await call_cobalt_api_with_retries(url, cfg)
+                with ActivityScope("cobalt_parser", "parsing", "解析媒体", description=url[:80]):
+                    result = await call_cobalt_api_with_retries(url, cfg)
 
                 if result.status == "error":
                     logger.warning(

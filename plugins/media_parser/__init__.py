@@ -14,6 +14,7 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.message_pipeline import register_handler
 from core.stats_tracker import increment as stats_increment
+from core.activity_tracker import ActivityScope, QUEUE_SIZES
 from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_url_from_card_data
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
 
@@ -210,6 +211,8 @@ async def _parse_worker() -> None:
             except Exception as notify_err:
                 logger.exception("发送错误通知失败: %s", notify_err)
         finally:
+            if _parse_queue is not None:
+                QUEUE_SIZES["media_parser_parse"] = _parse_queue.qsize()
             _parse_queue.task_done()
 
 
@@ -278,6 +281,7 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
         dropped,
         queue.qsize(),
     )
+    QUEUE_SIZES["media_parser_parse"] = queue.qsize()
 
 
 def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
@@ -515,36 +519,39 @@ async def _prepare_links_once(
     if not links:
         return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
 
-    timeout = aiohttp.ClientTimeout(total=max(30, int(runtime.config.get("api_timeout", 120))))
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        metadata_list = await runtime.parser_manager.parse_text(
-            text,
-            session,
-            links_with_parser=links,
-        )
-        _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
-        if not metadata_list:
-            return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
-        raw_metadata_list = list(metadata_list)
-        metadata_list = _suppress_redundant_error_metadata(metadata_list)
+    platform = getattr(links[0][1], "name", "unknown") if links else "unknown"
+    label = f"解析 {platform}"
+    with ActivityScope("media_parser", "parsing", label, description=links[0][0] if links else text) as aid:
+        timeout = aiohttp.ClientTimeout(total=max(30, int(runtime.config.get("api_timeout", 120))))
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            metadata_list = await runtime.parser_manager.parse_text(
+                text,
+                session,
+                links_with_parser=links,
+            )
+            _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
+            if not metadata_list:
+                return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
+            raw_metadata_list = list(metadata_list)
+            metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
-        processed: list[dict[str, Any]] = []
-        max_send = max(1, int(runtime.config.get("max_send", 8)))
-        cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
-        for metadata in metadata_list:
-            if not _apply_output_modes(runtime, metadata):
-                continue
-            if metadata.get("_enable_rich_media") and not metadata.get("error"):
-                metadata = _limit_metadata_for_send(metadata, max_send=max_send)
-                metadata = await runtime.download_manager.process_metadata(
-                    session=session,
-                    metadata=metadata,
-                    proxy_addr=runtime.config_manager.proxy.address or None,
-                )
-                register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
-            processed.append(metadata)
+            processed: list[dict[str, Any]] = []
+            max_send = max(1, int(runtime.config.get("max_send", 8)))
+            cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
+            for metadata in metadata_list:
+                if not _apply_output_modes(runtime, metadata):
+                    continue
+                if metadata.get("_enable_rich_media") and not metadata.get("error"):
+                    metadata = _limit_metadata_for_send(metadata, max_send=max_send)
+                    metadata = await runtime.download_manager.process_metadata(
+                        session=session,
+                        metadata=metadata,
+                        proxy_addr=runtime.config_manager.proxy.address or None,
+                    )
+                    register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
+                processed.append(metadata)
 
-        return MediaPrepareAttempt(processed=processed, metadata_list=raw_metadata_list, config=runtime.config)
+            return MediaPrepareAttempt(processed=processed, metadata_list=raw_metadata_list, config=runtime.config)
 
 
 def _links_for_runtime(runtime: MediaParserRuntime, links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:

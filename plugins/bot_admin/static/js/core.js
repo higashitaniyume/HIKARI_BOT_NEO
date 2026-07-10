@@ -25,6 +25,9 @@ const state = {
   selectedRssSubscriptionId: "",
   accessRules: [],
   selectedAccessPlugin: "",
+  activities: [],
+  activitiesError: "",
+  queues: {},
   systemProbe: null,
   systemProbeError: "",
   versionInfo: null,
@@ -84,6 +87,16 @@ function setView(view) {
   }
   if (target === "access" && !state.accessRules.length) {
     fetchAccessRules().catch((err) => showToast(err.message, true));
+  }
+  // Start/stop activity polling when switching to/from overview.
+  if (target === "overview") {
+    if (!state.activitiesInterval) {
+      fetchActivities();
+      state.activitiesInterval = setInterval(fetchActivities, 3000);
+    }
+  } else if (state.activitiesInterval) {
+    clearInterval(state.activitiesInterval);
+    state.activitiesInterval = null;
   }
 }
 

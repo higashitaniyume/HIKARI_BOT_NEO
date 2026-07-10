@@ -20,6 +20,7 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
+from core.activity_tracker import ActivityScope
 from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
@@ -624,7 +625,8 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         "拼图进度",
     )
     try:
-        jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
+        with ActivityScope("sticker_trigger", "generating", "生成贴纸拼图", description=folder_label):
+            jpg_path = await _make_collage(all_in_folders, f"{keyword}_{len(folder_names)}packs")
     except Exception as e:
         logger.exception("[Sticker] 拼图生成失败: %s", e)
         await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerCollage")
@@ -666,7 +668,8 @@ async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
 
     await _try_send_text(ctx.bot, ctx.event, msg("sticker.pack_preview_progress"), "贴纸包预览进度")
     try:
-        preview_path = await _make_pack_preview_image()
+        with ActivityScope("sticker_trigger", "generating", "生成贴纸预览图"):
+            preview_path = await _make_pack_preview_image()
         await _send_image(ctx.bot, ctx.event, preview_path, "贴纸包预览")
     except Exception as e:
         logger.exception("[Sticker] 贴纸包预览生成或发送失败: %s", e)

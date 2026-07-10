@@ -11,6 +11,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, Message
 
 from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
+from core.activity_tracker import ActivityScope
 from core.bot_messages import get_message as msg
 from core.command_router import is_command_handled, mark_event_handled
 
@@ -122,7 +123,9 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
 
     try:
         messages = _build_messages(cfg, event, session, text)
-        reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
+        user_preview = text[:40].replace("\n", " ")
+        with ActivityScope("aiagent", "replying", "回复用户", description=user_preview):
+            reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         if len(reply) > max_reply_chars:

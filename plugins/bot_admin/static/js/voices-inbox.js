@@ -368,6 +368,7 @@ function render() {
   $("#voiceKeywordCount").textContent = state.totalVoiceKeywords;
   renderVersionInfo();
   renderSystemProbe();
+  renderActivities();
   renderSelects();
   renderInbox();
   renderPacks();

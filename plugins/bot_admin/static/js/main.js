@@ -32,6 +32,7 @@ $("#packPickerDialog").addEventListener("close", () => {
 $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
 $("#versionRefreshBtn").addEventListener("click", () => fetchVersionInfo().then(() => showToast("版本信息已刷新。")).catch((err) => showToast(err.message, true)));
 $("#systemProbeRefreshBtn").addEventListener("click", () => fetchSystemProbe().then(() => showToast("系统探针已刷新。")).catch((err) => showToast(err.message, true)));
+$("#activitiesRefreshBtn").addEventListener("click", () => fetchActivities().then(() => showToast("状态已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then(() => showToast("配置列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());
 $("#logRefreshBtn").addEventListener("click", () => fetchLogFiles().then(() => showToast("日志列表已刷新。")).catch((err) => showToast(err.message, true)));

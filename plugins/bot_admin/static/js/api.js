@@ -18,6 +18,11 @@ async function fetchState() {
   } catch (err) {
     state.systemProbeError = err.message;
   }
+  try {
+    await fetchActivities();
+  } catch (err) {
+    state.activitiesError = err.message;
+  }
   if (state.selectedPackName && state.packs.some((pack) => pack.name === state.selectedPackName)) {
     await fetchPackDetail(state.selectedPackName, false);
   } else if (state.selectedPackName) {
@@ -142,6 +147,96 @@ async function fetchVersionInfo(shouldRender = true) {
   if (shouldRender) {
     renderVersionInfo();
   }
+}
+
+async function fetchActivities() {
+  try {
+    const res = await fetch("/api/activities", { cache: "no-store" });
+    const data = await readJsonResponse(res, "读取活动状态失败");
+    state.activities = data.activities || [];
+    state.queues = data.queues || {};
+    state.activitiesError = "";
+  } catch (err) {
+    state.activitiesError = err.message;
+  }
+  renderActivities();
+}
+
+function renderActivities() {
+  const container = $("#activitiesContainer");
+  const queuesEl = $("#activitesQueues");
+  if (!container) return;
+
+  if (state.activitiesError) {
+    container.innerHTML = `<p class="empty-state error">${escapeHtml(state.activitiesError)}</p>`;
+    return;
+  }
+
+  if (!state.activities.length && !Object.keys(state.queues || {}).length) {
+    container.innerHTML = `<p class="empty-state">暂无进行中的任务</p>`;
+    if (queuesEl) queuesEl.innerHTML = "";
+    return;
+  }
+
+  // Build activity cards
+  let html = '<div class="activities-list">';
+  for (const act of state.activities) {
+    const elapsed = formatElapsed(act.started_at);
+    const detail = act.description ? escapeHtml(act.description) : "";
+    const label = escapeHtml(act.label || act.action);
+    html += `
+      <div class="activity-card status-${act.status || "running"}">
+        <span class="activity-dot"></span>
+        <span class="activity-label">${label}</span>
+        ${detail ? `<span class="activity-detail" title="${detail}">${truncate(detail, 60)}</span>` : ""}
+        <span class="activity-elapsed">${elapsed}</span>
+      </div>`;
+  }
+  html += "</div>";
+  container.innerHTML = html;
+
+  // Build queue badges
+  const queues = state.queues || {};
+  const queueKeys = Object.keys(queues).filter((k) => queues[k] > 0);
+  if (queuesEl && queueKeys.length) {
+    queuesEl.innerHTML =
+      '<div class="queues-label">等待队列：</div>' +
+      queueKeys
+        .map(
+          (k) =>
+            `<span class="queue-badge">${escapeHtml(k.replace(/_/g, " "))}: ${queues[k]}</span>`
+        )
+        .join("");
+  } else if (queuesEl) {
+    queuesEl.innerHTML = "";
+  }
+
+  // Update summary
+  const summary = $("#activitiesSummary");
+  if (summary) {
+    const running = state.activities.filter((a) => a.status === "running").length;
+    const pending = state.activities.filter((a) => a.status === "pending").length;
+    summary.textContent = `${running} 个进行中${pending ? `，${pending} 个等待中` : ""}`;
+  }
+}
+
+function formatElapsed(timestamp) {
+  const sec = Math.floor((Date.now() / 1000) - (timestamp || 0));
+  if (sec < 60) return `${sec}秒`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}分${sec % 60}秒`;
+  return `${Math.floor(sec / 3600)}时${Math.floor((sec % 3600) / 60)}分`;
+}
+
+function escapeHtml(text) {
+  const d = document.createElement("div");
+  d.textContent = String(text || "");
+  return d.innerHTML;
+}
+
+function truncate(text, max) {
+  return String(text || "").length > max
+    ? String(text || "").substring(0, max) + "…"
+    : String(text || "");
 }
 
 async function fetchConfigFiles() {

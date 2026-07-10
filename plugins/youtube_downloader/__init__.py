@@ -12,6 +12,7 @@ import logging
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
 from core.access_control import is_event_allowed
+from core.activity_tracker import ActivityScope
 from core.bot_messages import get_message as msg
 from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.message_pipeline import register_handler
@@ -65,7 +66,8 @@ class AutoYouTubeHandler:
             logger.info("[YouTube] 处理链接 %d/%d -> %s", index, len(urls_to_process), url[:100])
             try:
                 async with _download_lock:
-                    await send_youtube_video(bot, event, url, cfg)
+                    with ActivityScope("youtube_downloader", "downloading", "下载 YouTube", description=url[:80]):
+                        await send_youtube_video(bot, event, url, cfg)
                 stats_increment(event, "youtube_downloaded", 1)
                 await asyncio.sleep(1.0)
             except YouTubeDownloadError as e:

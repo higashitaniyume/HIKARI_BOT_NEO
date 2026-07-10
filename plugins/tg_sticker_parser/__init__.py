@@ -10,6 +10,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
+from core.activity_tracker import ActivityScope
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
@@ -87,7 +88,8 @@ async def handle_tg_sticker_request(bot: Bot, event: MessageEvent, set_name: str
         stats_increment(event, "tg_sticker_parsed", 1)
         return
 
-    result = await parse_sticker_set_to_gifs(bot, event, set_name, cfg)
+    with ActivityScope("tg_sticker_parser", "downloading", f"下载贴纸包 {set_name}", description=set_name):
+        result = await parse_sticker_set_to_gifs(bot, event, set_name, cfg)
 
     gif_paths = result["gif_paths"]
     output_root = result["output_root"]

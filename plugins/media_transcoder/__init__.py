@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.activity_tracker import start_activity, finish_activity
+
 from .config import get_config
 
 logger = logging.getLogger("HikariBot.MediaTranscoder")
@@ -92,13 +94,17 @@ async def ensure_sticker_gif(
         raise TranscodeError(f"不支持的贴纸素材格式: {input_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if suffix == ".gif":
-        if input_path.resolve() != output_path.resolve():
-            shutil.copy2(input_path, output_path)
-    elif suffix == ".tgs":
-        await _tgs_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
-    else:
-        await _ffmpeg_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
+    _aid = start_activity("media_transcoder", "transcoding", "转码贴纸", description=input_path.name)
+    try:
+        if suffix == ".gif":
+            if input_path.resolve() != output_path.resolve():
+                shutil.copy2(input_path, output_path)
+        elif suffix == ".tgs":
+            await _tgs_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
+        else:
+            await _ffmpeg_to_gif(input_path, output_path, options or StickerGifOptions.from_config())
+    finally:
+        finish_activity(_aid)
 
     if not output_path.exists() or output_path.stat().st_size <= 0:
         raise TranscodeError(f"GIF 输出文件无效: {output_path}")

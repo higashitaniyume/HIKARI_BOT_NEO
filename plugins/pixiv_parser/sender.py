@@ -16,6 +16,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
 
+from core.activity_tracker import ActivityScope, start_activity, finish_activity
 from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.temp_media_cleaner import DEFAULT_TEMP_MEDIA_TTL_SECONDS, ttl_seconds_from_config
@@ -135,24 +136,28 @@ async def send_artwork(
     original_count = 0
     download_errors = 0
 
-    for page in selected_pages:
-        try:
-            path, is_original = await download_with_fallback(
-                page,
-                illust_id,
-                cookie,
-                proxy,
-                cache_dir,
-                max_file_mb,
-                cache_ttl_seconds=cache_ttl_seconds,
-            )
-            image_paths.append(path)
-            if is_original:
-                original_count += 1
-            await asyncio.sleep(0.2)  # 避免下载过快
-        except Exception as e:
-            download_errors += 1
-            logger.exception(f"[Pixiv] 图片下载失败 → pid={illust_id} p={page.index}: {e}")
+    _pixiv_aid = start_activity("pixiv_parser", "downloading", f"解析 Pixiv {illust_id}", description=f"PID {illust_id}")
+    try:
+        for page in selected_pages:
+            try:
+                path, is_original = await download_with_fallback(
+                    page,
+                    illust_id,
+                    cookie,
+                    proxy,
+                    cache_dir,
+                    max_file_mb,
+                    cache_ttl_seconds=cache_ttl_seconds,
+                )
+                image_paths.append(path)
+                if is_original:
+                    original_count += 1
+                await asyncio.sleep(0.2)  # 避免下载过快
+            except Exception as e:
+                download_errors += 1
+                logger.exception(f"[Pixiv] 图片下载失败 → pid={illust_id} p={page.index}: {e}")
+    finally:
+        finish_activity(_pixiv_aid)
 
     if not image_paths:
         logger.error(f"[Pixiv] 所有图片下载失败 → pid={illust_id}")
