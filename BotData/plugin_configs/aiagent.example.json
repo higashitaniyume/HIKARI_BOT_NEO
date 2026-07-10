@@ -75,7 +75,7 @@
       "enabled_names": [],
       "disabled_names": []
     },
-    "max_tool_rounds": 2
+    "max_tool_rounds": 4
   },
     "permissions": {
       "admin_id": "",

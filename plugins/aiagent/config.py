@@ -93,7 +93,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled_names": [],
             "disabled_names": [],
         },
-        "max_tool_rounds": 2,
+        "max_tool_rounds": 4,
     },
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }

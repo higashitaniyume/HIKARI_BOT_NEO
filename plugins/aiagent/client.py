@@ -325,7 +325,7 @@ async def request_chat_completion(
     all_tools = available_tools(cfg, tool_context)
     user_text = _latest_user_text(request_messages)
     tools = all_tools if _tool_wanted(user_text) else []
-    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 2, minimum=0, maximum=5)
+    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=10)
     if tools and max_rounds > 0:
         await _prefetch_wiki_priority_tools(cfg, request_messages, tools, tool_context)
 
@@ -348,17 +348,25 @@ async def request_chat_completion(
             return content
 
         if round_index >= max_rounds:
+            # Tool rounds exhausted — drop tools and ask the model to
+            # synthesise a final answer from whatever it already gathered.
             if content:
                 return content
-            last_tool_names = ", ".join(
-                str(tc.get("function", {}).get("name", "?"))
-                for tc in tool_calls if isinstance(tc, dict)
-            ) or "?"
             logger.warning(
-                "[AIAgent] 工具调用轮数已达上限且无文字回复，跳过 tools=%s",
-                last_tool_names,
+                "[AIAgent] 工具调用轮数已达上限，移除 tools 强制生成回复 tools=%s",
+                ", ".join(
+                    str(tc.get("function", {}).get("name", "?"))
+                    for tc in tool_calls if isinstance(tc, dict)
+                ) or "?",
             )
-            return msg("aiagent.tool_limit_reached")
+            tools = []
+            request_messages.append(_assistant_tool_message(message))
+            for tool_call in tool_calls:
+                if isinstance(tool_call, dict):
+                    request_messages.append(await execute_tool_call(cfg, tool_call, tool_context))
+            message = await post_chat_completion(cfg, request_messages, tools)
+            content = str(message.get("content") or "").strip()
+            return content or msg("aiagent.tool_limit_reached")
 
         request_messages.append(_assistant_tool_message(message))
         for tool_call in tool_calls:
