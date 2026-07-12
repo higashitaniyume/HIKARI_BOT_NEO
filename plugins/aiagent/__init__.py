@@ -88,13 +88,8 @@ def _is_blocked_media_link(text: str, cfg: dict[str, Any]) -> bool:
 
 
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
-    cfg = get_config()
-    if not cfg.get("enabled", False):
-        return
-    if not is_event_allowed(cfg, event):
-        return
-
     text = normalize_text(text)
+    cfg = get_config()
     if not text:
         return
     if _is_blocked_media_link(text, cfg):
@@ -160,4 +155,16 @@ aiagent_auto_matcher = on_message(priority=99, block=False)
 async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
     if is_command_handled(event) or not _should_auto_reply(event):
         return
+
+    cfg = get_config()
+    if not cfg.get("enabled", False):
+        return
+    if not is_event_allowed(cfg, event):
+        logger.info(
+            "[AIAgent] 权限规则已阻止回复 -> user=%s group=%s",
+            event.get_user_id(),
+            getattr(event, "group_id", ""),
+        )
+        return
+
     await _handle_chat_event(bot, event, event.get_plaintext())
