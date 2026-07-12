@@ -136,7 +136,11 @@ def ensure_config() -> None:
     if not isinstance(data, dict):
         return
 
+    # Preserve user-set permissions so admin panel changes survive restarts.
+    existing_permissions = data.get("permissions")
     merged = _deep_merge(DEFAULT_CONFIG, data)
+    if existing_permissions is not None:
+        merged["permissions"] = existing_permissions
     if merged != data:
         _write_config(merged)
         logger.info("已补全 AI Agent 配置文件: %s", CONFIG_PATH)
