@@ -7,11 +7,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from nonebot import on_message
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
 
 from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
 from core.activity_tracker import ActivityScope
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import is_command_handled, mark_event_handled
 
@@ -87,6 +88,43 @@ def _is_blocked_media_link(text: str, cfg: dict[str, Any]) -> bool:
     return False
 
 
+_FORWARD_SEGMENT_CHARS = 1500  # chars per node in a combined-forward message
+
+
+async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_limit: int) -> None:
+    """Split a long reply into segments and send as a merged-forward message."""
+    text = text[:total_limit].strip()
+    nodes: list[MessageSegment] = []
+    bot_name = get_bot_name()
+    bot_uid = int(bot.self_id)
+
+    for i in range(0, len(text), _FORWARD_SEGMENT_CHARS):
+        segment = text[i : i + _FORWARD_SEGMENT_CHARS].strip()
+        if not segment:
+            continue
+        nodes.append(
+            MessageSegment.node_custom(
+                user_id=bot_uid,
+                nickname=bot_name,
+                content=Message(segment),
+            )
+        )
+
+    if not nodes:
+        return
+
+    logger.info("[AIAgent] 回复过长，以合并转发发送 -> %d 个节点", len(nodes))
+    try:
+        if isinstance(event, GroupMessageEvent):
+            await bot.send_group_forward_msg(group_id=event.group_id, messages=nodes)
+        else:
+            await bot.send_private_forward_msg(user_id=int(event.get_user_id()), messages=nodes)
+    except Exception as e:
+        logger.warning("[AIAgent] 合并转发发送失败，降级为截断发送: %s", e)
+        truncated = text[:total_limit]
+        await bot.send(event, Message(truncated))
+
+
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
     text = normalize_text(text)
     cfg = get_config()
@@ -123,11 +161,12 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
-        if len(reply) > max_reply_chars:
-            reply = f"{reply[:max_reply_chars].rstrip()}\n\n{msg('aiagent.reply_truncated')}"
         remember(session, text, reply, cfg)
         append_memory(event, cfg, text, reply)
-        await bot.send(event, Message(reply))
+        if len(reply) > max_reply_chars:
+            await _send_long_as_forward(bot, event, reply, max_reply_chars)
+        else:
+            await bot.send(event, Message(reply))
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
