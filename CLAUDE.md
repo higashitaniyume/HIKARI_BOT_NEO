@@ -91,6 +91,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | [`error_notifier.py`](core/error_notifier.py) | User-friendly error replies + admin traceback notifications |
 | [`lifecycle_logging.py`](core/lifecycle_logging.py) | Startup summary, plugin load logging, event description helpers |
 | [`temp_media_cleaner.py`](core/temp_media_cleaner.py) | Schedules cleanup of temporary downloaded media |
+| [`activity_tracker.py`](core/activity_tracker.py) | Live activity tracking (parsing, downloading, replying) for the admin overview dashboard |
 | [`stats_tracker.py`](core/stats_tracker.py) | Per-session usage statistics |
 | [`bot_identity.py`](core/bot_identity.py) | Bot name/identity from config, used by messages and rendering |
 | [`resources.py`](core/resources.py) | Load/backfill JSON resources from `BotData/resources/` |
