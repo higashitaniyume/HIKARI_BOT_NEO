@@ -9,7 +9,7 @@ from typing import Any
 
 from plugins.aiagent.client import post_chat_completion
 from plugins.aiagent.config import get_config
-from plugins.aiagent.memory import _collect_raw_entries, _replace_raw_with_summary, _SESSION_MARKER, _SUMMARIZE_SYSTEM_PROMPT, _summarizing_locks
+from plugins.aiagent.memory import _SESSION_MARKER, _SUMMARIZE_SYSTEM_PROMPT, _summarizing_locks
 
 logger = logging.getLogger("HikariBot.BotAdmin.AIAgentMemory")
 
@@ -98,16 +98,20 @@ def _file_info(kind: str, path: Path, root: Path) -> dict[str, Any]:
     elif kind == "私聊个人":
         user_id = parts[1] if len(parts) >= 2 else ""
 
-    content = ""
-    has_marker = False
     raw_entries_count = 0
+    has_marker = False
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
-        has_marker = _SESSION_MARKER.strip() in content
-        if has_marker:
-            raw = _collect_raw_entries(path)
-            if raw:
-                raw_entries_count = raw.count("\n- ") + 1
+        marker_str = _SESSION_MARKER.strip()
+        has_marker = marker_str in content
+        # 有标记时取标记后内容，否则取 # AI Agent Memory 标题后的全部内容
+        pos = content.rfind(marker_str) if has_marker else content.find("# AI Agent Memory")
+        if pos >= 0:
+            body = content[pos + len(marker_str if has_marker else "# AI Agent Memory"):].strip()
+        else:
+            body = content.strip()
+        if body:
+            raw_entries_count = body.count("\n- User(") + body.count("\n- Assistant:")
     except OSError:
         pass
 
@@ -141,13 +145,54 @@ def aiagent_memory_state() -> dict[str, Any]:
     return {"files": files, "count": len(files), "root": _MEMORY_ROOT.as_posix()}
 
 
+def _collect_body(path: Path) -> str | None:
+    """获取记忆文件中有标记时取标记后内容，无标记时取标题后的全部内容。"""
+    marker = _SESSION_MARKER.strip()
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    pos = content.rfind(marker)
+    if pos >= 0:
+        after = content[pos + len(marker):].strip()
+        return after if after else None
+    # 无标记 → 取 # AI Agent Memory 标题后的正文
+    header = "# AI Agent Memory"
+    hpos = content.find(header)
+    if hpos >= 0:
+        body = content[hpos + len(header):].strip()
+        return body if body else None
+    return content.strip() or None
+
+
+def _write_summary(path: Path, timestamp: str, summary: str) -> None:
+    """将总结写入记忆文件。有标记时替换标记后的原始记录，无标记时替换整个文件。"""
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    marker = _SESSION_MARKER.strip()
+    pos = content.rfind(marker)
+    summary_block = f"## 会话摘要: {timestamp}\n{summary}\n{_SESSION_MARKER}"
+    if pos >= 0:
+        # 有标记 → 保留标记前的内容（摘要区），替换标记后的原始记录
+        new_content = content[:pos].rstrip() + "\n\n" + summary_block
+    else:
+        # 无标记 → 整个文件都是原始记录，替换为 header + 摘要 + 标记
+        new_content = f"# AI Agent Memory\n\n{summary_block}"
+    try:
+        path.write_text(new_content, encoding="utf-8")
+    except OSError as e:
+        logger.warning("[AIAgent] 写入记忆总结失败: %s -> %s", path, e)
+
+
 async def trigger_summarize(file_path: str) -> dict[str, Any]:
     """对指定记忆文件触发总结。"""
     target = _safe_relative(file_path)
     if target is None:
         return {"error": f"文件不存在或路径无效: {file_path}"}
 
-    raw = _collect_raw_entries(target)
+    raw = _collect_body(target)
     if not raw:
         return {"error": "没有需要总结的原始记录", "path": file_path}
     if len(raw) < 200:
@@ -172,7 +217,7 @@ async def trigger_summarize(file_path: str) -> dict[str, Any]:
         summary = (summary_msg.get("content") or "").strip()
         if summary and "无重要信息" not in summary:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            _replace_raw_with_summary(target, ts, summary)
+            _write_summary(target, ts, summary)
             return {"result": f"✅ 已总结：\n{summary}", "path": file_path}
         return {"result": "对话内容较日常，跳过总结", "path": file_path}
     except Exception as e:
