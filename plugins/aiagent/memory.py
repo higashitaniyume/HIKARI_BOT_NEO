@@ -115,7 +115,7 @@ def append_memory(event: MessageEvent, cfg: dict[str, Any], user_text: str, assi
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
-                path.write_text("# AI Agent Memory\n", encoding="utf-8")
+                path.write_text(f"# AI Agent Memory\n\n{_SESSION_MARKER}", encoding="utf-8")
             with path.open("a", encoding="utf-8") as f:
                 f.write(entry)
             _trim_memory_file(path, max_file_chars)
@@ -129,3 +129,101 @@ def clear_memory(event: MessageEvent, cfg: dict[str, Any]) -> None:
             path.unlink(missing_ok=True)
         except OSError as e:
             logger.warning("[AIAgent] 清空 memory 失败: %s -> %s", path, e)
+
+
+# ── 会话摘要 / 自动总结 ──────────────────────────────────────────────
+
+from .client import post_chat_completion
+
+_SESSION_MARKER: str = "\n<!-- current session -->\n"
+_last_activity: dict[str, datetime] = {}
+_summarizing_locks: set[Path] = set()
+
+_SUMMARIZE_SYSTEM_PROMPT = (
+    "你是一个聊天记忆总结助手。请将以下对话记录总结为简洁的要点。\n\n"
+    "要求：\n"
+    "- 只提取客观事实：用户说过什么、偏好什么、做出过什么决定\n"
+    "- 不要添加原始对话中没有的信息\n"
+    "- 使用中文，每条一行，用 - 开头\n"
+    "- 保持简洁，不超过300字\n"
+    "- 如果对话内容很日常（打招呼、寒暄等），只回复「无重要信息」"
+)
+
+
+def mark_activity(session: str) -> None:
+    """记录当前会话的最后活动时间。"""
+    _last_activity[session] = datetime.now()
+
+
+def should_summarize(session: str, gap_minutes: int = 10) -> bool:
+    """检查距离上次活动是否已超过 gap_minutes，且上次活动后尚未总结过。
+
+    只读不写状态，调用方需自行调用 mark_activity()。
+    """
+    last = _last_activity.get(session)
+    if last is None:
+        return False
+    return (datetime.now() - last).total_seconds() / 60 >= gap_minutes
+
+
+def _collect_raw_entries(path: Path) -> str | None:
+    """读取文件中会话标记之后的原始记录。"""
+    if not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    marker = _SESSION_MARKER.strip()
+    pos = content.rfind(marker)
+    if pos < 0:
+        return None
+    after = content[pos + len(marker):].strip()
+    return after if after else None
+
+
+def _replace_raw_with_summary(path: Path, timestamp: str, summary: str) -> None:
+    """将会话标记后的原始记录替换为摘要区块，同时保留标记供后续追加。"""
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    marker = _SESSION_MARKER.strip()
+    pos = content.rfind(marker)
+    summary_block = f"\n\n## 会话摘要: {timestamp}\n{summary}\n{_SESSION_MARKER}"
+    new_content = (content[:pos] + summary_block) if pos >= 0 else content.rstrip() + "\n\n" + summary_block
+    try:
+        path.write_text(new_content, encoding="utf-8")
+    except OSError as e:
+        logger.warning("[AIAgent] 写入记忆总结失败: %s -> %s", path, e)
+
+
+async def summarize_session_memory(cfg: dict[str, Any], event: MessageEvent) -> None:
+    """异步：将上一轮会话的原始对话总结为要点写入记忆文件。"""
+    session = session_key(event)
+    if not should_summarize(session):
+        return
+
+    for _label, path in memory_paths(event, cfg):
+        if path in _summarizing_locks:
+            continue
+        raw = _collect_raw_entries(path)
+        if not raw or len(raw) < 200:
+            continue
+
+        _summarizing_locks.add(path)
+        try:
+            messages = [
+                {"role": "system", "content": _SUMMARIZE_SYSTEM_PROMPT},
+                {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
+            ]
+            summary_msg = await post_chat_completion(cfg, messages, tools=[])
+            summary = (summary_msg.get("content") or "").strip()
+            if summary and "无重要信息" not in summary:
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                _replace_raw_with_summary(path, ts, summary)
+                logger.info("[AIAgent] 会话记忆已自动总结并写入: %s", path)
+        except Exception as e:
+            logger.warning("[AIAgent] 记忆总结异常: %s -> %s", path, e)
+        finally:
+            _summarizing_locks.discard(path)

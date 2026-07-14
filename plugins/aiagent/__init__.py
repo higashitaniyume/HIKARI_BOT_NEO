@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -18,8 +19,18 @@ from core.command_router import is_command_handled, mark_event_handled
 
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, load_persona_prompt
-from .memory import append_memory, clear_memory, clear_session, get_history, remember, session_key
-from .memory import read_memory_context
+from .memory import (
+    append_memory,
+    clear_memory,
+    clear_session,
+    get_history,
+    mark_activity,
+    read_memory_context,
+    remember,
+    session_key,
+    should_summarize,
+    summarize_session_memory,
+)
 from .tools import available_tools, execute_tool_call
 from .utils import normalize_text, safe_int, strip_markdown
 
@@ -163,6 +174,10 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         remember(session, text, reply, cfg)
         append_memory(event, cfg, text, reply)
+        # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
+        if should_summarize(session):
+            asyncio.create_task(summarize_session_memory(cfg, event))
+        mark_activity(session)
         if len(reply) > max_reply_chars:
             await _send_long_as_forward(bot, event, reply, max_reply_chars)
         else:
