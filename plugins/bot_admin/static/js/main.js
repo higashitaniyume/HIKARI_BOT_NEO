@@ -35,13 +35,8 @@ $("#systemProbeRefreshBtn").addEventListener("click", () => fetchSystemProbe().t
 $("#activitiesRefreshBtn").addEventListener("click", () => fetchActivities().then(() => showToast("状态已刷新。")).catch((err) => showToast(err.message, true)));
 $("#memoryRefreshBtn").addEventListener("click", () => fetchMemoryFiles().then(() => showToast("记忆列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#memorySummarizeBtn").addEventListener("click", () => {
-  const path = $("#memorySummarizeBtn").dataset.file;
+  const path = state.selectedMemoryPath;
   if (path) summarizeMemoryFile(path).catch((err) => showToast(err.message, true));
-});
-$("#memoryDetailClose").addEventListener("click", () => {
-  state.selectedMemoryPath = "";
-  state.memoryFileContent = "";
-  renderMemoryDetail();
 });
 $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then(() => showToast("配置列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());

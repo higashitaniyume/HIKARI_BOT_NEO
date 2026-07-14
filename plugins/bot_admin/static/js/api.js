@@ -494,33 +494,56 @@ async function readMemoryFile(filePath) {
   renderMemoryDetail();
 }
 
+function setMemoryStatus(text, isError) {
+  const el = $("#memoryStatus");
+  if (!el) return;
+  if (text) {
+    el.textContent = text;
+    el.style.color = isError ? "var(--danger, #e74c3c)" : "var(--muted, #888)";
+  } else {
+    el.textContent = "";
+  }
+}
+
 async function summarizeMemoryFile(filePath) {
-  const res = await fetch("/api/aiagent-memory/summarize", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ file: filePath }),
-  });
-  const data = await readJsonResponse(res, "总结记忆失败");
-  showToast(data.result || data.error || "总结完成。", !!data.error);
-  await fetchMemoryFiles();
-  if (state.selectedMemoryPath) {
-    await readMemoryFile(state.selectedMemoryPath);
+  const btn = $("#memorySummarizeBtn");
+  btn.disabled = true;
+  setMemoryStatus("⏳ 正在总结...");
+  try {
+    const res = await fetch("/api/aiagent-memory/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: filePath }),
+    });
+    const data = await readJsonResponse(res, "总结记忆失败");
+    if (data.result) {
+      setMemoryStatus("✅ 总结完成");
+      showToast(data.result);
+    } else if (data.error) {
+      setMemoryStatus("❌ " + data.error, true);
+      showToast(data.error, true);
+    }
+    await fetchMemoryFiles();
+    if (state.selectedMemoryPath === filePath) {
+      await readMemoryFile(filePath);
+    }
+  } catch (err) {
+    setMemoryStatus("❌ " + err.message, true);
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
 function renderMemoryFiles() {
   const list = $("#memoryFileList");
-  const summary = $("#memorySummary");
   list.replaceChildren();
   if (!state.memoryFiles.length) {
-    list.className = "ops-list empty";
+    list.classList.add("empty");
     list.textContent = "暂无记忆文件";
-    if (summary) summary.textContent = "0 个记忆文件";
     return;
   }
-  list.className = "ops-list";
-  const totalRaw = state.memoryFiles.filter(function (f) { return f.raw_entries > 0; }).length;
-  if (summary) summary.textContent = state.memoryFiles.length + " 个文件，" + totalRaw + " 个有待总结条目";
+  list.classList.remove("empty");
 
   for (const file of state.memoryFiles) {
     const button = document.createElement("button");
@@ -555,14 +578,27 @@ function renderMemoryDetail() {
   const panel = $("#memoryDetailPanel");
   const content = $("#memoryDetailContent");
   const title = $("#memoryDetailTitle");
+  const meta = $("#memoryDetailMeta");
+  const status = $("#memoryStatus");
+  const btn = $("#memorySummarizeBtn");
 
   if (!state.selectedMemoryPath || !state.memoryFileContent) {
     panel.hidden = true;
     return;
   }
   panel.hidden = false;
-  title.textContent = "详情: " + state.selectedMemoryPath;
+  title.textContent = state.selectedMemoryPath;
+  const file = state.memoryFiles.find(function (f) { return f.path === state.selectedMemoryPath; });
+  const metaParts = [formatBytes((file && file.size) || 0)];
+  if (file && file.raw_entries > 0) {
+    metaParts.push(file.raw_entries + " 条待总结");
+    btn.hidden = false;
+  } else {
+    btn.hidden = true;
+  }
+  meta.textContent = metaParts.join(" / ");
   content.textContent = state.memoryFileContent;
+  setMemoryStatus("");
 }
 
 function formatBytes(bytes) {
