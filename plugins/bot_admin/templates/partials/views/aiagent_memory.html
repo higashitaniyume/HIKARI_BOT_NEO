@@ -1,0 +1,29 @@
+    <section class="view-panel" data-view="aiagent_memory" hidden>
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>AI Agent 记忆</h2>
+            <p>查看和管理所有群聊/私聊的持久化记忆文件。记录超过10分钟无新消息时会被自动总结。</p>
+          </div>
+          <button type="button" id="memoryRefreshBtn" class="ghost">刷新</button>
+        </div>
+
+        <div id="memorySummary" class="field-group-hint"></div>
+
+        <div id="memoryFileList" class="ops-list" role="list" aria-label="记忆文件列表">
+          <p class="empty-state">正在加载...</p>
+        </div>
+
+        <div id="memoryDetailPanel" class="wide-field" hidden>
+          <hr>
+          <div class="panel-heading">
+            <h3 id="memoryDetailTitle">记忆详情</h3>
+            <div class="item-actions">
+              <button type="button" id="memorySummarizeBtn" class="ghost">总结此文件</button>
+              <button type="button" id="memoryDetailClose" class="ghost">关闭</button>
+            </div>
+          </div>
+          <pre id="memoryDetailContent" class="memory-content" style="white-space:pre-wrap;font-size:13px;line-height:1.6;max-height:600px;overflow:auto;background:var(--bg-muted);padding:12px;border-radius:6px;font-family:inherit;"></pre>
+        </div>
+      </section>
+    </section>

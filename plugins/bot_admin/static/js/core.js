@@ -34,6 +34,9 @@ const state = {
   versionError: "",
   editingTtsVoiceName: "",
   pickerInboxIds: [],
+  memoryFiles: [],
+  selectedMemoryPath: "",
+  memoryFileContent: "",
 };
 const MAX_UPLOAD_FILES = 99;
 const MAX_VOICE_UPLOAD_FILES = 20;
@@ -47,6 +50,7 @@ const VIEW_TITLES = {
   voices: "语音",
   settings: "设置",
   aiagent: "AI Agent",
+  aiagent_memory: "记忆管理",
   push: "推送",
   rss: "RSS",
   access: "权限",
@@ -87,6 +91,9 @@ function setView(view) {
   }
   if (target === "access" && !state.accessRules.length) {
     fetchAccessRules().catch((err) => showToast(err.message, true));
+  }
+  if (target === "aiagent_memory") {
+    fetchMemoryFiles().catch((err) => showToast(err.message, true));
   }
   // Start/stop activity polling when switching to/from overview.
   if (target === "overview") {

@@ -478,3 +478,96 @@ async function reloadSelectedLog() {
     await openLogFile(state.selectedLog);
   }
 }
+
+async function fetchMemoryFiles() {
+  const res = await fetch("/api/aiagent-memory", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取记忆文件列表失败");
+  state.memoryFiles = data.files || [];
+  renderMemoryFiles();
+}
+
+async function readMemoryFile(filePath) {
+  const res = await fetch("/api/aiagent-memory?file=" + encodeURIComponent(filePath), { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取记忆文件失败");
+  state.memoryFileContent = data.content || "";
+  state.selectedMemoryPath = filePath;
+  renderMemoryDetail();
+}
+
+async function summarizeMemoryFile(filePath) {
+  const res = await fetch("/api/aiagent-memory/summarize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file: filePath }),
+  });
+  const data = await readJsonResponse(res, "总结记忆失败");
+  showToast(data.result || data.error || "总结完成。", !!data.error);
+  await fetchMemoryFiles();
+  if (state.selectedMemoryPath) {
+    await readMemoryFile(state.selectedMemoryPath);
+  }
+}
+
+function renderMemoryFiles() {
+  const list = $("#memoryFileList");
+  const summary = $("#memorySummary");
+  list.replaceChildren();
+  if (!state.memoryFiles.length) {
+    list.className = "ops-list empty";
+    list.textContent = "暂无记忆文件";
+    if (summary) summary.textContent = "0 个记忆文件";
+    return;
+  }
+  list.className = "ops-list";
+  const totalRaw = state.memoryFiles.filter(function (f) { return f.raw_entries > 0; }).length;
+  if (summary) summary.textContent = state.memoryFiles.length + " 个文件，" + totalRaw + " 个有待总结条目";
+
+  for (const file of state.memoryFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ops-list-item";
+    button.classList.toggle("is-active", file.path === state.selectedMemoryPath);
+    button.addEventListener("click", function () {
+      readMemoryFile(file.path).catch(function (err) { showToast(err.message, true); });
+    });
+
+    const title = document.createElement("span");
+    title.className = "ops-list-title";
+    title.textContent = "[" + file.kind + "] " + (file.group_id || file.user_id || file.path);
+    const meta = document.createElement("span");
+    meta.className = "ops-list-meta";
+    const parts = [formatBytes(file.size)];
+    if (file.has_marker) {
+      parts.push("已分片");
+    } else {
+      parts.push("未分片");
+    }
+    if (file.raw_entries > 0) {
+      parts.push(file.raw_entries + " 条待总结");
+    }
+    meta.textContent = parts.join(" / ");
+    button.append(title, meta);
+    list.append(button);
+  }
+}
+
+function renderMemoryDetail() {
+  const panel = $("#memoryDetailPanel");
+  const content = $("#memoryDetailContent");
+  const title = $("#memoryDetailTitle");
+
+  if (!state.selectedMemoryPath || !state.memoryFileContent) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  title.textContent = "详情: " + state.selectedMemoryPath;
+  content.textContent = state.memoryFileContent;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + " " + units[i];
+}

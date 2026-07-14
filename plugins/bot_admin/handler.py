@@ -53,6 +53,7 @@ from .stickers import (
 from .uploads import _get_upload_job, _new_upload_job, _process_tg_sticker_link, _process_upload_files, _process_voice_uploads, _update_upload_job
 from .system_probe import system_probe_state
 from .activities import activity_state
+from .aiagent_memory import aiagent_memory_state, _read_memory_file, trigger_summarize
 from .utils import _safe_pack_name, _safe_voice_name
 
 logger = logging.getLogger("HikariBot.BotAdmin")
@@ -368,6 +369,17 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 return
             self._send_json(_aiagent_config_state())
             return
+        if parsed.path == "/api/aiagent-memory":
+            if not self._is_authenticated():
+                self._unauthorized_json()
+                return
+            params = parse_qs(parsed.query)
+            file_param = params.get("file", [None])[0]
+            if file_param:
+                self._send_json(_read_memory_file(file_param))
+            else:
+                self._send_json(aiagent_memory_state())
+            return
         if parsed.path == "/api/push-config":
             if not self._is_authenticated():
                 self._unauthorized_json()
@@ -551,6 +563,23 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 logger.exception("保存 AI Agent 设置失败: %s", e)
                 self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
+            return
+
+        if path == "/api/aiagent-memory/summarize":
+            try:
+                data = self._read_json_body()
+                file_param = str(data.get("file", "")).strip()
+                if not file_param:
+                    self._send_json({"error": "file 参数不能为空。"}, 400)
+                    return
+                import asyncio
+                result = asyncio.run(trigger_summarize(file_param))
+                self._send_json(result)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("触发记忆总结失败: %s", e)
+                self._send_json({"error": "触发记忆总结失败，请检查服务日志。"}, 500)
             return
 
         if path == "/api/push-config":

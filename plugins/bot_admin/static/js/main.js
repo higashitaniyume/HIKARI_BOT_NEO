@@ -33,6 +33,16 @@ $("#refreshBtn").addEventListener("click", () => fetchState().then(() => showToa
 $("#versionRefreshBtn").addEventListener("click", () => fetchVersionInfo().then(() => showToast("版本信息已刷新。")).catch((err) => showToast(err.message, true)));
 $("#systemProbeRefreshBtn").addEventListener("click", () => fetchSystemProbe().then(() => showToast("系统探针已刷新。")).catch((err) => showToast(err.message, true)));
 $("#activitiesRefreshBtn").addEventListener("click", () => fetchActivities().then(() => showToast("状态已刷新。")).catch((err) => showToast(err.message, true)));
+$("#memoryRefreshBtn").addEventListener("click", () => fetchMemoryFiles().then(() => showToast("记忆列表已刷新。")).catch((err) => showToast(err.message, true)));
+$("#memorySummarizeBtn").addEventListener("click", () => {
+  const path = $("#memorySummarizeBtn").dataset.file;
+  if (path) summarizeMemoryFile(path).catch((err) => showToast(err.message, true));
+});
+$("#memoryDetailClose").addEventListener("click", () => {
+  state.selectedMemoryPath = "";
+  state.memoryFileContent = "";
+  renderMemoryDetail();
+});
 $("#configRefreshBtn").addEventListener("click", () => fetchConfigFiles().then(() => showToast("配置列表已刷新。")).catch((err) => showToast(err.message, true)));
 $("#configSaveBtn").addEventListener("click", () => saveCurrentConfig());
 $("#logRefreshBtn").addEventListener("click", () => fetchLogFiles().then(() => showToast("日志列表已刷新。")).catch((err) => showToast(err.message, true)));
