@@ -15,7 +15,7 @@ from core.ai_tool_registry import AIToolContext
 from core.activity_tracker import ActivityScope
 from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
-from core.command_router import is_command_handled, mark_event_handled
+from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, load_persona_prompt
@@ -25,6 +25,7 @@ from .memory import (
     clear_session,
     get_history,
     mark_activity,
+    memory_paths,
     read_memory_context,
     remember,
     session_key,
@@ -222,3 +223,64 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
         return
 
     await _handle_chat_event(bot, event, event.get_plaintext())
+
+
+# ── 隐藏命令：查看 / 总结记忆 ─────────────────────────────────────────
+
+
+@command(
+    "查看记忆",
+    aliases=("看记忆", "记忆", "memory"),
+    description="",
+    usage="查看记忆",
+    show_in_help=False,
+    require_tome=True,
+)
+async def handle_view_memory(ctx: CommandContext) -> None:
+    """查看当前会话的持久化记忆内容（含摘要和原始记录）。"""
+    cfg = get_config()
+    if not cfg.get("enabled", False):
+        await ctx.send(Message("AI Agent 未启用"))
+        return
+
+    blocks: list[str] = []
+    for label, path in memory_paths(ctx.event, cfg):
+        if not path.is_file():
+            blocks.append(f"📋 {label}\n（暂无记忆）")
+            continue
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            blocks.append(f"📋 {label}\n（读取失败）")
+            continue
+        if not content:
+            blocks.append(f"📋 {label}\n（暂无记忆）")
+            continue
+        # Keep the display compact — show last ~2000 chars
+        if len(content) > 2000:
+            display = f"⋯（内容较长，仅显示末尾）\n{content[-2000:]}"
+        else:
+            display = content
+        blocks.append(f"📋 {label}\n{display}")
+
+    await ctx.send(Message("\n\n".join(blocks)))
+
+
+@command(
+    "总结记忆",
+    aliases=("总结", "summarize"),
+    description="",
+    usage="总结记忆",
+    show_in_help=False,
+    require_tome=True,
+)
+async def handle_summarize_memory(ctx: CommandContext) -> None:
+    """手动触发当前会话的原始对话记忆总结。"""
+    cfg = get_config()
+    if not cfg.get("enabled", False):
+        await ctx.send(Message("AI Agent 未启用"))
+        return
+
+    await ctx.send(Message("⏳ 正在总结记忆，请稍候..."))
+    result = await summarize_session_memory(cfg, ctx.event, force=True)
+    await ctx.send(Message(result))

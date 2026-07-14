@@ -198,14 +198,24 @@ def _replace_raw_with_summary(path: Path, timestamp: str, summary: str) -> None:
         logger.warning("[AIAgent] 写入记忆总结失败: %s -> %s", path, e)
 
 
-async def summarize_session_memory(cfg: dict[str, Any], event: MessageEvent) -> None:
-    """异步：将上一轮会话的原始对话总结为要点写入记忆文件。"""
-    session = session_key(event)
-    if not should_summarize(session):
-        return
+async def summarize_session_memory(
+    cfg: dict[str, Any],
+    event: MessageEvent,
+    force: bool = False,
+) -> str:
+    """将上一轮会话的原始对话总结为要点写入记忆文件。
 
+    返回人类可读的结果描述。
+    自动触发时 force=False，需满足空闲间隔条件；手动命令时 force=True 跳过间隔检查。
+    """
+    session = session_key(event)
+    if not force and not should_summarize(session):
+        return ""
+
+    results: list[str] = []
     for _label, path in memory_paths(event, cfg):
         if path in _summarizing_locks:
+            results.append(f"【{_label}】正在总结中，跳过")
             continue
         raw = _collect_raw_entries(path)
         if not raw or len(raw) < 200:
@@ -222,8 +232,16 @@ async def summarize_session_memory(cfg: dict[str, Any], event: MessageEvent) -> 
             if summary and "无重要信息" not in summary:
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M")
                 _replace_raw_with_summary(path, ts, summary)
-                logger.info("[AIAgent] 会话记忆已自动总结并写入: %s", path)
+                results.append(f"【{_label}】✅ 已总结：\n{summary}")
+                logger.info("[AIAgent] 会话记忆已总结并写入: %s", path)
+            else:
+                results.append(f"【{_label}】对话内容较日常，跳过总结")
         except Exception as e:
+            results.append(f"【{_label}】❌ 总结失败：{e}")
             logger.warning("[AIAgent] 记忆总结异常: %s -> %s", path, e)
         finally:
             _summarizing_locks.discard(path)
+
+    if not results:
+        return "没有需要总结的记忆内容"
+    return "\n\n".join(results)
