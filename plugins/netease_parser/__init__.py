@@ -112,30 +112,42 @@ async def _parse_worker() -> None:
 
 
 async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
-    """执行单个队列条目（歌曲或播客）。"""
+    """执行单个队列条目（歌曲或播客），带重试。"""
     label = f"{item.item_type}_{item.item_id}"
-    logger.info("[Netease] ─── 队列处理 %s ───", label)
-    try:
-        with ActivityScope(
-            "netease_parser",
-            "parsing",
-            f"解析网易云{item.item_type}",
-            description=f"{item.item_type}={item.item_id}",
-        ):
-            if item.item_type == "program":
-                await _process_single_program(item.bot, item.event, item.item_id, cfg)
-            else:
-                await _process_single_song(item.bot, item.event, item.item_id, cfg)
-        stats_increment(item.event, "netease_parsed", 1)
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        logger.exception("[Netease] ✗ %s 处理异常 → id=%s", item.item_type, item.item_id)
+    retry_count = max(0, int(cfg.get("parse_retry_count", 2)))
+    retry_delay = max(0.0, float(cfg.get("parse_retry_delay_seconds", 2.0)))
+    max_attempts = retry_count + 1
+
+    for attempt in range(1, max_attempts + 1):
         try:
-            await send_user_error(item.bot, item.event)
-            await notify_error_to_superuser(item.bot, item.event, e, "NeteaseParser")
-        except Exception as notify_err:
-            logger.exception("发送错误通知失败: %s", notify_err)
+            with ActivityScope(
+                "netease_parser",
+                "parsing",
+                f"解析网易云{item.item_type}",
+                description=f"{item.item_type}={item.item_id}",
+            ):
+                if item.item_type == "program":
+                    await _process_single_program(item.bot, item.event, item.item_id, cfg)
+                else:
+                    await _process_single_song(item.bot, item.event, item.item_id, cfg)
+            stats_increment(item.event, "netease_parsed", 1)
+            return  # 成功，不重试
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if attempt < max_attempts:
+                logger.warning(
+                    "[Netease] 重试 %d/%d → %s error=%s",
+                    attempt, retry_count, label, e,
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.exception("[Netease] ✗ %s 重试耗尽 (共 %d 次) → %s", label, max_attempts, e)
+                try:
+                    await send_user_error(item.bot, item.event)
+                    await notify_error_to_superuser(item.bot, item.event, e, "NeteaseParser")
+                except Exception as notify_err:
+                    logger.exception("发送错误通知失败: %s", notify_err)
 
 
 async def _enqueue_parse_jobs(

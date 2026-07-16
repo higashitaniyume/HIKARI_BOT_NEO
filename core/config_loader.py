@@ -246,6 +246,8 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
         "max_concurrent": 2,
         "delay_seconds": 0.8,
     },
+    "parse_retry_count": 2,
+    "parse_retry_delay_seconds": 2.0,
     "api_base_url": "http://127.0.0.1:3000",
     "api_timeout": 30,
     "real_ip": "",
