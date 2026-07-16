@@ -30,6 +30,8 @@ services:
       - ./UserData:/app/UserData
       - ./runtime/shared:/app/sharedFolder
       - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
+      # NapCat 的临时文件目录（get_file 返回的 file 路径在此）
+      - ./napcat/ntqq/NapCat/temp:/app/.config/QQ/NapCat/temp:ro
       - hikaribot_venv:/opt/hikaribot-venv
     extra_hosts:
       - "host.docker.internal:host-gateway"
