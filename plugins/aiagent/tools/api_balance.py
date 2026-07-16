@@ -37,13 +37,16 @@ async def _check_fish_audio(api_key: str, proxy: str | None = None) -> dict[str,
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS, proxy=proxy or None) as client:
-            resp = await client.get(_FISH_AUDIO_CREDIT_URL, headers=headers)
+            resp = await client.get(
+                _FISH_AUDIO_CREDIT_URL,
+                headers=headers,
+                params={"check_free_credit": "true"},
+            )
         if resp.status_code == 200:
             data = resp.json()
             return _build_result("Fish Audio", True, {
-                "credit_remaining": data.get("credit_remaining") or data.get("credits_remaining") or "?",
-                "credit_used": data.get("credit_used") or data.get("credits_used") or "?",
-                "total_credits": data.get("total_credits") or data.get("total") or "?",
+                "credit_remaining": data.get("credit", "?"),
+                "has_free_credit": data.get("has_free_credit", "?"),
             })
         error_detail = resp.text[:200]
         logger.warning("[ApiBalance] Fish Audio API 返回 %s: %s", resp.status_code, error_detail)
