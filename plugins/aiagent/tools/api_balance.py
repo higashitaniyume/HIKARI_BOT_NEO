@@ -11,8 +11,8 @@ from core.ai_tool_registry import AIToolContext, register_ai_tool
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools.ApiBalance")
 
-_FISH_AUDIO_ME_URL = "https://api.fish.audio/v1/me"
-_DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/v1/dashboard/billing/subscription"
+_FISH_AUDIO_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
+_DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 _TIMEOUT_SECONDS = 15
 
 
@@ -31,21 +31,19 @@ def _build_result(service: str, ok: bool, data: Any, error: str = "") -> dict[st
 
 
 async def _check_fish_audio(api_key: str, proxy: str | None = None) -> dict[str, Any]:
-    """查询 Fish Audio 账户信息（含额度）。"""
+    """查询 Fish Audio API 额度。"""
     if not api_key:
         return _build_result("Fish Audio", False, None, "未配置 API Key")
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS, proxy=proxy or None) as client:
-            resp = await client.get(_FISH_AUDIO_ME_URL, headers=headers)
+            resp = await client.get(_FISH_AUDIO_CREDIT_URL, headers=headers)
         if resp.status_code == 200:
             data = resp.json()
-            credit = data.get("credit") or data.get("credits") or data.get("quota") or {}
             return _build_result("Fish Audio", True, {
-                "email": data.get("email", ""),
-                "credit_total": credit.get("total", "?"),
-                "credit_used": credit.get("used", "?"),
-                "credit_remaining": credit.get("remaining", "?"),
+                "credit_remaining": data.get("credit_remaining") or data.get("credits_remaining") or "?",
+                "credit_used": data.get("credit_used") or data.get("credits_used") or "?",
+                "total_credits": data.get("total_credits") or data.get("total") or "?",
             })
         error_detail = resp.text[:200]
         logger.warning("[ApiBalance] Fish Audio API 返回 %s: %s", resp.status_code, error_detail)
@@ -56,7 +54,7 @@ async def _check_fish_audio(api_key: str, proxy: str | None = None) -> dict[str,
 
 
 async def _check_deepseek(api_key: str, proxy: str | None = None) -> dict[str, Any]:
-    """查询 DeepSeek 订阅/余额信息。"""
+    """查询 DeepSeek 账户余额信息。"""
     if not api_key:
         return _build_result("DeepSeek", False, None, "未配置 API Key")
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -65,15 +63,20 @@ async def _check_deepseek(api_key: str, proxy: str | None = None) -> dict[str, A
             resp = await client.get(_DEEPSEEK_BALANCE_URL, headers=headers)
         if resp.status_code == 200:
             data = resp.json()
+            balance_infos = data.get("balance_infos") or []
+            entries = []
+            for bi in balance_infos:
+                entries.append({
+                    "currency": bi.get("currency", "?"),
+                    "total_balance": bi.get("total_balance", "?"),
+                    "granted_balance": bi.get("granted_balance", "?"),
+                    "topped_up_balance": bi.get("topped_up_balance", "?"),
+                })
             return _build_result("DeepSeek", True, {
-                "plan": data.get("plan", ""),
-                "has_payment_method": data.get("has_payment_method", False),
-                "soft_limit": data.get("soft_limit_usd", "?"),
-                "hard_limit": data.get("hard_limit_usd", "?"),
-                "system_hard_limit": data.get("system_hard_limit_usd", "?"),
+                "is_available": data.get("is_available", False),
+                "balance_infos": entries,
             })
         if resp.status_code == 404:
-            # DeepSeek 可能没有这个端点，返回未知
             return _build_result("DeepSeek", True, {
                 "note": "余额查询接口不可用，请前往 platform.deepseek.com 查看",
             })
