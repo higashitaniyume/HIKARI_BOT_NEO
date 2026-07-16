@@ -9,6 +9,7 @@
 
 import hashlib
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -82,7 +83,9 @@ async def download_audio(
         follow_redirects=True,
     ) as client:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".part")
+        # 使用随机后缀避免并发下载冲突（同一个链接可能被两条消息流水线同时触发）
+        tmp_suffix = f".part.{os.getpid()}.{id(path)}"
+        tmp_path = path.with_suffix(path.suffix + tmp_suffix)
         try:
             async with client.stream("GET", url, headers=headers) as resp:
                 resp.raise_for_status()
@@ -131,11 +134,26 @@ async def download_audio(
                                     speed, elapsed_now,
                                 )
 
-                tmp_path.replace(path)
+                # 安全 rename：若目标已被其他协程先写入，直接复用
+                if path.exists():
+                    tmp_path.unlink(missing_ok=True)
+                    logger.debug("[Netease] 下载跳过 → 文件已被其他协程写入: %s", path.name)
+                else:
+                    tmp_path.replace(path)
+                tmp_path = None  # 防止 except 误删
 
         except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+            # 如果最终文件已存在（另一协程成功写完），不视为错误
+            if path.exists():
+                logger.debug("[Netease] 下载异常但目标文件已存在，继续使用: %s", path.name)
+            else:
+                raise
+
+    # 如果因并发跳过 rename，此时 path 不存在时需要重新 stat
+    if not path.exists():
+        raise RuntimeError("下载完成但文件不存在（并发 rename 异常）")
 
     elapsed = time.time() - t_start
     file_size = path.stat().st_size
