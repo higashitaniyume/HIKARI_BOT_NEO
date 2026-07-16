@@ -80,6 +80,9 @@ async def _pipeline_handle(bot: Bot, event: MessageEvent):
     from core.command_router import is_command_handled, mark_event_handled
     from core.error_notifier import notify_error_to_superuser, send_user_error
 
+    # 输出 QQ 卡片消息的元数据到日志（方便调试卡片 URL 提取）
+    _log_card_details(event)
+
     if is_command_handled(event):
         logger.debug("[Pipeline] 跳过已由命令处理的消息 %s", describe_event(event))
         return
@@ -140,3 +143,63 @@ async def _pipeline_handle(bot: Bot, event: MessageEvent):
             len(_handlers),
             describe_event(event, text),
         )
+
+
+def _log_card_details(event: MessageEvent) -> None:
+    """将 QQ 分享卡片的元数据输出到日志，方便调试卡片 URL 提取。"""
+    for segment in event.message:
+        data = getattr(segment, "data", None)
+        if not data:
+            continue
+        if getattr(segment, "type", "") != "json":
+            continue
+
+        raw_json = ""
+        if isinstance(data, dict):
+            raw_json = data.get("data", "") or ""
+        elif isinstance(data, str):
+            raw_json = data
+        if not raw_json:
+            continue
+
+        try:
+            import json as _json
+            import sys as _sys
+
+            card = _json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+            if not isinstance(card, dict):
+                continue
+
+            meta = card.get("meta") or {}
+            if not isinstance(meta, dict):
+                meta = {}
+
+            detail_1 = meta.get("detail_1") or {}
+            news = meta.get("news") or {}
+            if not isinstance(detail_1, dict):
+                detail_1 = {}
+            if not isinstance(news, dict):
+                news = {}
+
+            app_name = str(card.get("app", ""))
+            title = str(detail_1.get("title", "") or news.get("title", "") or "")
+            desc = str(detail_1.get("desc", "") or news.get("desc", "") or "")
+            jump_url = str(detail_1.get("qqdocurl", "") or news.get("jumpUrl", "") or "")
+
+            meta_json = _json.dumps(meta, ensure_ascii=False, indent=2)
+            logger.info(
+                "[Pipeline] 📦 QQ 卡片详情:\n"
+                "    app=%s\n"
+                "    title=%s\n"
+                "    desc=%s\n"
+                "    jumpUrl=%s\n"
+                "    rawMeta=%s",
+                app_name, title, desc, jump_url, meta_json,
+            )
+            print(
+                f"[Pipeline] 📦 QQ 卡片: app={app_name} title={title} "
+                f"jumpUrl={jump_url}",
+                file=_sys.stderr,
+            )
+        except Exception as e:
+            logger.debug("[Pipeline] 卡片 JSON 解析失败: %s", e)
