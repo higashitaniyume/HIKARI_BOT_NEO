@@ -22,6 +22,7 @@ from core.stats_tracker import increment as stats_increment
 from .config import get_config
 from .downloader import download_audio
 from .parser import (
+    extract_program_ids_from_event,
     extract_song_ids_from_event,
     fetch_program_detail,
     fetch_song_detail,
@@ -312,25 +313,8 @@ class AutoNeteaseHandler:
         text = str(event.get_message())
         max_links = max(1, int(cfg.get("max_links_per_message", 5)))
 
-        # ===== 处理播客/电台节目链接 =====
-        from .parser import NETEASE_PROGRAM_URL_RE, extract_all_urls
-
-        program_ids: list[str] = []
-        seen_pids: set[str] = set()
-        for match in NETEASE_PROGRAM_URL_RE.finditer(text):
-            pid = match.group("id")
-            if pid and pid not in seen_pids:
-                seen_pids.add(pid)
-                program_ids.append(pid)
-        # 也从卡片元数据中提取
-        for url in extract_all_urls(event):
-            m = NETEASE_PROGRAM_URL_RE.search(url)
-            if m:
-                pid = m.group("id")
-                if pid and pid not in seen_pids:
-                    seen_pids.add(pid)
-                    program_ids.append(pid)
-
+        # ===== 处理播客/电台节目链接（含短链接解析 + 卡片元数据） =====
+        program_ids = await extract_program_ids_from_event(event)
         program_ids_to_process = program_ids[:max_links]
         if program_ids_to_process:
             logger.info(

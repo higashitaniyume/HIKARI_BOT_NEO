@@ -351,6 +351,66 @@ async def extract_song_ids_from_event(event: MessageEvent) -> list[str]:
     return ids
 
 
+async def extract_program_ids_from_event(event: MessageEvent) -> list[str]:
+    """
+    从消息事件中提取所有播客/电台节目 ID。
+
+    处理流程：
+    1. 从消息正文和卡片元数据中提取所有 URL
+    2. 直接匹配 program URL → 提取 ID
+    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
+    4. 去重返回
+    """
+    t_start = time.time()
+    ids: list[str] = []
+    seen_ids: set[str] = set()
+    short_urls_to_resolve: list[str] = []
+
+    all_urls = extract_all_urls(event)
+
+    if not all_urls:
+        return []
+
+    logger.info("[Netease] 从消息中提取到 %d 个 URL（播客）", len(all_urls))
+
+    for url in all_urls:
+        # 尝试直接匹配 program URL
+        match = NETEASE_PROGRAM_URL_RE.search(url)
+        if match:
+            pid = match.group("id")
+            if pid and pid not in seen_ids:
+                seen_ids.add(pid)
+                ids.append(pid)
+                logger.debug("[Netease] 直接提取到播客 ID → %s (%s)", pid, url[:60])
+            continue
+
+        # 匹配 163cn.tv 短链接
+        if NETEASE_SHORT_URL_RE.match(url):
+            short_urls_to_resolve.append(url)
+
+    # 批量解析短链接
+    if short_urls_to_resolve:
+        logger.info("[Netease] 解析 %d 个短链接（播客）...", len(short_urls_to_resolve))
+        for short_url in short_urls_to_resolve:
+            resolved = await resolve_short_url(short_url)
+            if resolved:
+                match = NETEASE_PROGRAM_URL_RE.search(resolved)
+                if match:
+                    pid = match.group("id")
+                    if pid and pid not in seen_ids:
+                        seen_ids.add(pid)
+                        ids.append(pid)
+                        logger.info("[Netease] 短链接解析 → 提取到播客 ID: %s → %s", short_url, pid)
+
+    elapsed = time.time() - t_start
+    if ids:
+        logger.info("[Netease] 播客 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
+    else:
+        logger.debug("[Netease] 播客 ID 提取完成 (%.2fs) → 未找到", elapsed)
+
+    return ids
+
+
 # =========================
 # API 调用
 # =========================
