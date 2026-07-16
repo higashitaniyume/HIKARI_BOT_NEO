@@ -71,6 +71,15 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user
     extra = str(chat_cfg.get("system_prompt_extra") or "").strip()
     if extra:
         system_prompt = f"{system_prompt}\n\n额外要求：\n{extra}"
+    # 简短回复指令：每条回复控制在 50 字左右，超出自动走合并转发
+    system_prompt = (
+        f"{system_prompt}\n\n"
+        "【回复长度要求】\n"
+        "每次回复控制在 50 字以内，尽量简短明了。\n"
+        "如果需要详细说明（如代码、配置、长解释），只给一句简短结论即可，"
+        "完整内容会自动转成合并消息让用户点开查看。\n"
+        "不要使用列表、表格、代码块等复杂格式——一句话说清楚。"
+    )
 
     history = get_history(session, chat_cfg.get("max_history_messages"))
     return [{"role": "system", "content": system_prompt}, *history, {"role": "user", "content": user_text}]
@@ -173,14 +182,15 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
+        short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
         remember(session, text, reply, cfg)
         append_memory(event, cfg, text, reply)
         # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))
         mark_activity(session)
-        if len(reply) > max_reply_chars:
-            await _send_long_as_forward(bot, event, reply, max_reply_chars)
+        if short_reply_chars > 0 and len(reply) > short_reply_chars:
+            await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
             await bot.send(event, Message(reply))
         mark_event_handled(event)

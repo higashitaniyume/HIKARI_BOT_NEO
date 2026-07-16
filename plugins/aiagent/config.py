@@ -41,6 +41,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "chat": {
         "max_user_chars": 2000,
         "max_reply_chars": 3500,
+        "short_reply_chars": 200,
         "max_history_messages": 10,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
