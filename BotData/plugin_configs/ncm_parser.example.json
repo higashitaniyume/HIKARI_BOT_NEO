@@ -7,6 +7,8 @@
   "retry_count": 2,
   "retry_delay_seconds": 2.0,
   "delete_after_send": true,
+  "api_timeout": 60,
+  "cache_ttl_seconds": 600,
   "send_link_info": true,
   "permissions": {
     "admin_id": "",
