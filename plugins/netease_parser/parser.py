@@ -25,8 +25,10 @@ logger = logging.getLogger("HikariBot.NeteaseParser")
 
 # 匹配 music.163.com 的歌曲链接
 NETEASE_SONG_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?music\.163\.com"
-    r"(?:/#)?/song"
+    r"(?:https?://)?"
+    r"(?:(?:www|y)\.)?music\.163\.com"
+    r"(?:/#)?"
+    r"(?:/m)?/song"
     r"(?:/(?P<id_path>\d{5,12})(?:/\?[^\s]*)?(?:\?[^\s]*)?"
     r"|\?id=(?P<id_query>\d{5,12}))",
     re.IGNORECASE,
