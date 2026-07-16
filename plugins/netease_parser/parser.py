@@ -44,6 +44,11 @@ NETEASE_SHORT_URL_RE = re.compile(
 # 通用 URL 提取
 GENERIC_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 
+
+def _unescape_cq(text: str) -> str:
+    """还原 OneBot V11 CQ 码转义，方便正则匹配 URL。"""
+    return text.replace("&#44;", ",").replace("&#91;", "[").replace("&#93;", "]").replace("&amp;", "&")
+
 # 匹配网易云音乐播客/电台节目链接
 # 格式：https://y.music.163.com/m/program?id=2538607775
 NETEASE_PROGRAM_URL_RE = re.compile(
@@ -231,8 +236,9 @@ def extract_song_ids(text: str) -> list[str]:
     """从文本中提取所有网易云音乐歌曲 ID（去重，保持顺序）。"""
     ids: list[str] = []
     seen: set[str] = set()
+    clean = _unescape_cq(text)
 
-    for match in NETEASE_SONG_URL_RE.finditer(text):
+    for match in NETEASE_SONG_URL_RE.finditer(clean):
         song_id = match.group("id_path") or match.group("id_query")
         if song_id and song_id not in seen:
             seen.add(song_id)
@@ -243,11 +249,13 @@ def extract_song_ids(text: str) -> list[str]:
 
 def has_netease_url(text: str) -> bool:
     """检查文本中是否包含网易云音乐相关链接。"""
-    if NETEASE_SONG_URL_RE.search(text):
+    # 先还原 CQ 码转义（&amp; → &），否则正则匹配不到转义后的 & 符号
+    clean = _unescape_cq(text)
+    if NETEASE_SONG_URL_RE.search(clean):
         return True
-    if NETEASE_SHORT_URL_RE.search(text):
+    if NETEASE_SHORT_URL_RE.search(text):  # 短链接无 & 符号，不用反转义
         return True
-    if NETEASE_PROGRAM_URL_RE.search(text):
+    if NETEASE_PROGRAM_URL_RE.search(clean):
         return True
     return False
 
@@ -555,7 +563,8 @@ def extract_program_ids(text: str) -> list[str]:
     """从文本中提取播客/电台节目 ID（去重，保持顺序）。"""
     ids: list[str] = []
     seen: set[str] = set()
-    for match in NETEASE_PROGRAM_URL_RE.finditer(text):
+    clean = _unescape_cq(text)
+    for match in NETEASE_PROGRAM_URL_RE.finditer(clean):
         pid = match.group("id")
         if pid and pid not in seen:
             seen.add(pid)
