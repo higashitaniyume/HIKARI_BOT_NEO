@@ -36,6 +36,42 @@ def _sanitize_filename(text: str) -> str:
     return "".join(c for c in text if c.isprintable() and c not in r'<>:"/\|?*').strip()
 
 
+def _diagnose_local_path(path: str, log_prefix: str) -> None:
+    """检查本地路径的可访问性，输出调试信息。"""
+    p = Path(path)
+    logger.debug("%s   [诊断] 检查路径: %s", log_prefix, p)
+    logger.debug("%s   [诊断] p.exists()=%s, p.is_file()=%s", log_prefix, p.exists(), p.is_file() if p.exists() else "N/A")
+    parent = p.parent
+    logger.debug("%s   [诊断] 父目录: %s", log_prefix, parent)
+    logger.debug("%s   [诊断] 父目录.exists()=%s, .is_dir()=%s", log_prefix, parent.exists(), parent.is_dir() if parent.exists() else "N/A")
+    if parent.exists() and parent.is_dir():
+        try:
+            children = list(parent.iterdir())[:20]
+            logger.debug(
+                "%s   [诊断] 父目录内容 (前20): %s",
+                log_prefix,
+                [c.name for c in children],
+            )
+        except Exception as e:
+            logger.debug("%s   [诊断] 列出目录失败: %s", log_prefix, e)
+    else:
+        logger.debug("%s   [诊断] 父目录不存在，检查 host napcat temp 目录", log_prefix)
+        import os as _os
+        cwd = _os.getcwd()
+        host_temp = _os.path.join(cwd, "napcat", "ntqq", "NapCat", "temp")
+        logger.debug("%s   [诊断] host temp 路径: %s, exists=%s", log_prefix, host_temp, _os.path.isdir(host_temp))
+        if _os.path.isdir(host_temp):
+            try:
+                host_files = _os.listdir(host_temp)[:20]
+                logger.debug(
+                    "%s   [诊断] host temp 内容 (前20): %s",
+                    log_prefix,
+                    host_files,
+                )
+            except Exception as e:
+                logger.debug("%s   [诊断] 列出 host temp 失败: %s", log_prefix, e)
+
+
 def _read_local_file_safe(path: str, max_bytes: int, log_prefix: str) -> bytes:
     """安全读取本地文件，带大小检查和日志。"""
     local = Path(path)
@@ -447,6 +483,8 @@ async def download_and_decrypt_ncm(
                 log_prefix,
                 local_path_raw[:200],
             )
+            # DEBUG: 检查文件和目录是否存在
+            _diagnose_local_path(local_path_raw, log_prefix)
             try:
                 ncm_data = _read_local_file_safe(local_path_raw, max_bytes, log_prefix)
             except Exception as e:
@@ -465,8 +503,11 @@ async def download_and_decrypt_ncm(
             f"  base64 字段: {'有' if file_info.get('base64') else '无'}\n"
             f"  NapCat URL API: 已尝试\n"
             f"\n"
-            f"Docker 部署常见原因：NapCat 和 Bot 在不同容器，无法互访本地文件。\n"
-            f"解决方法：在 NapCat 配置 onebot11_<QQ>.json 中设置 "
+            f"当前部署架构：NapCat 和 Bot 在不同 Docker 容器。\n"
+            f"已添加共享卷挂载 ./napcat/ntqq/NapCat/temp → /app/.config/QQ/NapCat/temp\n"
+            f"请确认已执行 docker compose down && docker compose up -d 重启容器。\n"
+            f"如果仍然失败，请检查 napcat/ntqq/NapCat/temp/ 目录是否存在源文件。\n"
+            f"或者尝试 NapCat 配置 onebot11_<QQ>.json 中设置 "
             f"\"enableLocalFile2Url\": true，然后重启 NapCat 容器。"
         )
         if file_url_raw and not is_http_url:
