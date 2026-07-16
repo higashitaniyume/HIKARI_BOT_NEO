@@ -117,26 +117,51 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
 
 
 def _card_url_candidates(data: Any) -> list[str]:
-    """从单个消息段的 data 字段中提取可能的 URL。"""
+    """从单个消息段的 data 字段中提取可能的 URL。
+
+    QQ 卡片的 data 结构有多种形态：
+    - data 直接是已解析的 dict（含 meta 字段）
+    - data 是 {"data": "{...json...}", ...} 嵌套
+    - data 本身是 JSON 字符串 "{...}"
+    """
     candidates: list[str] = []
     try:
+        # 先把可能嵌套的 JSON 字符串提取出来统一解析
+        candidates = _extract_urls_from_data_value(data)
+
+        # 如果 data 是 dict 且有 "data" 字段（嵌套 JSON 字符串），也解析它
         if isinstance(data, dict):
-            curl_link = _extract_qqdocurl(data)
-            if curl_link:
-                candidates.append(curl_link)
-            for value in data.values():
-                if isinstance(value, (dict, str)):
-                    curl_link = _extract_qqdocurl(value)
-                    if curl_link:
-                        candidates.append(curl_link)
-        if isinstance(data, str) and data.startswith("{"):
-            parsed = json.loads(data)
-            curl_link = _extract_qqdocurl(parsed)
-            if curl_link:
-                candidates.append(curl_link)
+            inner = data.get("data")
+            if isinstance(inner, str) and inner.startswith("{"):
+                candidates.extend(_extract_urls_from_data_value(inner))
     except (AttributeError, KeyError, json.JSONDecodeError, TypeError) as e:
         logger.debug("[Netease] 卡片 URL 提取异常: %s", e)
     return candidates
+
+
+def _extract_urls_from_data_value(value: Any) -> list[str]:
+    """从单个 data 值中提取 URL。"""
+    urls: list[str] = []
+    if isinstance(value, str) and value.startswith("{"):
+        parsed = json.loads(value)
+        url = _extract_qqdocurl(parsed)
+        if url:
+            urls.append(url)
+        # 递归检查 dict 的每个值
+        if isinstance(parsed, dict):
+            for v in parsed.values():
+                if isinstance(v, str) and v.startswith("http"):
+                    urls.append(v)
+    elif isinstance(value, dict):
+        url = _extract_qqdocurl(value)
+        if url:
+            urls.append(url)
+        for v in value.values():
+            if isinstance(v, dict):
+                url = _extract_qqdocurl(v)
+                if url:
+                    urls.append(url)
+    return urls
 
 
 def _extract_qqdocurl(data: Any) -> Optional[str]:
