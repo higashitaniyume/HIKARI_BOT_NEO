@@ -148,6 +148,7 @@ async def _download_ncm_content(
 async def download_and_decrypt_ncm(
     file_id: str,
     bot: Any,
+    event: Any,
     cfg: dict[str, Any],
 ) -> tuple[str, Path] | None:
     """
@@ -156,6 +157,7 @@ async def download_and_decrypt_ncm(
     Args:
         file_id: OneBot 文件 ID
         bot: NoneBot Bot 实例
+        event: 消息事件（用于判断群聊/私聊，选择 NapCat 文件 URL API）
         cfg: 插件配置
 
     Returns:
@@ -285,8 +287,32 @@ async def download_and_decrypt_ncm(
     ncm_data: bytes | None = None
     last_error = None
 
-    # -- 优先走 HTTP 下载 --
-    if is_http_url:
+    # -- 策略 1: base64 内联（NapCat enableLocalFile2Url 开启时返回） --
+    raw_base64 = file_info.get("base64")
+    if raw_base64 and isinstance(raw_base64, str) and len(raw_base64) > 0:
+        logger.info(
+            "%s   检测到 base64 内联字段 → 解码中 (原始长度=%d 字符)",
+            log_prefix,
+            len(raw_base64),
+        )
+        try:
+            import base64 as _b64
+            ncm_data = _b64.b64decode(raw_base64)
+            logger.info(
+                "%s   base64 解码成功 → %s (%.1fMB)",
+                log_prefix,
+                raw_file_name,
+                len(ncm_data) / 1024 / 1024,
+            )
+        except Exception as e:
+            logger.warning(
+                "%s   base64 解码失败, 将尝试其他方式: %s",
+                log_prefix,
+                e,
+            )
+
+    # -- 策略 2: HTTP(S) URL 下载 --
+    if ncm_data is None and is_http_url:
         for attempt in range(1, retry_count + 2):
             attempt_start = time.time()
             try:
@@ -336,11 +362,68 @@ async def download_and_decrypt_ncm(
                 )
                 raise RuntimeError(f"NCM 文件下载异常: {e}") from e
 
-    # -- URL 非 HTTP 时，尝试本地读取 --
+    # -- 策略 3: NapCat get_private_file_url / get_group_file_url API --
     if ncm_data is None:
-        # URL 是非 HTTP 协议（file:// 或裸路径）且还未成功读取
+        try:
+            napcat_file_url = ""
+            from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
+
+            if isinstance(event, PrivateMessageEvent):
+                logger.info(
+                    "%s   尝试 get_private_file_url → file_id=%s",
+                    log_prefix,
+                    file_id,
+                )
+                url_result = await bot.call_api("get_private_file_url", file_id=file_id)
+                napcat_file_url = str(url_result.get("url", "") or "").strip()
+            elif isinstance(event, GroupMessageEvent):
+                logger.info(
+                    "%s   尝试 get_group_file_url → file_id=%s, group=%s",
+                    log_prefix,
+                    file_id,
+                    event.group_id,
+                )
+                url_result = await bot.call_api(
+                    "get_group_file_url",
+                    file_id=file_id,
+                    group=str(event.group_id),
+                )
+                napcat_file_url = str(url_result.get("url", "") or "").strip()
+
+            if napcat_file_url and napcat_file_url.lower().startswith(("http://", "https://")):
+                logger.info(
+                    "%s   获取到 NapCat 文件 URL → %s",
+                    log_prefix,
+                    napcat_file_url[:160],
+                )
+                ncm_data = await _download_ncm_content(napcat_file_url, max_bytes, timeout)
+                logger.info(
+                    "%s   从 NapCat URL 下载成功 → %s (%.1fMB)",
+                    log_prefix,
+                    raw_file_name,
+                    len(ncm_data) / 1024 / 1024,
+                )
+            elif napcat_file_url:
+                logger.warning(
+                    "%s   NapCat 文件 URL 非 HTTP 协议: %s",
+                    log_prefix,
+                    napcat_file_url[:160],
+                )
+            else:
+                logger.info(
+                    "%s   NapCat 文件 URL API 返回为空（此接口可能未实现）",
+                    log_prefix,
+                )
+        except Exception as e:
+            logger.warning(
+                "%s   NapCat 文件 URL API 调用失败（非标准接口, 可忽略）: %s",
+                log_prefix,
+                e,
+            )
+
+    # -- 策略 4: 本地文件读取（同机部署或共享卷挂载） --
+    if ncm_data is None:
         if file_url_raw and not is_http_url:
-            # 尝试从 file:// URL 中提取路径
             parsed = urlparse(file_url_raw)
             local_candidate = parsed.path if parsed.scheme in ("file", "") else file_url_raw
             logger.info(
@@ -352,31 +435,47 @@ async def download_and_decrypt_ncm(
             try:
                 ncm_data = _read_local_file_safe(local_candidate, max_bytes, log_prefix)
             except Exception:
-                logger.warning(
+                logger.info(
                     "%s   从 URL 提取路径读取失败, 尝试 file 字段 → %s",
                     log_prefix,
                     local_path_raw[:200] or "(空)",
                 )
 
-        # 降级到 file 字段（NapCat 本地路径）
         if ncm_data is None and local_path_raw:
             logger.info(
-                "%s   降级读取 file 字段 → path=%s",
+                "%s   尝试读取 file 字段 → path=%s",
                 log_prefix,
                 local_path_raw[:200],
             )
             try:
                 ncm_data = _read_local_file_safe(local_path_raw, max_bytes, log_prefix)
             except Exception as e:
-                raise RuntimeError(f"读取 NCM 文件失败 (file 字段): {e}") from e
+                logger.error(
+                    "%s   file 字段本地读取失败: %s",
+                    log_prefix,
+                    e,
+                )
 
+    # -- 全部策略失败，给出诊断信息 --
     if ncm_data is None:
-        raise RuntimeError(
-            f"无法获取 NCM 文件内容: "
-            f"url_scheme={url_scheme!r}, "
-            f"url={file_url_raw[:160]!r}, "
-            f"file={local_path_raw[:160]!r}"
+        diagnosis = (
+            f"无法获取 NCM 文件内容 (file_id={file_id})。\n"
+            f"  url 字段: {file_url_raw[:160]!r} (scheme={url_scheme!r})\n"
+            f"  file 字段: {local_path_raw[:160]!r}\n"
+            f"  base64 字段: {'有' if file_info.get('base64') else '无'}\n"
+            f"  NapCat URL API: 已尝试\n"
+            f"\n"
+            f"Docker 部署常见原因：NapCat 和 Bot 在不同容器，无法互访本地文件。\n"
+            f"解决方法：在 NapCat 配置 onebot11_<QQ>.json 中设置 "
+            f"\"enableLocalFile2Url\": true，然后重启 NapCat 容器。"
         )
+        if file_url_raw and not is_http_url:
+            diagnosis += (
+                f"\n另外：url 字段内容非 HTTP 协议 ({url_scheme!r})，"
+                f"Raw 值: {file_url_raw[:200]!r}"
+            )
+        logger.error("%s   ✗ %s", log_prefix, diagnosis)
+        raise RuntimeError(diagnosis)
 
     if ncm_data is None or len(ncm_data) == 0:
         raise RuntimeError("下载到的 NCM 文件内容为空")

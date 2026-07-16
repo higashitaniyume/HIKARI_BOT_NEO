@@ -188,7 +188,7 @@ async def handle_ncm_file(bot: Bot, event: MessageEvent) -> None:
                 file_id,
             )
             decrypt_step_start = time.time()
-            decrypt_result = await download_and_decrypt_ncm(file_id, bot, cfg)
+            decrypt_result = await download_and_decrypt_ncm(file_id, bot, event, cfg)
             decrypt_step_elapsed = time.time() - decrypt_step_start
 
             if decrypt_result is None:
