@@ -244,6 +244,7 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "api_timeout": 30,
     "real_ip": "",
     "high_quality": True,
+    "cookie": "",
     "max_file_mb": 50,
     "send_link_info": True,
     "cache_dir": "/tmp/hikari_bot/netease",

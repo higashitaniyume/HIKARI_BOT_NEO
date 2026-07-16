@@ -47,11 +47,12 @@ async def _process_single_song(
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
     high_quality = bool(cfg.get("high_quality", True))
+    cookie = str(cfg.get("cookie", "")).strip()
     cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
     max_file_mb = int(cfg.get("max_file_mb", 50))
     cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
 
-    log_extra = f"song_id={song_id} api={api_base} timeout={api_timeout}s hq={high_quality}"
+    log_extra = f"song_id={song_id} api={api_base} timeout={api_timeout}s hq={high_quality} cookie={'已配置' if cookie else '未配置'}"
     logger.info("[Netease] ⏳ 开始处理歌曲 → %s", log_extra)
 
     # ===== 步骤 1: 获取歌曲详情 =====
@@ -86,7 +87,7 @@ async def _process_single_song(
     hq_label = "高音质" if high_quality else "标准"
     logger.info("[Netease] ▶ 步骤 2/4: 获取音频 URL → id=%s (%s)", song_id, hq_label)
     try:
-        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip, high_quality)
+        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip, high_quality, cookie)
     except Exception as e:
         elapsed = time.time() - step_start
         logger.error(

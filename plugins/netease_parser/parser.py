@@ -447,6 +447,7 @@ async def fetch_song_url(
     timeout: int = 30,
     real_ip: str = "",
     high_quality: bool = True,
+    cookie: str = "",
 ) -> NeteaseSongUrlResult:
     """
     获取歌曲音频下载 URL。
@@ -454,6 +455,8 @@ async def fetch_song_url(
     根据 high_quality 参数请求不同码率：
     - True:  br=999000（最高可用，FLAC > 320k > 192k）
     - False: br=320000（320kbps MP3）
+
+    如需解析 VIP 歌曲的完整音频，请传入已登录网易云账号的 cookie。
 
     Raises:
         httpx.TimeoutException: API 请求超时
@@ -467,6 +470,8 @@ async def fetch_song_url(
         path += "&br=320000"
     if real_ip:
         path += f"&realIP={real_ip}"
+    if cookie:
+        path += f"&cookie={httpx.utils.quote(cookie)}"
 
     url = _api_url(api_base, path)
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
