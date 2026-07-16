@@ -31,7 +31,7 @@ NETEASE_SONG_URL_RE = re.compile(
     r"(?:/#)?"
     r"(?:/m)?/song"
     r"(?:/(?P<id_path>\d{5,12})(?:/\?[^\s]*)?(?:\?[^\s]*)?"
-    r"|\?id=(?P<id_query>\d{5,12}))",
+    r"|\?(?:[^\s]*?&)?id=(?P<id_query>\d{5,12}))",
     re.IGNORECASE,
 )
 
@@ -48,7 +48,7 @@ GENERIC_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 # 格式：https://y.music.163.com/m/program?id=2538607775
 NETEASE_PROGRAM_URL_RE = re.compile(
     r"(?:https?://)?(?:y\.)?music\.163\.com"
-    r"(?:/m)?/program\?id=(?P<id>\d{5,12})",
+    r"(?:/m)?/program\?(?:[^\s]*?&)?id=(?P<id>\d{5,12})",
     re.IGNORECASE,
 )
 
