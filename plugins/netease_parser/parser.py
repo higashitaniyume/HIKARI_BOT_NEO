@@ -418,11 +418,12 @@ async def fetch_song_detail(
         raise ValueError("歌曲不存在")
 
     song = songs[0]
-    artists = song.get("artists", [])
+    # 网易云 API 字段名：ar=artists, al=album
+    artists = song.get("ar") or song.get("artists") or []
     artist_names = " / ".join(
         a.get("name", "") for a in artists if isinstance(a, dict)
     )
-    album_info = song.get("album", {})
+    album_info = song.get("al") or song.get("album") or {}
     album_name = album_info.get("name", "") if isinstance(album_info, dict) else ""
 
     result = NeteaseSongInfo(
