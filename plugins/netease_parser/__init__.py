@@ -3,12 +3,17 @@
 
 NoneBot 加载此插件时自动注册：
 1. 自动 URL 检测 handler → 注册到 message_pipeline
-2. 检测 music.163.com 歌曲链接 → API 获取 MP3 → 下载 → 发送语音
+2. 检测 music.163.com / 163cn.tv 歌曲链接 → API 获取 FLAC/MP3 → 下载 → 发送
+
+队列行为：多个链接通过 asyncio.Queue 排队，后台 worker 并发处理
+（与 media_parser 同样的队列模式）。
 """
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
+from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
@@ -36,7 +41,147 @@ logger = logging.getLogger("HikariBot.NeteasePlugin")
 # 触发首次加载并输出配置摘要
 get_config()
 
+# ── 后台队列 ──
 
+
+@dataclass
+class NeteaseQueueItem:
+    """单个网易云解析队列条目。"""
+    bot: Bot
+    event: MessageEvent
+    item_id: str
+    item_type: str  # "song" 或 "program"
+
+
+_parse_queue: asyncio.Queue[NeteaseQueueItem] | None = None
+_parse_worker_tasks: set[asyncio.Task[None]] = set()
+
+
+def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
+    """从配置中提取队列设置。"""
+    raw = cfg.get("parse_queue") if isinstance(cfg.get("parse_queue"), dict) else {}
+    return {
+        "enabled": bool(raw.get("enabled", True)),
+        "max_size": max(1, int(raw.get("max_size", 100))),
+        "max_concurrent": max(1, int(raw.get("max_concurrent", 2))),
+        "delay_seconds": max(0.0, float(raw.get("delay_seconds", 0.8))),
+    }
+
+
+def _ensure_parse_workers(cfg: dict[str, Any]) -> asyncio.Queue[NeteaseQueueItem]:
+    """确保有足够的后台 worker 在运行。"""
+    global _parse_queue
+    settings = _queue_settings(cfg)
+    if _parse_queue is None:
+        _parse_queue = asyncio.Queue(maxsize=settings["max_size"])
+    alive = {task for task in _parse_worker_tasks if not task.done()}
+    _parse_worker_tasks.clear()
+    _parse_worker_tasks.update(alive)
+    while len(_parse_worker_tasks) < settings["max_concurrent"]:
+        worker_no = len(_parse_worker_tasks) + 1
+        task = asyncio.create_task(
+            _parse_worker(),
+            name=f"HikariNeteaseQueue-{worker_no}",
+        )
+        _parse_worker_tasks.add(task)
+        task.add_done_callback(_parse_worker_tasks.discard)
+    return _parse_queue
+
+
+async def _parse_worker() -> None:
+    """后台 worker：消费队列中的解析任务。"""
+    logger.info("[Netease] 解析队列 worker 已启动")
+    while True:
+        assert _parse_queue is not None
+        item = await _parse_queue.get()
+        try:
+            cfg = get_config()
+            await _process_queue_item(item, cfg)
+            delay = _queue_settings(cfg)["delay_seconds"]
+            if delay > 0:
+                await asyncio.sleep(delay)
+        except Exception as e:
+            logger.exception("[Netease] 队列任务异常: %s", e)
+            try:
+                await send_user_error(item.bot, item.event)
+                await notify_error_to_superuser(item.bot, item.event, e, "NeteaseParser")
+            except Exception as notify_err:
+                logger.exception("发送错误通知失败: %s", notify_err)
+        finally:
+            _parse_queue.task_done()
+
+
+async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
+    """执行单个队列条目（歌曲或播客）。"""
+    label = f"{item.item_type}_{item.item_id}"
+    logger.info("[Netease] ─── 队列处理 %s ───", label)
+    try:
+        with ActivityScope(
+            "netease_parser",
+            "parsing",
+            f"解析网易云{item.item_type}",
+            description=f"{item.item_type}={item.item_id}",
+        ):
+            if item.item_type == "program":
+                await _process_single_program(item.bot, item.event, item.item_id, cfg)
+            else:
+                await _process_single_song(item.bot, item.event, item.item_id, cfg)
+        stats_increment(item.event, "netease_parsed", 1)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.exception("[Netease] ✗ %s 处理异常 → id=%s", item.item_type, item.item_id)
+        try:
+            await send_user_error(item.bot, item.event)
+            await notify_error_to_superuser(item.bot, item.event, e, "NeteaseParser")
+        except Exception as notify_err:
+            logger.exception("发送错误通知失败: %s", notify_err)
+
+
+async def _enqueue_parse_jobs(
+    bot: Bot,
+    event: MessageEvent,
+    song_ids: list[str],
+    program_ids: list[str],
+) -> None:
+    """将歌曲/播客 ID 加入解析队列。"""
+    cfg = get_config()
+    settings = _queue_settings(cfg)
+
+    # 收集所有条目
+    items: list[NeteaseQueueItem] = []
+    for pid in program_ids:
+        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=pid, item_type="program"))
+    for sid in song_ids:
+        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=sid, item_type="song"))
+
+    if not items:
+        logger.info("[Netease] 未提取到任何歌曲/播客 ID，跳过处理")
+        return
+
+    # 队列禁用 → 同步直接处理（用于少量链接）
+    if not settings["enabled"]:
+        for queued_item in items:
+            await _process_queue_item(queued_item, get_config())
+        return
+
+    queue = _ensure_parse_workers(cfg)
+
+    queued = 0
+    dropped = 0
+    for queued_item in items:
+        if queue.full():
+            dropped += 1
+            continue
+        queue.put_nowait(queued_item)
+        queued += 1
+
+    logger.info(
+        "[Netease] 入队完成 → 入队=%d, 丢弃=%d, 队列大小=%d",
+        queued, dropped, queue.qsize(),
+    )
+    if dropped:
+        logger.warning("[Netease] 解析队列已满，%d 个链接被丢弃", dropped)
 
 
 async def _process_single_program(
@@ -307,110 +452,15 @@ class AutoNeteaseHandler:
         return False
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
-        session_start = time.time()
         cfg = get_config()
         if not is_event_allowed(cfg, event):
             return
 
-
-        text = str(event.get_message())
         max_links = max(1, int(cfg.get("max_links_per_message", 5)))
+        program_ids = (await extract_program_ids_from_event(event))[:max_links]
+        song_ids = (await extract_song_ids_from_event(event))[:max_links]
 
-        # ===== 处理播客/电台节目链接（含短链接解析 + 卡片元数据） =====
-        program_ids = await extract_program_ids_from_event(event)
-        program_ids_to_process = program_ids[:max_links]
-        if program_ids_to_process:
-            logger.info(
-                "[Netease] ═══ 检测到播客节目 ═══ 共 %d 个: %s",
-                len(program_ids_to_process), program_ids_to_process,
-            )
-            for i, pid in enumerate(program_ids_to_process):
-                logger.info("[Netease] ─── 处理第 %d/%d 个播客 ───", i + 1, len(program_ids_to_process))
-                try:
-                    with ActivityScope(
-                        "netease_parser",
-                        "parsing",
-                        "解析网易云播客",
-                        description=f"ProgramID={pid}",
-                    ):
-                        await _process_single_program(bot, event, pid, cfg)
-                    stats_increment(event, "netease_parsed", 1)
-                    if i < len(program_ids_to_process) - 1:
-                        await asyncio.sleep(1.0)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.exception("[Netease] ✗ 播客处理异常 → pid=%s", pid)
-                    try:
-                        await send_user_error(bot, event)
-                        await notify_error_to_superuser(bot, event, e, "NeteaseParser")
-                    except Exception as notify_err:
-                        logger.exception("发送错误通知失败: %s", notify_err)
-
-        # ===== 处理歌曲链接 =====
-        logger.info("[Netease] 提取歌曲 ID 中（含短链接解析）...")
-        ids = await extract_song_ids_from_event(event)
-        if not ids:
-            if not program_ids_to_process:
-                logger.info("[Netease] 未提取到歌曲 ID，跳过处理")
-            return
-
-        ids_to_process = ids[:max_links]
-        total_found = len(ids)
-
-        logger.info(
-            "[Netease] ═══ 自动解析触发 ═══\n"
-            "    用户: %s\n"
-            "    发现 %d 个链接, 处理 %d 个\n"
-            "    歌曲 ID: %s\n"
-            "    API 服务器: %s\n"
-            "    API 超时: %ds\n"
-            "    超时防御: %s",
-            event.get_user_id(),
-            total_found,
-            len(ids_to_process),
-            ids_to_process,
-            cfg.get("api_base_url", "http://127.0.0.1:3000"),
-            int(cfg.get("api_timeout", 30)),
-            "有 (30s)" if cfg.get("api_timeout") else "无",
-        )
-
-        for i, song_id in enumerate(ids_to_process):
-            logger.info(
-                "[Netease] ─── 处理第 %d/%d 个歌曲 ───",
-                i + 1,
-                len(ids_to_process),
-            )
-            try:
-                with ActivityScope(
-                    "netease_parser",
-                    "parsing",
-                    "解析网易云音乐",
-                    description=f"ID={song_id}",
-                ):
-                    await _process_single_song(bot, event, song_id, cfg)
-                stats_increment(event, "netease_parsed", 1)
-                if i < len(ids_to_process) - 1:
-                    await asyncio.sleep(1.0)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.exception(
-                    "[Netease] ✗ 歌曲处理异常 → id=%s, 耗时=%.1fs",
-                    song_id,
-                    time.time() - session_start,
-                )
-                try:
-                    await send_user_error(bot, event)
-                    await notify_error_to_superuser(bot, event, e, "NeteaseParser")
-                except Exception as notify_err:
-                    logger.exception("发送错误通知失败: %s", notify_err)
-
-        total_elapsed = time.time() - session_start
-        logger.info(
-            "[Netease] ═══ 处理完成 ═══ 共 %d 个歌曲, 总耗时 %.1fs",
-            len(ids_to_process), total_elapsed,
-        )
+        await _enqueue_parse_jobs(bot, event, song_ids, program_ids)
 
 
 # 注册到消息处理管道

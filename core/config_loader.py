@@ -240,6 +240,12 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
 DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "auto_parse": True,
     "max_links_per_message": 5,
+    "parse_queue": {
+        "enabled": True,
+        "max_size": 100,
+        "max_concurrent": 2,
+        "delay_seconds": 0.8,
+    },
     "api_base_url": "http://127.0.0.1:3000",
     "api_timeout": 30,
     "real_ip": "",
