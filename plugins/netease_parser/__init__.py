@@ -37,6 +37,69 @@ logger = logging.getLogger("HikariBot.NeteasePlugin")
 get_config()
 
 
+def _log_card_details(event: MessageEvent) -> None:
+    """将 QQ 分享卡片的详细信息输出到日志和 stdout。"""
+    for segment in event.message:
+        data = getattr(segment, "data", None)
+        if not data:
+            continue
+
+        seg_type = getattr(segment, "type", "")
+        if seg_type != "json":
+            continue
+
+        # 提取卡片 JSON
+        raw_json = ""
+        if isinstance(data, dict):
+            raw_json = data.get("data", "") or ""
+        elif isinstance(data, str):
+            raw_json = data
+
+        if not raw_json:
+            continue
+
+        try:
+            import json as _json
+
+            card = _json.loads(raw_json) if isinstance(raw_json, str) else raw_json
+            meta = card.get("meta", {}) if isinstance(card, dict) else {}
+            detail_1 = meta.get("detail_1", {}) if isinstance(meta, dict) else {}
+            news = meta.get("news", {}) if isinstance(meta, dict) else {}
+
+            # 提取关键字段
+            app_name = _json.dumps(card.get("app", ""), ensure_ascii=False) if isinstance(card, dict) else ""
+            title = detail_1.get("title", "") or news.get("title", "")
+            desc = detail_1.get("desc", "") or news.get("desc", "")
+            jump_url = detail_1.get("qqdocurl", "") or news.get("jumpUrl", "")
+            preview = detail_1.get("preview", "") or news.get("preview", "")
+
+            logger.info(
+                "[Netease] 📦 QQ 卡片详情:\n"
+                "    app=%s\n"
+                "    title=%s\n"
+                "    desc=%s\n"
+                "    jumpUrl=%s\n"
+                "    preview=%s\n"
+                "    rawMeta=%s",
+                app_name,
+                title,
+                desc,
+                jump_url,
+                preview,
+                _json.dumps(meta, ensure_ascii=False, indent=4) if isinstance(meta, dict) else meta,
+            )
+            # 也输出到 stdout
+            import sys as _sys
+
+            print(
+                f"[Netease] 📦 QQ 卡片详情: app={app_name} title={title} "
+                f"jumpUrl={jump_url}",
+                file=_sys.stderr,
+            )
+        except Exception as e:
+            logger.debug("[Netease] 卡片 JSON 解析失败: %s", e)
+
+
 async def _process_single_program(
     bot: Bot,
     event: MessageEvent,
@@ -309,6 +372,9 @@ class AutoNeteaseHandler:
         cfg = get_config()
         if not is_event_allowed(cfg, event):
             return
+
+        # 输出 QQ 卡片详情到日志（方便调试卡片 URL 提取问题）
+        _log_card_details(event)
 
         text = str(event.get_message())
         max_links = max(1, int(cfg.get("max_links_per_message", 5)))
