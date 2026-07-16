@@ -18,6 +18,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "stats_label_cobalt_parsed": "媒体链接解析",
         "stats_label_media_parser_parsed": "聚合媒体解析",
         "stats_label_youtube_downloaded": "YouTube 下载",
+        "stats_label_netease_parsed": "网易云解析",
         "stats_label_osu_queries": "osu! 查询",
         "stats_label_collage_made": "拼图",
     },
@@ -254,6 +255,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "download_usage": "用法：osu 下载 <谱面集ID|谱面链接|关键词>",
         "download_failed_title": "osu! 下载失败",
         "upload_failed": "文件上传失败: {error_type}",
+    },
+    "netease": {
+        "fetching": "正在解析网易云音乐链接...",
+        "info": "🎵 {name}\n歌手：{artist}\n专辑：{album}",
+        "failed": "网易云音乐解析失败，请稍后再试。",
+        "not_found": "未找到歌曲信息。",
+        "url_unavailable": "无法获取歌曲音频链接（可能需要版权或登录）。",
     },
     "tts": {
         "usage": "用法：说话 <文本>",

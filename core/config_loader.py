@@ -237,6 +237,19 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     },
 }
 
+DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
+    "auto_parse": True,
+    "max_links_per_message": 5,
+    "api_base_url": "http://127.0.0.1:3000",
+    "api_timeout": 30,
+    "real_ip": "",
+    "max_file_mb": 50,
+    "send_link_info": True,
+    "cache_dir": "/tmp/hikari_bot/netease",
+    "cache_ttl_seconds": 600,
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
+}
+
 DEFAULT_STICKER_CONFIG: dict[str, Any] = {
     "triggers": {
         "capoo_gif": ["capoo", "猫猫虫"],
