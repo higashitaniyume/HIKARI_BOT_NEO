@@ -8,6 +8,7 @@ NoneBot 加载此插件时自动注册：
 
 import asyncio
 import logging
+import time
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 
@@ -41,6 +42,7 @@ async def _process_single_song(
     cfg: dict,
 ) -> None:
     """处理单个歌曲 ID 的完整流程：获取详情 → 获取 URL → 下载 → 发送。"""
+    session_start = time.time()
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
@@ -48,32 +50,112 @@ async def _process_single_song(
     max_file_mb = int(cfg.get("max_file_mb", 50))
     cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
 
-    # 1. 获取歌曲详情
-    logger.debug("[Netease] 获取歌曲详情 → id=%s", song_id)
-    song = await fetch_song_detail(song_id, api_base, api_timeout, real_ip)
+    log_extra = f"song_id={song_id} api={api_base} timeout={api_timeout}s"
+    logger.info("[Netease] ⏳ 开始处理歌曲 → %s", log_extra)
+
+    # ===== 步骤 1: 获取歌曲详情 =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 1/4: 获取歌曲详情 → id=%s", song_id)
+    try:
+        song = await fetch_song_detail(song_id, api_base, api_timeout, real_ip)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error(
+            "[Netease] ✗ 步骤 1/4 失败 (%.1fs) → 获取歌曲详情时异常: %s | %s",
+            elapsed, e, log_extra,
+        )
+        raise
+
+    step_elapsed = time.time() - step_start
     if not song or not song.name:
+        logger.warning(
+            "[Netease] ✗ 步骤 1/4 完成 (%.1fs) → 未找到歌曲信息, id=%s",
+            step_elapsed, song_id,
+        )
         await bot.send(event, Message(msg("netease.not_found")))
         return
 
-    # 2. 获取音频 URL
-    logger.debug("[Netease] 获取音频 URL → id=%s", song_id)
-    url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip)
+    logger.info(
+        "[Netease] ✓ 步骤 1/4 完成 (%.1fs) → %s — %s / %s",
+        step_elapsed, song.name, song.artist, song.album,
+    )
+
+    # ===== 步骤 2: 获取音频 URL =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 2/4: 获取音频 URL → id=%s", song_id)
+    try:
+        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error(
+            "[Netease] ✗ 步骤 2/4 失败 (%.1fs) → 获取音频 URL 时异常: %s | %s",
+            elapsed, e, log_extra,
+        )
+        raise
+
+    step_elapsed = time.time() - step_start
     if not url_result.url:
+        logger.warning(
+            "[Netease] ✗ 步骤 2/4 完成 (%.1fs) → 音频链接不可用 (版权/登录限制) | id=%s, code=%s",
+            step_elapsed, song_id, url_result.code,
+        )
         await bot.send(event, Message(msg("netease.url_unavailable")))
         return
 
-    # 3. 下载音频
-    logger.debug("[Netease] 下载音频 → id=%s", song_id)
-    audio_path = await download_audio(
-        url_result.url,
-        cache_dir=cache_dir,
-        timeout=api_timeout,
-        max_file_mb=max_file_mb,
-        cache_ttl_seconds=cache_ttl,
+    logger.info(
+        "[Netease] ✓ 步骤 2/4 完成 (%.1fs) → 获取到音频链接, br=%skbps, size=%.1fMB",
+        step_elapsed, url_result.br // 1000, url_result.size / 1024 / 1024,
     )
 
-    # 4. 发送
-    await send_song(bot, event, song, audio_path, cfg)
+    # ===== 步骤 3: 下载音频 =====
+    step_start = time.time()
+    logger.info(
+        "[Netease] ▶ 步骤 3/4: 下载音频 → id=%s, max_size=%dMB",
+        song_id, max_file_mb,
+    )
+    try:
+        audio_path = await download_audio(
+            url_result.url,
+            cache_dir=cache_dir,
+            timeout=api_timeout,
+            max_file_mb=max_file_mb,
+            cache_ttl_seconds=cache_ttl,
+        )
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error(
+            "[Netease] ✗ 步骤 3/4 失败 (%.1fs) → 下载音频时异常: %s | %s",
+            elapsed, e, log_extra,
+        )
+        raise
+
+    step_elapsed = time.time() - step_start
+    file_size = audio_path.stat().st_size
+    logger.info(
+        "[Netease] ✓ 步骤 3/4 完成 (%.1fs) → 音频文件: %s (%.1fMB)",
+        step_elapsed, audio_path.name, file_size / 1024 / 1024,
+    )
+
+    # ===== 步骤 4: 发送音频 =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 4/4: 发送音频 → id=%s", song_id)
+    try:
+        await send_song(bot, event, song, audio_path, cfg)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error(
+            "[Netease] ✗ 步骤 4/4 失败 (%.1fs) → 发送音频时异常: %s | %s",
+            elapsed, e, log_extra,
+        )
+        raise
+
+    step_elapsed = time.time() - step_start
+    total_elapsed = time.time() - session_start
+    logger.info(
+        "[Netease] ✓ 步骤 4/4 完成 (%.1fs) | "
+        "🎉 全部完成 (总耗时 %.1fs) → %s — %s",
+        step_elapsed, total_elapsed, song.name, song.artist,
+    )
 
 
 class AutoNeteaseHandler:
@@ -87,23 +169,36 @@ class AutoNeteaseHandler:
             return False
         if not is_event_allowed(cfg, event):
             return False
+
         # 检查正文是否包含网易云链接
         if has_netease_url(text):
+            logger.debug("[Netease] match ✓ 正文命中 → text=%s...", text[:80])
             return True
+
         # 检查 QQ 卡片元数据是否包含网易云链接
         from .parser import extract_all_urls
 
-        for url in extract_all_urls(event):
+        card_urls = extract_all_urls(event)
+        for url in card_urls:
             if has_netease_url(url):
+                logger.debug(
+                    "[Netease] match ✓ 卡片元数据命中 → url=%s", url[:80],
+                )
                 return True
+
         return False
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
+        session_start = time.time()
         cfg = get_config()
         if not is_event_allowed(cfg, event):
             return
+
+        # 提取歌曲 ID（含短链接解析）
+        logger.info("[Netease] 提取歌曲 ID 中（含短链接解析）...")
         ids = await extract_song_ids_from_event(event)
         if not ids:
+            logger.info("[Netease] 未提取到歌曲 ID，跳过处理")
             return
 
         max_links = max(1, int(cfg.get("max_links_per_message", 5)))
@@ -111,20 +206,27 @@ class AutoNeteaseHandler:
         total_found = len(ids)
 
         logger.info(
-            "[Netease] 自动解析触发 → user=%s, "
-            "发现 %d 个链接, 处理 %d 个, ids=%s",
+            "[Netease] ═══ 自动解析触发 ═══\n"
+            "    用户: %s\n"
+            "    发现 %d 个链接, 处理 %d 个\n"
+            "    歌曲 ID: %s\n"
+            "    API 服务器: %s\n"
+            "    API 超时: %ds\n"
+            "    超时防御: %s",
             event.get_user_id(),
             total_found,
             len(ids_to_process),
             ids_to_process,
+            cfg.get("api_base_url", "http://127.0.0.1:3000"),
+            int(cfg.get("api_timeout", 30)),
+            "有 (30s)" if cfg.get("api_timeout") else "无",
         )
 
         for i, song_id in enumerate(ids_to_process):
-            logger.debug(
-                "[Netease] 处理第 %d/%d 个 → id=%s",
+            logger.info(
+                "[Netease] ─── 处理第 %d/%d 个歌曲 ───",
                 i + 1,
                 len(ids_to_process),
-                song_id,
             )
             try:
                 with ActivityScope(
@@ -135,16 +237,29 @@ class AutoNeteaseHandler:
                 ):
                     await _process_single_song(bot, event, song_id, cfg)
                 stats_increment(event, "netease_parsed", 1)
-                await asyncio.sleep(1.0)
+                if i < len(ids_to_process) - 1:
+                    await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
-                logger.exception("[Netease] 解析失败 → id=%s: %s", song_id, e)
+                logger.exception(
+                    "[Netease] ✗ 歌曲处理异常 → id=%s, 耗时=%.1fs",
+                    song_id,
+                    time.time() - session_start,
+                )
                 try:
                     await send_user_error(bot, event)
                     await notify_error_to_superuser(bot, event, e, "NeteaseParser")
                 except Exception as notify_err:
                     logger.exception("发送错误通知失败: %s", notify_err)
 
+        total_elapsed = time.time() - session_start
+        logger.info(
+            "[Netease] ═══ 处理完成 ═══ 共 %d 个歌曲, 总耗时 %.1fs",
+            len(ids_to_process), total_elapsed,
+        )
+
 
 # 注册到消息处理管道
 register_handler(AutoNeteaseHandler())
-logger.info("网易云音乐解析器已注册 → music.163.com")
+logger.info("网易云音乐解析器已注册 → music.163.com / 163cn.tv")

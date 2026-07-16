@@ -4,7 +4,7 @@
 负责：
 1. 从 api-enhanced 返回的 MP3 URL 下载到本地缓存
 2. SHA256 哈希去重缓存
-3. 大小限制检查
+3. 流式下载并实时检查大小限制
 """
 
 import hashlib
@@ -23,6 +23,7 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/136.0.7103.48 Safari/537.36"
 )
+CHUNK_LOG_INTERVAL_BYTES = 10 * 1024 * 1024  # 每 10MB 打印一次进度
 
 
 def _cache_path(url: str, cache_dir: str) -> Path:
@@ -46,36 +47,34 @@ async def download_audio(
     """
     下载音频文件到本地缓存。
 
-    Args:
-        url: MP3 下载 URL
-        cache_dir: 缓存目录
-        timeout: 请求超时（秒）
-        max_file_mb: 最大文件大小（MB）
-        cache_ttl_seconds: 缓存 TTL（秒）
-
-    Returns:
-        本地文件路径
-
     Raises:
         RuntimeError: 下载失败或超过大小限制
+        httpx.TimeoutException: 下载超时
     """
     path = _cache_path(url, cache_dir)
     max_bytes = max(int(max_file_mb), 1) * 1024 * 1024
 
-    # 缓存命中
+    # ===== 缓存命中 =====
     if path.exists() and path.stat().st_size > 0:
-        if path.stat().st_size > max_bytes:
+        file_size = path.stat().st_size
+        if file_size > max_bytes:
+            logger.warning(
+                "[Netease] 缓存文件超过大小限制 → %s (%.1fMB > %dMB)",
+                path.name, file_size / 1024 / 1024, max_file_mb,
+            )
             raise RuntimeError(
-                f"缓存音频超过大小限制：{path.stat().st_size / 1024 / 1024:.1f}MB"
+                f"缓存音频超过大小限制：{file_size / 1024 / 1024:.1f}MB"
             )
         register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
-        size_kb = path.stat().st_size / 1024
-        logger.debug("[Netease] 缓存命中 → %s (%.1f KB)", path.name, size_kb)
+        logger.info(
+            "[Netease] 缓存命中 → %s (%.1fMB, 已延期 TTL=%ds)",
+            path.name, file_size / 1024 / 1024, cache_ttl_seconds,
+        )
         return path
 
-    # 下载：流式写入
-    logger.info("[Netease] 下载音频 → %s...", url[:100])
+    # ===== 下载 =====
     t_start = time.time()
+    logger.info("[Netease] 开始下载 → %s", url[:120])
 
     headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(
@@ -87,15 +86,29 @@ async def download_audio(
         try:
             async with client.stream("GET", url, headers=headers) as resp:
                 resp.raise_for_status()
-                content_length = resp.headers.get("content-length")
-                content_length_bytes = (
-                    int(content_length) if content_length and content_length.isdigit() else 0
-                )
-                if content_length_bytes > max_bytes:
-                    raise RuntimeError(
-                        f"音频超过大小限制：{content_length_bytes / 1024 / 1024:.1f}MB"
+
+                # 检查 Content-Length
+                cl = resp.headers.get("content-length")
+                if cl and cl.isdigit():
+                    remote_size = int(cl)
+                    logger.info(
+                        "[Netease] 下载: Content-Length=%.1fMB, 限制=%dMB",
+                        remote_size / 1024 / 1024, max_file_mb,
                     )
+                    if remote_size > max_bytes:
+                        raise RuntimeError(
+                            f"音频超过大小限制：{remote_size / 1024 / 1024:.1f}MB"
+                        )
+                else:
+                    remote_size = "未知"
+                    logger.info(
+                        "[Netease] 下载: Content-Length=%s, 限制=%dMB",
+                        remote_size, max_file_mb,
+                    )
+
+                # 流式写入
                 written = 0
+                last_chunk_log = 0
                 with tmp_path.open("wb") as f:
                     async for chunk in resp.aiter_bytes():
                         if chunk:
@@ -105,15 +118,35 @@ async def download_audio(
                                     f"音频超过大小限制：{written / 1024 / 1024:.1f}MB"
                                 )
                             f.write(chunk)
-            tmp_path.replace(path)
+
+                            # 每 10MB 打印一次进度
+                            if written - last_chunk_log >= CHUNK_LOG_INTERVAL_BYTES:
+                                last_chunk_log = written
+                                elapsed_now = time.time() - t_start
+                                speed = written / 1024 / 1024 / elapsed_now if elapsed_now > 0 else 0
+                                logger.info(
+                                    "[Netease] 下载中... %.1fMB / %s (%.1fMB/s, %.1fs)",
+                                    written / 1024 / 1024,
+                                    f"{remote_size / 1024 / 1024:.1f}MB" if isinstance(remote_size, int) else "未知",
+                                    speed, elapsed_now,
+                                )
+
+                tmp_path.replace(path)
+
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
 
     elapsed = time.time() - t_start
-    size_kb = path.stat().st_size / 1024
-    size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
-    logger.info("[Netease] 下载完成 → %s (%s, %.2fs)", path.name, size_str, elapsed)
+    file_size = path.stat().st_size
+    speed = file_size / 1024 / 1024 / elapsed if elapsed > 0 else 0
+
+    logger.info(
+        "[Netease] 下载完成 → %s (%.1fMB, %.1fMB/s, %.1fs)",
+        path.name, file_size / 1024 / 1024, speed, elapsed,
+    )
+
     register_temp_media_path(path, ttl_seconds=cache_ttl_seconds)
+    logger.debug("[Netease] 已注册缓存 TTL 清理 → %s (TTL=%ds)", path.name, cache_ttl_seconds)
 
     return path

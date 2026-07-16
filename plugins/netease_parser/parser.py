@@ -11,7 +11,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 import httpx
@@ -24,11 +24,6 @@ logger = logging.getLogger("HikariBot.NeteaseParser")
 # =========================
 
 # 匹配 music.163.com 的歌曲链接
-# 支持的格式：
-#   https://music.163.com/song/33894312
-#   https://music.163.com/#/song?id=33894312
-#   http://music.163.com/song/33894312/?xxx
-#   music.163.com/#/song?id=33894312
 NETEASE_SONG_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?music\.163\.com"
     r"(?:/#)?/song"
@@ -43,7 +38,7 @@ NETEASE_SHORT_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# 通用 URL 提取（用于从卡片数据中匹配任意 http 链接）
+# 通用 URL 提取
 GENERIC_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 
 USER_AGENT = (
@@ -101,6 +96,12 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
             if url and url not in seen:
                 seen.add(url)
                 urls.append(url)
+
+    if urls:
+        logger.debug(
+            "[Netease] 从卡片元数据提取到 %d 个 URL: %s",
+            len(urls), [u[:60] for u in urls],
+        )
     return urls
 
 
@@ -108,25 +109,22 @@ def _card_url_candidates(data: Any) -> list[str]:
     """从单个消息段的 data 字段中提取可能的 URL。"""
     candidates: list[str] = []
     try:
-        # 直接从 data 的 meta 字段提取（QQ 标准卡片格式）
         if isinstance(data, dict):
             curl_link = _extract_qqdocurl(data)
             if curl_link:
                 candidates.append(curl_link)
-            # 递归检查 data 中各字段
             for value in data.values():
                 if isinstance(value, (dict, str)):
                     curl_link = _extract_qqdocurl(value)
                     if curl_link:
                         candidates.append(curl_link)
-        # data 本身是 JSON 字符串的情况
         if isinstance(data, str) and data.startswith("{"):
             parsed = json.loads(data)
             curl_link = _extract_qqdocurl(parsed)
             if curl_link:
                 candidates.append(curl_link)
-    except (AttributeError, KeyError, json.JSONDecodeError, TypeError):
-        pass
+    except (AttributeError, KeyError, json.JSONDecodeError, TypeError) as e:
+        logger.debug("[Netease] 卡片 URL 提取异常: %s", e)
     return candidates
 
 
@@ -151,11 +149,9 @@ def _extract_qqdocurl(data: Any) -> Optional[str]:
 
 def extract_all_urls(event: MessageEvent) -> list[str]:
     """
-    从消息事件中提取所有可能的 URL，包括：
-    1. 消息正文中的文本 URL
-    2. QQ 卡片元数据中的 URL
+    从消息事件中提取所有可能的 URL。
 
-    返回去重、保持顺序的 URL 列表。
+    包括消息正文的文本 URL 和 QQ 卡片元数据中的 URL。
     """
     urls: list[str] = []
     seen: set[str] = set()
@@ -174,6 +170,10 @@ def extract_all_urls(event: MessageEvent) -> list[str]:
             seen.add(url)
             urls.append(url)
 
+    if urls:
+        logger.debug("[Netease] extract_all_urls 共提取到 %d 个 URL", len(urls))
+    else:
+        logger.debug("[Netease] extract_all_urls 未提取到任何 URL")
     return urls
 
 
@@ -200,22 +200,16 @@ def has_netease_url(text: str) -> bool:
     return False
 
 
-def has_short_url(text: str) -> bool:
-    """检查文本中是否包含 163cn.tv 短链接。"""
-    return bool(NETEASE_SHORT_URL_RE.search(text))
-
-
 async def resolve_short_url(short_url: str, timeout: int = 10) -> Optional[str]:
     """
     解析 163cn.tv 短链接，跟随重定向获取真实 URL。
 
-    Args:
-        short_url: 短链接 URL
-        timeout: 请求超时（秒）
-
     Returns:
         重定向后的真实 URL，解析失败返回 None
     """
+    t_start = time.time()
+    logger.info("[Netease] 解析短链接 → %s", short_url)
+
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout, connect=5.0),
@@ -223,14 +217,32 @@ async def resolve_short_url(short_url: str, timeout: int = 10) -> Optional[str]:
             max_redirects=5,
         ) as client:
             resp = await client.get(short_url, headers={"User-Agent": USER_AGENT})
-            # 获取最终 URL（重定向链的终点）
             final_url = str(resp.url)
+            elapsed = time.time() - t_start
+
             if final_url and final_url != short_url:
-                logger.debug("[Netease] 短链接解析 → %s → %s", short_url, final_url)
+                logger.info(
+                    "[Netease] 短链接解析成功 (%.2fs) → %s → %s",
+                    elapsed, short_url, final_url,
+                )
                 return final_url
-            return None
+            else:
+                logger.warning(
+                    "[Netease] 短链接未重定向 (%.2fs) → %s",
+                    elapsed, short_url,
+                )
+                return None
+    except httpx.TimeoutException:
+        logger.error(
+            "[Netease] 短链接解析超时 (%.1fs) → %s (timeout=%ds)",
+            time.time() - t_start, short_url, timeout,
+        )
+        return None
     except httpx.HTTPError as e:
-        logger.warning("[Netease] 短链接解析失败 → %s: %s", short_url, e)
+        logger.error(
+            "[Netease] 短链接解析 HTTP 错误 (%.1fs) → %s: %s",
+            time.time() - t_start, short_url, e,
+        )
         return None
 
 
@@ -244,7 +256,8 @@ def extract_song_id_from_url(url: str) -> Optional[str]:
     """
     match = NETEASE_SONG_URL_RE.search(url)
     if match:
-        return match.group("id_path") or match.group("id_query")
+        song_id = match.group("id_path") or match.group("id_query")
+        return song_id
     return None
 
 
@@ -257,38 +270,70 @@ async def extract_song_ids_from_event(event: MessageEvent) -> list[str]:
     2. 直接匹配 music.163.com/song/... 格式 → 提取 ID
     3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
     4. 去重返回
-
-    Returns:
-        去重、保持顺序的歌曲 ID 列表
     """
+    t_start = time.time()
     ids: list[str] = []
     seen_ids: set[str] = set()
-    resolved_short_urls: set[str] = set()
     short_urls_to_resolve: list[str] = []
 
     all_urls = extract_all_urls(event)
 
+    if not all_urls:
+        logger.debug("[Netease] 消息中未提取到任何 URL")
+        return []
+
+    logger.info("[Netease] 从消息中提取到 %d 个 URL", len(all_urls))
+
     for url in all_urls:
         # 尝试直接匹配 music.163.com/song/...
         song_id = extract_song_id_from_url(url)
-        if song_id and song_id not in seen_ids:
-            seen_ids.add(song_id)
-            ids.append(song_id)
-            continue
-
-        # 匹配 163cn.tv 短链接，后续批量解析
-        if NETEASE_SHORT_URL_RE.match(url) and url not in resolved_short_urls:
-            resolved_short_urls.add(url)
-            short_urls_to_resolve.append(url)
-
-    # 批量解析短链接
-    for short_url in short_urls_to_resolve:
-        resolved = await resolve_short_url(short_url)
-        if resolved:
-            song_id = extract_song_id_from_url(resolved)
-            if song_id and song_id not in seen_ids:
+        if song_id:
+            if song_id not in seen_ids:
                 seen_ids.add(song_id)
                 ids.append(song_id)
+                logger.debug("[Netease] 直接提取到歌曲 ID → %s (%s)", song_id, url[:60])
+            continue
+
+        # 匹配 163cn.tv 短链接
+        if NETEASE_SHORT_URL_RE.match(url):
+            short_urls_to_resolve.append(url)
+            logger.debug("[Netease] 发现短链接 → %s", url)
+
+    # 批量解析短链接
+    if short_urls_to_resolve:
+        logger.info(
+            "[Netease] 解析 %d 个 163cn.tv 短链接...", len(short_urls_to_resolve),
+        )
+        for short_url in short_urls_to_resolve:
+            resolved = await resolve_short_url(short_url)
+            if resolved:
+                song_id = extract_song_id_from_url(resolved)
+                if song_id and song_id not in seen_ids:
+                    seen_ids.add(song_id)
+                    ids.append(song_id)
+                    logger.info(
+                        "[Netease] 短链接解析 → 提取到歌曲 ID: %s → %s",
+                        short_url, song_id,
+                    )
+                else:
+                    logger.warning(
+                        "[Netease] 短链接解析后未找到歌曲 ID → %s → %s",
+                        short_url, resolved,
+                    )
+    else:
+        logger.debug("[Netease] 无需解析短链接")
+
+    elapsed = time.time() - t_start
+    if ids:
+        logger.info(
+            "[Netease] 歌曲 ID 提取完成 (%.2fs) → 共 %d 个: %s",
+            elapsed, len(ids), ids,
+        )
+    else:
+        logger.info(
+            "[Netease] 歌曲 ID 提取完成 (%.2fs) → 未找到有效歌曲 ID",
+            elapsed,
+        )
 
     return ids
 
@@ -315,56 +360,82 @@ async def fetch_song_detail(
     """
     获取歌曲详细信息。
 
-    Args:
-        song_id: 歌曲 ID
-        api_base: API 服务器地址（如 http://127.0.0.1:3000）
-        timeout: 请求超时（秒）
-        real_ip: 用于绕过地区限制的国内 IP
-
-    Returns:
-        NeteaseSongInfo 对象
-
     Raises:
-        httpx.HTTPError: API 请求失败
-        ValueError: 响应格式异常
+        httpx.TimeoutException: API 请求超时
+        httpx.HTTPStatusError: HTTP 状态码异常
+        ValueError: 响应格式异常 / 歌曲不存在
     """
-    url = _api_url(api_base, f"/song/detail?ids={song_id}")
+    path = f"/song/detail?ids={song_id}"
     if real_ip:
-        url += f"&realIP={real_ip}"
+        path += f"&realIP={real_ip}"
 
-    headers = {"User-Agent": USER_AGENT}
+    url = _api_url(api_base, path)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
-    logger.debug("[Netease] 请求歌曲详情 → song_id=%s", song_id)
     t_start = time.time()
+    logger.info(
+        "[Netease] API GET → %s (timeout=%ds, real_ip=%s)",
+        url, timeout, "已配置" if real_ip else "未配置",
+    )
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        elapsed = time.time() - t_start
+        logger.error(
+            "[Netease] API 超时 (%.1fs) → %s（请检查 api_base_url 是否可访问）",
+            elapsed, url,
+        )
+        raise
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - t_start
+        logger.error(
+            "[Netease] API HTTP 错误 (%.1fs) → %s HTTP %s",
+            elapsed, url, e.response.status_code,
+        )
+        raise
+    except Exception:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 请求异常 (%.1fs) → %s", elapsed, url)
+        raise
 
     elapsed = time.time() - t_start
-    logger.debug("[Netease] 歌曲详情响应 → song_id=%s, elapsed=%.2fs", song_id, elapsed)
 
     if data.get("code") != 200:
-        raise ValueError(f"API 返回异常 code={data.get('code')}: {data.get('msg', '')}")
+        raise ValueError(
+            f"API 返回异常: code={data.get('code')}, msg={data.get('msg', '')} "
+            f"(elapsed={elapsed:.1f}s)"
+        )
 
     songs = data.get("songs", [])
     if not songs:
-        raise ValueError("未找到歌曲信息")
+        logger.warning("[Netease] API 响应正常但歌曲列表为空 → id=%s (%.1fs)", song_id, elapsed)
+        raise ValueError("歌曲不存在")
 
     song = songs[0]
     artists = song.get("artists", [])
-    artist_names = " / ".join(a.get("name", "") for a in artists if isinstance(a, dict))
+    artist_names = " / ".join(
+        a.get("name", "") for a in artists if isinstance(a, dict)
+    )
     album_info = song.get("album", {})
     album_name = album_info.get("name", "") if isinstance(album_info, dict) else ""
 
-    return NeteaseSongInfo(
+    result = NeteaseSongInfo(
         id=str(song.get("id", song_id)),
         name=str(song.get("name", "")),
         artist=artist_names,
         album=album_name,
         pic_url=album_info.get("picUrl", "") if isinstance(album_info, dict) else "",
     )
+
+    logger.info(
+        "[Netease] API song/detail 响应 (%.1fs) → HTTP %d, 歌曲=%s, 歌手=%s",
+        elapsed, resp.status_code, result.name, result.artist,
+    )
+    return result
 
 
 async def fetch_song_url(
@@ -376,48 +447,81 @@ async def fetch_song_url(
     """
     获取歌曲音频下载 URL。
 
-    Args:
-        song_id: 歌曲 ID
-        api_base: API 服务器地址
-        timeout: 请求超时（秒）
-        real_ip: 用于绕过地区限制的国内 IP
-
-    Returns:
-        NeteaseSongUrlResult 对象，url 为空表示歌曲不可用
-
     Raises:
-        httpx.HTTPError: API 请求失败
+        httpx.TimeoutException: API 请求超时
+        httpx.HTTPStatusError: HTTP 状态码异常
         ValueError: 响应格式异常
     """
-    url = _api_url(api_base, f"/song/url?id={song_id}")
+    path = f"/song/url?id={song_id}"
     if real_ip:
-        url += f"&realIP={real_ip}"
+        path += f"&realIP={real_ip}"
 
-    headers = {"User-Agent": USER_AGENT}
+    url = _api_url(api_base, path)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
 
-    logger.debug("[Netease] 请求歌曲 URL → song_id=%s", song_id)
     t_start = time.time()
+    logger.info(
+        "[Netease] API GET → %s (timeout=%ds)",
+        url, timeout,
+    )
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        elapsed = time.time() - t_start
+        logger.error(
+            "[Netease] API 超时 (%.1fs) → %s（请检查 api_base_url 是否可访问）",
+            elapsed, url,
+        )
+        raise
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - t_start
+        logger.error(
+            "[Netease] API HTTP 错误 (%.1fs) → %s HTTP %s",
+            elapsed, url, e.response.status_code,
+        )
+        raise
+    except Exception:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 请求异常 (%.1fs) → %s", elapsed, url)
+        raise
 
     elapsed = time.time() - t_start
-    logger.debug("[Netease] 歌曲 URL 响应 → song_id=%s, elapsed=%.2fs", song_id, elapsed)
 
     if data.get("code") != 200:
-        raise ValueError(f"API 返回异常 code={data.get('code')}: {data.get('msg', '')}")
+        raise ValueError(
+            f"API 返回异常: code={data.get('code')}, msg={data.get('msg', '')} "
+            f"(elapsed={elapsed:.1f}s)"
+        )
 
     items = data.get("data", [])
     if not items:
+        logger.warning("[Netease] API song/url 返回空 data → id=%s (%.1fs)", song_id, elapsed)
         return NeteaseSongUrlResult(code=404)
 
     item = items[0]
+    audio_url = str(item.get("url") or "")
+    br = int(item.get("br", 0))
+    size = int(item.get("size", 0))
+
+    if not audio_url:
+        logger.warning(
+            "[Netease] API song/url URL 为空 → id=%s, code=%s, 可能需要版权/登录 (%.1fs)",
+            song_id, item.get("code"), elapsed,
+        )
+    else:
+        logger.info(
+            "[Netease] API song/url 响应 (%.1fs) → HTTP %d, br=%skbps, size=%.1fMB",
+            elapsed, resp.status_code, br // 1000, size / 1024 / 1024,
+        )
+
     return NeteaseSongUrlResult(
-        url=str(item.get("url") or ""),
-        br=int(item.get("br", 0)),
-        size=int(item.get("size", 0)),
+        url=audio_url,
+        br=br,
+        size=size,
         type=str(item.get("type", "mp3")),
         code=int(item.get("code", 200)),
     )

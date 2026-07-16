@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, Event, Message, MessageSegment
 
 from core.bot_messages import get_message as msg
 
@@ -44,13 +44,22 @@ async def send_song(
     2. 再发送音频作为语音消息
     """
     send_link_info = bool(config.get("send_link_info", True))
+    file_size_mb = audio_path.stat().st_size / 1024 / 1024 if audio_path.exists() else 0
 
     # 发送信息文本
     if send_link_info and (song.name or song.artist):
         info_text = build_info_text(song)
+        logger.info(
+            "[Netease] 发送信息文本 → 「%s — %s」(%s)",
+            song.name, song.artist, song.album,
+        )
         await bot.send(event, Message(info_text))
 
     # 发送音频
     uri = file_as_uri(audio_path)
-    logger.info("[Netease] 发送音频 → %s", audio_path.name)
+    logger.info(
+        "[Netease] 发送音频 → %s (%.1fMB, URI=%s...)",
+        audio_path.name, file_size_mb, uri[:60],
+    )
     await bot.send(event, Message(MessageSegment.record(uri)))
+    logger.info("[Netease] 音频发送完成 → %s", song.name)
