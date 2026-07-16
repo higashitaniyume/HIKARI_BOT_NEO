@@ -10,10 +10,12 @@ NCM 文件解密发送模块。
 """
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -32,6 +34,39 @@ USER_AGENT = (
 def _sanitize_filename(text: str) -> str:
     """清理文件名中的非法字符。"""
     return "".join(c for c in text if c.isprintable() and c not in r'<>:"/\|?*').strip()
+
+
+def _read_local_file_safe(path: str, max_bytes: int, log_prefix: str) -> bytes:
+    """安全读取本地文件，带大小检查和日志。"""
+    local = Path(path)
+    if not local.exists():
+        logger.error("%s   本地文件不存在 → %s", log_prefix, path)
+        raise FileNotFoundError(f"本地文件不存在: {path}")
+    if not local.is_file():
+        logger.error("%s   路径不是文件 → %s", log_prefix, path)
+        raise RuntimeError(f"路径不是文件: {path}")
+
+    local_size = local.stat().st_size
+    logger.info(
+        "%s   本地文件 → %s (%.1fMB)",
+        log_prefix,
+        path,
+        local_size / 1024 / 1024,
+    )
+
+    if local_size > max_bytes:
+        raise RuntimeError(
+            f"NCM 文件超过大小限制：{local_size / 1024 / 1024:.1f}MB"
+        )
+
+    data = local.read_bytes()
+    logger.info(
+        "%s   本地读取成功 → %s (%.1fMB)",
+        log_prefix,
+        path,
+        len(data) / 1024 / 1024,
+    )
+    return data
 
 
 async def _download_ncm_content(
@@ -201,31 +236,47 @@ async def download_and_decrypt_ncm(
     if file_info is None:
         raise RuntimeError("获取 NCM 文件信息失败: 返回为空")
 
+    # 打印原始 file_info 到日志，方便调试 NapCat 返回值
+    logger.debug(
+        "%s   get_file 原始响应 → %s",
+        log_prefix,
+        json.dumps(file_info, ensure_ascii=False, default=str),
+    )
+
     raw_file_name = str(file_info.get("file_name", "unknown.ncm"))
-    file_url = str(file_info.get("url") or "")
-    local_path = str(file_info.get("file") or "")
+    file_url_raw = str(file_info.get("url") or "").strip()
+    local_path_raw = str(file_info.get("file") or "").strip()
     reported_size = str(file_info.get("file_size", ""))
 
-    if not file_url and not local_path:
+    if not file_url_raw and not local_path_raw:
         raise RuntimeError("get_file 未返回 url 或 file 字段，NapCat 版本可能过旧或配置不完整")
+
+    # 判断 URL 是否为 HTTP(S) 可下载链接
+    url_scheme = urlparse(file_url_raw).scheme.lower()
+    is_http_url = url_scheme in ("http", "https")
 
     step_elapsed = time.time() - step_start
     logger.info(
         "%s ✓ 步骤 1/4 完成 (%.1fs)\n"
         "    文件名: %s\n"
         "    文件大小: %s\n"
-        "    下载方式: %s",
+        "    url 字段: %s\n"
+        "    file 字段: %s\n"
+        "    url_scheme=%s → %s",
         log_prefix,
         step_elapsed,
         raw_file_name,
         reported_size or "未知",
-        "URL 直链" if file_url else "本地路径",
+        file_url_raw[:200] if file_url_raw else "(空)",
+        local_path_raw[:200] if local_path_raw else "(空)",
+        url_scheme or "(空)",
+        "HTTP 下载" if is_http_url else "本地读取",
     )
 
-    # ===== 步骤 2: 下载 NCM 文件内容（带重试） =====
+    # ===== 步骤 2: 获取 NCM 文件内容 =====
     step_start = time.time()
     logger.info(
-        "%s ▶ 步骤 2/4: 下载 NCM 文件 → max_size=%dMB, timeout=%ss",
+        "%s ▶ 步骤 2/4: 获取 NCM 文件内容 → max_size=%dMB, timeout=%ss",
         log_prefix,
         max_file_mb,
         timeout,
@@ -234,11 +285,12 @@ async def download_and_decrypt_ncm(
     ncm_data: bytes | None = None
     last_error = None
 
-    if file_url:
+    # -- 优先走 HTTP 下载 --
+    if is_http_url:
         for attempt in range(1, retry_count + 2):
             attempt_start = time.time()
             try:
-                ncm_data = await _download_ncm_content(file_url, max_bytes, timeout)
+                ncm_data = await _download_ncm_content(file_url_raw, max_bytes, timeout)
                 download_elapsed = time.time() - attempt_start
                 speed = len(ncm_data) / 1024 / 1024 / download_elapsed if download_elapsed > 0 else 0
                 logger.info(
@@ -278,46 +330,53 @@ async def download_and_decrypt_ncm(
                     raise RuntimeError(f"NCM 文件下载失败: {last_error}") from last_error
             except Exception as e:
                 logger.error(
-                    "%s   下载异常 (非网络类): %s",
+                    "%s   下载异常: %s",
                     log_prefix,
                     e,
                 )
                 raise RuntimeError(f"NCM 文件下载异常: {e}") from e
-    else:
-        # 无 URL 时降级读取本地文件（同机部署场景）
-        try:
-            local = Path(local_path)
-            if local.exists():
-                local_size = local.stat().st_size
-                logger.info(
-                    "%s   降级读取本地文件 → path=%s (%.1fMB)",
-                    log_prefix,
-                    local_path,
-                    local_size / 1024 / 1024,
-                )
-                if local_size > max_bytes:
-                    raise RuntimeError(
-                        f"NCM 文件超过大小限制：{local_size / 1024 / 1024:.1f}MB"
-                    )
-                ncm_data = local.read_bytes()
-                logger.info(
-                    "%s   本地读取成功 → %s (%.1fMB)",
-                    log_prefix,
-                    local_path,
-                    len(ncm_data) / 1024 / 1024,
-                )
-            else:
-                logger.error("%s   本地文件不存在 → %s", log_prefix, local_path)
-                raise RuntimeError(f"本地文件不存在: {local_path}")
-        except RuntimeError:
-            raise
-        except Exception as e:
-            logger.error(
-                "%s   本地文件读取异常: %s",
+
+    # -- URL 非 HTTP 时，尝试本地读取 --
+    if ncm_data is None:
+        # URL 是非 HTTP 协议（file:// 或裸路径）且还未成功读取
+        if file_url_raw and not is_http_url:
+            # 尝试从 file:// URL 中提取路径
+            parsed = urlparse(file_url_raw)
+            local_candidate = parsed.path if parsed.scheme in ("file", "") else file_url_raw
+            logger.info(
+                "%s   URL 非 HTTP 协议 (scheme=%r), 尝试本地读取 → candidate=%s",
                 log_prefix,
-                e,
+                url_scheme,
+                local_candidate[:200],
             )
-            raise RuntimeError(f"读取本地 NCM 文件失败: {e}") from e
+            try:
+                ncm_data = _read_local_file_safe(local_candidate, max_bytes, log_prefix)
+            except Exception:
+                logger.warning(
+                    "%s   从 URL 提取路径读取失败, 尝试 file 字段 → %s",
+                    log_prefix,
+                    local_path_raw[:200] or "(空)",
+                )
+
+        # 降级到 file 字段（NapCat 本地路径）
+        if ncm_data is None and local_path_raw:
+            logger.info(
+                "%s   降级读取 file 字段 → path=%s",
+                log_prefix,
+                local_path_raw[:200],
+            )
+            try:
+                ncm_data = _read_local_file_safe(local_path_raw, max_bytes, log_prefix)
+            except Exception as e:
+                raise RuntimeError(f"读取 NCM 文件失败 (file 字段): {e}") from e
+
+    if ncm_data is None:
+        raise RuntimeError(
+            f"无法获取 NCM 文件内容: "
+            f"url_scheme={url_scheme!r}, "
+            f"url={file_url_raw[:160]!r}, "
+            f"file={local_path_raw[:160]!r}"
+        )
 
     if ncm_data is None or len(ncm_data) == 0:
         raise RuntimeError("下载到的 NCM 文件内容为空")
