@@ -140,19 +140,33 @@ def _card_url_candidates(data: Any) -> list[str]:
 
 
 def _extract_qqdocurl(data: Any) -> Optional[str]:
-    """从可能包含 QQ 卡片元数据的 dict 中提取 qqdocurl。"""
+    """从可能包含 QQ 卡片元数据的 dict 中提取 URL。
+
+    QQ 卡片有不同的格式：
+    - 一般分享: meta.detail_1.qqdocurl
+    - 新闻分享: meta.news.jumpUrl
+    - 音乐分享 (com.tencent.music.lua): meta.music.jumpUrl
+    """
     if not isinstance(data, dict):
         return None
     meta = data.get("meta") or {}
     if isinstance(meta, dict):
+        # 格式 1: meta.detail_1.qqdocurl
         detail_1 = meta.get("detail_1") or {}
         if isinstance(detail_1, dict):
             url = detail_1.get("qqdocurl")
             if url and isinstance(url, str):
                 return url
+        # 格式 2: meta.news.jumpUrl
         news = meta.get("news") or {}
         if isinstance(news, dict):
             url = news.get("jumpUrl")
+            if url and isinstance(url, str):
+                return url
+        # 格式 3: meta.music.jumpUrl（QQ 音乐分享卡片）
+        music = meta.get("music") or {}
+        if isinstance(music, dict):
+            url = music.get("jumpUrl")
             if url and isinstance(url, str):
                 return url
     return None

@@ -176,15 +176,20 @@ def _log_card_details(event: MessageEvent) -> None:
 
             detail_1 = meta.get("detail_1") or {}
             news = meta.get("news") or {}
+            music = meta.get("music") or {}
             if not isinstance(detail_1, dict):
                 detail_1 = {}
             if not isinstance(news, dict):
                 news = {}
+            if not isinstance(music, dict):
+                music = {}
 
             app_name = str(card.get("app", ""))
-            title = str(detail_1.get("title", "") or news.get("title", "") or "")
-            desc = str(detail_1.get("desc", "") or news.get("desc", "") or "")
-            jump_url = str(detail_1.get("qqdocurl", "") or news.get("jumpUrl", "") or "")
+            title = str(detail_1.get("title", "") or news.get("title", "") or music.get("title", "") or "")
+            desc = str(detail_1.get("desc", "") or news.get("desc", "") or music.get("desc", "") or "")
+            jump_url = str(
+                detail_1.get("qqdocurl", "") or news.get("jumpUrl", "") or music.get("jumpUrl", "") or ""
+            )
 
             meta_json = _json.dumps(meta, ensure_ascii=False, indent=2)
             logger.info(
