@@ -46,11 +46,12 @@ async def _process_single_song(
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
+    high_quality = bool(cfg.get("high_quality", True))
     cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
     max_file_mb = int(cfg.get("max_file_mb", 50))
     cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
 
-    log_extra = f"song_id={song_id} api={api_base} timeout={api_timeout}s"
+    log_extra = f"song_id={song_id} api={api_base} timeout={api_timeout}s hq={high_quality}"
     logger.info("[Netease] ⏳ 开始处理歌曲 → %s", log_extra)
 
     # ===== 步骤 1: 获取歌曲详情 =====
@@ -82,9 +83,10 @@ async def _process_single_song(
 
     # ===== 步骤 2: 获取音频 URL =====
     step_start = time.time()
-    logger.info("[Netease] ▶ 步骤 2/4: 获取音频 URL → id=%s", song_id)
+    hq_label = "高音质" if high_quality else "标准"
+    logger.info("[Netease] ▶ 步骤 2/4: 获取音频 URL → id=%s (%s)", song_id, hq_label)
     try:
-        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip)
+        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip, high_quality)
     except Exception as e:
         elapsed = time.time() - step_start
         logger.error(
@@ -102,16 +104,17 @@ async def _process_single_song(
         await bot.send(event, Message(msg("netease.url_unavailable")))
         return
 
+    file_ext = f".{url_result.type}" if url_result.type in ("flac", "ogg", "wav") else ".mp3"
     logger.info(
-        "[Netease] ✓ 步骤 2/4 完成 (%.1fs) → 获取到音频链接, br=%skbps, size=%.1fMB",
-        step_elapsed, url_result.br // 1000, url_result.size / 1024 / 1024,
+        "[Netease] ✓ 步骤 2/4 完成 (%.1fs) → 获取到音频链接, br=%skbps, type=%s, size=%.1fMB",
+        step_elapsed, url_result.br // 1000, file_ext, url_result.size / 1024 / 1024,
     )
 
     # ===== 步骤 3: 下载音频 =====
     step_start = time.time()
     logger.info(
-        "[Netease] ▶ 步骤 3/4: 下载音频 → id=%s, max_size=%dMB",
-        song_id, max_file_mb,
+        "[Netease] ▶ 步骤 3/4: 下载音频 → id=%s, type=%s, max_size=%dMB",
+        song_id, file_ext, max_file_mb,
     )
     try:
         audio_path = await download_audio(
@@ -120,6 +123,7 @@ async def _process_single_song(
             timeout=api_timeout,
             max_file_mb=max_file_mb,
             cache_ttl_seconds=cache_ttl,
+            file_ext=file_ext,
         )
     except Exception as e:
         elapsed = time.time() - step_start

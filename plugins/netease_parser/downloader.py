@@ -27,10 +27,10 @@ USER_AGENT = (
 CHUNK_LOG_INTERVAL_BYTES = 10 * 1024 * 1024  # 每 10MB 打印一次进度
 
 
-def _cache_path(url: str, cache_dir: str) -> Path:
+def _cache_path(url: str, cache_dir: str, ext: str = ".mp3") -> Path:
     """根据 URL 生成缓存文件路径。"""
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
-    return Path(cache_dir) / f"netease_{digest[:16]}.mp3"
+    return Path(cache_dir) / f"netease_{digest[:16]}{ext}"
 
 
 def file_as_uri(path: Path) -> str:
@@ -44,15 +44,24 @@ async def download_audio(
     timeout: int = 30,
     max_file_mb: int = 50,
     cache_ttl_seconds: int = DEFAULT_TEMP_MEDIA_TTL_SECONDS,
+    file_ext: str = ".mp3",
 ) -> Path:
     """
     下载音频文件到本地缓存。
+
+    Args:
+        url: MP3 下载 URL
+        cache_dir: 缓存目录
+        timeout: 请求超时（秒）
+        max_file_mb: 最大文件大小（MB）
+        cache_ttl_seconds: 缓存 TTL（秒）
+        file_ext: 文件扩展名（如 .mp3、.flac）
 
     Raises:
         RuntimeError: 下载失败或超过大小限制
         httpx.TimeoutException: 下载超时
     """
-    path = _cache_path(url, cache_dir)
+    path = _cache_path(url, cache_dir, file_ext)
     max_bytes = max(int(max_file_mb), 1) * 1024 * 1024
 
     # ===== 缓存命中 =====

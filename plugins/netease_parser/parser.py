@@ -446,9 +446,14 @@ async def fetch_song_url(
     api_base: str,
     timeout: int = 30,
     real_ip: str = "",
+    high_quality: bool = True,
 ) -> NeteaseSongUrlResult:
     """
     获取歌曲音频下载 URL。
+
+    根据 high_quality 参数请求不同码率：
+    - True:  br=999000（最高可用，FLAC > 320k > 192k）
+    - False: br=320000（320kbps MP3）
 
     Raises:
         httpx.TimeoutException: API 请求超时
@@ -456,6 +461,10 @@ async def fetch_song_url(
         ValueError: 响应格式异常
     """
     path = f"/song/url?id={song_id}"
+    if high_quality:
+        path += "&br=999000"
+    else:
+        path += "&br=320000"
     if real_ip:
         path += f"&realIP={real_ip}"
 
