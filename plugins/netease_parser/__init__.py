@@ -20,7 +20,12 @@ from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
 from .downloader import download_audio
-from .parser import extract_song_ids, fetch_song_detail, fetch_song_url
+from .parser import (
+    extract_song_ids_from_event,
+    fetch_song_detail,
+    fetch_song_url,
+    has_netease_url,
+)
 from .sender import send_song
 
 logger = logging.getLogger("HikariBot.NeteasePlugin")
@@ -82,14 +87,22 @@ class AutoNeteaseHandler:
             return False
         if not is_event_allowed(cfg, event):
             return False
-        return bool(extract_song_ids(text))
+        # 检查正文是否包含网易云链接
+        if has_netease_url(text):
+            return True
+        # 检查 QQ 卡片元数据是否包含网易云链接
+        from .parser import extract_all_urls
+
+        for url in extract_all_urls(event):
+            if has_netease_url(url):
+                return True
+        return False
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
         cfg = get_config()
         if not is_event_allowed(cfg, event):
             return
-        text = str(event.get_message())
-        ids = extract_song_ids(text)
+        ids = await extract_song_ids_from_event(event)
         if not ids:
             return
 
