@@ -7,6 +7,7 @@
 3. 流式下载并实时检查大小限制
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -42,7 +43,7 @@ async def download_audio(
     url: str,
     cache_dir: str = "/tmp/hikari_bot/netease",
     timeout: int = 30,
-    max_file_mb: int = 50,
+    max_file_mb: int = 200,
     cache_ttl_seconds: int = DEFAULT_TEMP_MEDIA_TTL_SECONDS,
     file_ext: str = ".mp3",
 ) -> Path:
@@ -52,7 +53,7 @@ async def download_audio(
     Args:
         url: MP3 下载 URL
         cache_dir: 缓存目录
-        timeout: 请求超时（秒）
+        timeout: 请求超时（秒），connect 用 15s，read 用该值
         max_file_mb: 最大文件大小（MB）
         cache_ttl_seconds: 缓存 TTL（秒）
         file_ext: 文件扩展名（如 .mp3、.flac）
@@ -63,6 +64,7 @@ async def download_audio(
     """
     path = _cache_path(url, cache_dir, file_ext)
     max_bytes = max(int(max_file_mb), 1) * 1024 * 1024
+    max_retries = 2  # 最多重试 2 次（共 3 次尝试）
 
     # ===== 缓存命中 =====
     if path.exists() and path.stat().st_size > 0:
@@ -82,83 +84,103 @@ async def download_audio(
         )
         return path
 
-    # ===== 下载 =====
-    t_start = time.time()
-    logger.info("[Netease] 开始下载 → %s", url[:120])
+    # ===== 下载（带重试，应对 CDN 断流） =====
+    last_error: Exception | None = None
+    for attempt in range(1, max_retries + 2):
+        t_start = time.time()
+        logger.info(
+            "[Netease] 开始下载 (第 %d/%d 次) → %s",
+            attempt, max_retries + 1, url[:120],
+        )
 
-    headers = {"User-Agent": USER_AGENT}
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(timeout, connect=15.0),
-        follow_redirects=True,
-    ) as client:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # 使用随机后缀避免并发下载冲突（同一个链接可能被两条消息流水线同时触发）
-        tmp_suffix = f".part.{os.getpid()}.{id(path)}"
-        tmp_path = path.with_suffix(path.suffix + tmp_suffix)
-        try:
-            async with client.stream("GET", url, headers=headers) as resp:
-                resp.raise_for_status()
+        headers = {"User-Agent": USER_AGENT}
+        # connect 短超时快速失败，read 用总 timeout 容忍慢速大文件
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=15.0, read=timeout, pool=timeout),
+            follow_redirects=True,
+        ) as client:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_suffix = f".part.{os.getpid()}.{id(path)}"
+            tmp_path = path.with_suffix(path.suffix + tmp_suffix)
+            try:
+                async with client.stream("GET", url, headers=headers) as resp:
+                    resp.raise_for_status()
 
-                # 检查 Content-Length
-                cl = resp.headers.get("content-length")
-                if cl and cl.isdigit():
-                    remote_size = int(cl)
-                    logger.info(
-                        "[Netease] 下载: Content-Length=%.1fMB, 限制=%dMB",
-                        remote_size / 1024 / 1024, max_file_mb,
-                    )
-                    if remote_size > max_bytes:
-                        raise RuntimeError(
-                            f"音频超过大小限制：{remote_size / 1024 / 1024:.1f}MB"
+                    cl = resp.headers.get("content-length")
+                    if cl and cl.isdigit():
+                        remote_size = int(cl)
+                        logger.info(
+                            "[Netease] 下载: Content-Length=%.1fMB, 限制=%dMB",
+                            remote_size / 1024 / 1024, max_file_mb,
                         )
-                else:
-                    remote_size = "未知"
-                    logger.info(
-                        "[Netease] 下载: Content-Length=%s, 限制=%dMB",
-                        remote_size, max_file_mb,
-                    )
+                        if remote_size > max_bytes:
+                            raise RuntimeError(
+                                f"音频超过大小限制：{remote_size / 1024 / 1024:.1f}MB"
+                            )
+                    else:
+                        remote_size = 0
+                        logger.info(
+                            "[Netease] 下载: Content-Length=未知, 限制=%dMB",
+                            max_file_mb,
+                        )
 
-                # 流式写入
-                written = 0
-                last_chunk_log = 0
-                with tmp_path.open("wb") as f:
-                    async for chunk in resp.aiter_bytes():
-                        if chunk:
-                            written += len(chunk)
-                            if written > max_bytes:
-                                raise RuntimeError(
-                                    f"音频超过大小限制：{written / 1024 / 1024:.1f}MB"
-                                )
-                            f.write(chunk)
+                    written = 0
+                    last_chunk_log = 0
+                    with tmp_path.open("wb") as f:
+                        async for chunk in resp.aiter_bytes():
+                            if chunk:
+                                written += len(chunk)
+                                if written > max_bytes:
+                                    raise RuntimeError(
+                                        f"音频超过大小限制：{written / 1024 / 1024:.1f}MB"
+                                    )
+                                f.write(chunk)
 
-                            # 每 10MB 打印一次进度
-                            if written - last_chunk_log >= CHUNK_LOG_INTERVAL_BYTES:
-                                last_chunk_log = written
-                                elapsed_now = time.time() - t_start
-                                speed = written / 1024 / 1024 / elapsed_now if elapsed_now > 0 else 0
-                                logger.info(
-                                    "[Netease] 下载中... %.1fMB / %s (%.1fMB/s, %.1fs)",
-                                    written / 1024 / 1024,
-                                    f"{remote_size / 1024 / 1024:.1f}MB" if isinstance(remote_size, int) else "未知",
-                                    speed, elapsed_now,
-                                )
+                                if written - last_chunk_log >= CHUNK_LOG_INTERVAL_BYTES:
+                                    last_chunk_log = written
+                                    elapsed_now = time.time() - t_start
+                                    speed = written / 1024 / 1024 / elapsed_now if elapsed_now > 0 else 0
+                                    logger.info(
+                                        "[Netease] 下载中... %.1fMB / %s (%.1fMB/s, %.1fs)",
+                                        written / 1024 / 1024,
+                                        f"{remote_size / 1024 / 1024:.1f}MB" if remote_size else "未知",
+                                        speed, elapsed_now,
+                                    )
 
-                # 安全 rename：若目标已被其他协程先写入，直接复用
+                # 安全 rename
                 if path.exists():
                     tmp_path.unlink(missing_ok=True)
                     logger.debug("[Netease] 下载跳过 → 文件已被其他协程写入: %s", path.name)
                 else:
                     tmp_path.replace(path)
-                tmp_path = None  # 防止 except 误删
+                tmp_path = None
+                break  # 下载成功，跳出重试循环
 
-        except Exception:
-            if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
-            # 如果最终文件已存在（另一协程成功写完），不视为错误
-            if path.exists():
-                logger.debug("[Netease] 下载异常但目标文件已存在，继续使用: %s", path.name)
-            else:
+            except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
+                last_error = e
+                elapsed = time.time() - t_start
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
+                if attempt <= max_retries:
+                    wait = attempt * 2.0  # 递增等待：2s, 4s
+                    logger.warning(
+                        "[Netease] 下载失败 (第 %d 次, %.1fs), %.1fs 后重试: %s",
+                        attempt, elapsed, wait, e,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                logger.error(
+                    "[Netease] 下载失败 (第 %d 次, %.1fs), 已无重试次数: %s",
+                    attempt, elapsed, e,
+                )
                 raise
+            except Exception:
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
+                if path.exists():
+                    logger.debug("[Netease] 下载异常但目标文件已存在，继续使用: %s", path.name)
+                else:
+                    raise
 
     # 如果因并发跳过 rename，此时 path 不存在时需要重新 stat
     if not path.exists():
