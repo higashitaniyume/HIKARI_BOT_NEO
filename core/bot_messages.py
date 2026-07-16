@@ -19,6 +19,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "stats_label_media_parser_parsed": "聚合媒体解析",
         "stats_label_youtube_downloaded": "YouTube 下载",
         "stats_label_netease_parsed": "网易云解析",
+        "stats_label_ncm_parsed": "NCM 解密",
         "stats_label_osu_queries": "osu! 查询",
         "stats_label_collage_made": "拼图",
     },
@@ -155,6 +156,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "usage": "用法：星露谷wiki <关键词>",
         "not_found": "没有在星露谷物语 Wiki 找到「{keyword}」。",
         "failed": "星露谷物语 Wiki 查询失败：{error}",
+    },
+    "ncm": {
+        "decrypt_success": "NCM 文件解密成功，正在发送：{title}",
     },
     "mc_wiki": {
         "result": "标题：{title}\n简介：{summary}\nURL：{url}",

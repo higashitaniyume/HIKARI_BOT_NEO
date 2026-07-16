@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "auto_parse": true,
+  "max_file_mb": 50,
+  "temp_root": "/tmp/hikari_bot/ncm",
+  "concurrency": 2,
+  "retry_count": 2,
+  "retry_delay_seconds": 2.0,
+  "delete_after_send": true,
+  "send_link_info": true,
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    }
+  }
+}
