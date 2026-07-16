@@ -13,6 +13,7 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 from nonebot.adapters.onebot.v11 import MessageEvent
@@ -471,7 +472,7 @@ async def fetch_song_url(
     if real_ip:
         path += f"&realIP={real_ip}"
     if cookie:
-        path += f"&cookie={httpx.utils.quote(cookie)}"
+        path += f"&cookie={quote(cookie)}"
 
     url = _api_url(api_base, path)
     headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
