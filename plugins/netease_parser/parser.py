@@ -44,6 +44,14 @@ NETEASE_SHORT_URL_RE = re.compile(
 # 通用 URL 提取
 GENERIC_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 
+# 匹配网易云音乐播客/电台节目链接
+# 格式：https://y.music.163.com/m/program?id=2538607775
+NETEASE_PROGRAM_URL_RE = re.compile(
+    r"(?:https?://)?(?:y\.)?music\.163\.com"
+    r"(?:/m)?/program\?id=(?P<id>\d{5,12})",
+    re.IGNORECASE,
+)
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -199,6 +207,8 @@ def has_netease_url(text: str) -> bool:
     if NETEASE_SONG_URL_RE.search(text):
         return True
     if NETEASE_SHORT_URL_RE.search(text):
+        return True
+    if NETEASE_PROGRAM_URL_RE.search(text):
         return True
     return False
 
@@ -438,6 +448,108 @@ async def fetch_song_detail(
     logger.info(
         "[Netease] API song/detail 响应 (%.1fs) → HTTP %d, 歌曲=%s, 歌手=%s",
         elapsed, resp.status_code, result.name, result.artist,
+    )
+    return result
+
+
+def extract_program_ids(text: str) -> list[str]:
+    """从文本中提取播客/电台节目 ID（去重，保持顺序）。"""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for match in NETEASE_PROGRAM_URL_RE.finditer(text):
+        pid = match.group("id")
+        if pid and pid not in seen:
+            seen.add(pid)
+            ids.append(pid)
+    return ids
+
+
+async def fetch_program_detail(
+    program_id: str,
+    api_base: str,
+    timeout: int = 30,
+    real_ip: str = "",
+    cookie: str = "",
+) -> NeteaseSongInfo:
+    """
+    获取播客/电台节目详细信息。
+
+    播客节目的音频实际是 mainSong，通过此接口获取其 song_id 后
+    再调用 fetch_song_url 获取音频链接。
+
+    Returns:
+        NeteaseSongInfo 对象，其中 id 是 mainSong.id（用于后续获取音频 URL）
+
+    Raises:
+        httpx.TimeoutException: API 请求超时
+        httpx.HTTPStatusError: HTTP 状态码异常
+        ValueError: 响应格式异常
+    """
+    path = f"/dj/program/detail?id={program_id}"
+    if real_ip:
+        path += f"&realIP={real_ip}"
+    if cookie:
+        path += f"&cookie={quote(cookie)}"
+
+    url = _api_url(api_base, path)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+    t_start = time.time()
+    logger.info(
+        "[Netease] API GET → %s (timeout=%ds, cookie=%s)",
+        url, timeout, "已配置" if cookie else "未配置",
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 超时 (%.1fs) → %s", elapsed, url)
+        raise
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API HTTP 错误 (%.1fs) → %s HTTP %s", elapsed, url, e.response.status_code)
+        raise
+    except Exception:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 请求异常 (%.1fs) → %s", elapsed, url)
+        raise
+
+    elapsed = time.time() - t_start
+
+    if data.get("code") != 200:
+        raise ValueError(
+            f"API 返回异常: code={data.get('code')}, msg={data.get('msg', '')} "
+            f"(elapsed={elapsed:.1f}s)"
+        )
+
+    program = data.get("program")
+    if not program:
+        raise ValueError("播客节目不存在")
+
+    main_song = program.get("mainSong") or {}
+    song_id = str(main_song.get("id", ""))
+    name = str(main_song.get("name", program.get("name", "")) or "")
+    artists_list = main_song.get("artists") or program.get("artists") or []
+    artist_names = " / ".join(
+        a.get("name", "") for a in artists_list if isinstance(a, dict)
+    )
+    radio = program.get("radio") or {}
+    album_name = str(radio.get("name", "") or "")
+
+    result = NeteaseSongInfo(
+        id=song_id,
+        name=name,
+        artist=artist_names,
+        album=album_name,
+    )
+
+    logger.info(
+        "[Netease] API program/detail 响应 (%.1fs) → HTTP %d, 节目=%s, 歌手=%s, mainSong.id=%s",
+        elapsed, resp.status_code, result.name, result.artist, song_id,
     )
     return result
 

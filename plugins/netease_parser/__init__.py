@@ -23,6 +23,7 @@ from .config import get_config
 from .downloader import download_audio
 from .parser import (
     extract_song_ids_from_event,
+    fetch_program_detail,
     fetch_song_detail,
     fetch_song_url,
     has_netease_url,
@@ -33,6 +34,115 @@ logger = logging.getLogger("HikariBot.NeteasePlugin")
 
 # 触发首次加载并输出配置摘要
 get_config()
+
+
+async def _process_single_program(
+    bot: Bot,
+    event: MessageEvent,
+    program_id: str,
+    cfg: dict,
+) -> None:
+    """处理播客/电台节目：获取节目详情 → 提取 mainSong ID → 获取音频 URL → 下载 → 发送。"""
+    session_start = time.time()
+    api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
+    api_timeout = int(cfg.get("api_timeout", 30))
+    real_ip = str(cfg.get("real_ip", "")).strip()
+    high_quality = bool(cfg.get("high_quality", True))
+    cookie = str(cfg.get("cookie", "")).strip()
+    cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
+    max_file_mb = int(cfg.get("max_file_mb", 50))
+    cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
+
+    log_extra = f"program_id={program_id} api={api_base} hq={high_quality} cookie={'已配置' if cookie else '未配置'}"
+    logger.info("[Netease] ⏳ 开始处理播客节目 → %s", log_extra)
+
+    # ===== 步骤 1: 获取节目详情 =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 1/4: 获取播客节目详情 → id=%s", program_id)
+    try:
+        program = await fetch_program_detail(program_id, api_base, api_timeout, real_ip, cookie)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error("[Netease] ✗ 步骤 1/4 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
+        raise
+
+    step_elapsed = time.time() - step_start
+    if not program or not program.name:
+        logger.warning("[Netease] ✗ 步骤 1/4 完成 (%.1fs) → 未找到节目信息, id=%s", step_elapsed, program_id)
+        await bot.send(event, Message(msg("netease.not_found")))
+        return
+
+    song_id = program.id
+    if not song_id:
+        logger.warning("[Netease] ✗ 步骤 1/4 完成 (%.1fs) → 节目无 mainSong ID, id=%s", step_elapsed, program_id)
+        await bot.send(event, Message(msg("netease.not_found")))
+        return
+
+    logger.info(
+        "[Netease] ✓ 步骤 1/4 完成 (%.1fs) → %s — %s (mainSong.id=%s)",
+        step_elapsed, program.name, program.artist, song_id,
+    )
+
+    # ===== 步骤 2: 获取音频 URL（用 mainSong.id） =====
+    step_start = time.time()
+    hq_label = "高音质" if high_quality else "标准"
+    logger.info("[Netease] ▶ 步骤 2/4: 获取音频 URL → mainSong.id=%s (%s)", song_id, hq_label)
+    try:
+        url_result = await fetch_song_url(song_id, api_base, api_timeout, real_ip, high_quality, cookie)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error("[Netease] ✗ 步骤 2/4 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
+        raise
+
+    step_elapsed = time.time() - step_start
+    if not url_result.url:
+        logger.warning("[Netease] ✗ 步骤 2/4 完成 (%.1fs) → 音频链接不可用 | id=%s", step_elapsed, song_id)
+        await bot.send(event, Message(msg("netease.url_unavailable")))
+        return
+
+    file_ext = f".{url_result.type}" if url_result.type in ("flac", "ogg", "wav") else ".mp3"
+    logger.info(
+        "[Netease] ✓ 步骤 2/4 完成 (%.1fs) → br=%skbps, type=%s, size=%.1fMB",
+        step_elapsed, url_result.br // 1000, file_ext, url_result.size / 1024 / 1024,
+    )
+
+    # ===== 步骤 3: 下载音频 =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 3/4: 下载音频 → type=%s, max_size=%dMB", file_ext, max_file_mb)
+    try:
+        audio_path = await download_audio(
+            url_result.url,
+            cache_dir=cache_dir,
+            timeout=api_timeout,
+            max_file_mb=max_file_mb,
+            cache_ttl_seconds=cache_ttl,
+            file_ext=file_ext,
+        )
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error("[Netease] ✗ 步骤 3/4 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
+        raise
+
+    step_elapsed = time.time() - step_start
+    file_size = audio_path.stat().st_size
+    logger.info("[Netease] ✓ 步骤 3/4 完成 (%.1fs) → %s (%.1fMB)", step_elapsed, audio_path.name, file_size / 1024 / 1024)
+
+    # ===== 步骤 4: 发送 =====
+    step_start = time.time()
+    logger.info("[Netease] ▶ 步骤 4/4: 发送音频 → id=%s", song_id)
+    try:
+        await send_song(bot, event, program, audio_path, cfg)
+    except Exception as e:
+        elapsed = time.time() - step_start
+        logger.error("[Netease] ✗ 步骤 4/4 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
+        raise
+
+    step_elapsed = time.time() - step_start
+    total_elapsed = time.time() - session_start
+    logger.info(
+        "[Netease] ✓ 步骤 4/4 完成 (%.1fs) | 🎉 播客处理完成 (总耗时 %.1fs) → %s — %s",
+        step_elapsed, total_elapsed, program.name, program.artist,
+    )
 
 
 async def _process_single_song(
@@ -199,14 +309,65 @@ class AutoNeteaseHandler:
         if not is_event_allowed(cfg, event):
             return
 
-        # 提取歌曲 ID（含短链接解析）
+        text = str(event.get_message())
+        max_links = max(1, int(cfg.get("max_links_per_message", 5)))
+
+        # ===== 处理播客/电台节目链接 =====
+        from .parser import NETEASE_PROGRAM_URL_RE, extract_all_urls
+
+        program_ids: list[str] = []
+        seen_pids: set[str] = set()
+        for match in NETEASE_PROGRAM_URL_RE.finditer(text):
+            pid = match.group("id")
+            if pid and pid not in seen_pids:
+                seen_pids.add(pid)
+                program_ids.append(pid)
+        # 也从卡片元数据中提取
+        for url in extract_all_urls(event):
+            m = NETEASE_PROGRAM_URL_RE.search(url)
+            if m:
+                pid = m.group("id")
+                if pid and pid not in seen_pids:
+                    seen_pids.add(pid)
+                    program_ids.append(pid)
+
+        program_ids_to_process = program_ids[:max_links]
+        if program_ids_to_process:
+            logger.info(
+                "[Netease] ═══ 检测到播客节目 ═══ 共 %d 个: %s",
+                len(program_ids_to_process), program_ids_to_process,
+            )
+            for i, pid in enumerate(program_ids_to_process):
+                logger.info("[Netease] ─── 处理第 %d/%d 个播客 ───", i + 1, len(program_ids_to_process))
+                try:
+                    with ActivityScope(
+                        "netease_parser",
+                        "parsing",
+                        "解析网易云播客",
+                        description=f"ProgramID={pid}",
+                    ):
+                        await _process_single_program(bot, event, pid, cfg)
+                    stats_increment(event, "netease_parsed", 1)
+                    if i < len(program_ids_to_process) - 1:
+                        await asyncio.sleep(1.0)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.exception("[Netease] ✗ 播客处理异常 → pid=%s", pid)
+                    try:
+                        await send_user_error(bot, event)
+                        await notify_error_to_superuser(bot, event, e, "NeteaseParser")
+                    except Exception as notify_err:
+                        logger.exception("发送错误通知失败: %s", notify_err)
+
+        # ===== 处理歌曲链接 =====
         logger.info("[Netease] 提取歌曲 ID 中（含短链接解析）...")
         ids = await extract_song_ids_from_event(event)
         if not ids:
-            logger.info("[Netease] 未提取到歌曲 ID，跳过处理")
+            if not program_ids_to_process:
+                logger.info("[Netease] 未提取到歌曲 ID，跳过处理")
             return
 
-        max_links = max(1, int(cfg.get("max_links_per_message", 5)))
         ids_to_process = ids[:max_links]
         total_found = len(ids)
 
