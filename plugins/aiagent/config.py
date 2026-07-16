@@ -160,6 +160,15 @@ def get_config() -> dict[str, Any]:
 
 def save_config(data: dict[str, Any]) -> dict[str, Any]:
     cfg = _deep_merge(DEFAULT_CONFIG, data)
+    # 保留现有的 permissions（管理面板 AI Agent 设置页面不包含此字段）
+    try:
+        if CONFIG_PATH.is_file():
+            existing = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+            existing_permissions = existing.get("permissions")
+            if existing_permissions is not None:
+                cfg["permissions"] = existing_permissions
+    except Exception as e:
+        logger.warning("读取现有 AI Agent 配置失败（继续写入）: %s", e)
     _write_config(cfg)
     return copy.deepcopy(cfg)
 
