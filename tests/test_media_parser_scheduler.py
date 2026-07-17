@@ -153,7 +153,7 @@ class MediaParserRetryTests(unittest.IsolatedAsyncioTestCase):
         bot = SimpleNamespace(send=AsyncMock())
 
         with (
-            patch.object(media_parser, "_runtime_from_config", Mock(return_value=runtime)),
+            patch.object(media_parser, "_get_runtime", Mock(return_value=runtime)),
             patch.object(media_parser, "is_platform_allowed", Mock(return_value=True)),
             patch.object(media_parser, "_create_record_manager", Mock(return_value=SimpleNamespace(enabled=False))),
         ):

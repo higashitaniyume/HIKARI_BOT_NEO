@@ -27,9 +27,6 @@ logger = logging.getLogger("HikariBot.YouTubePlugin")
 
 get_config()
 
-_download_lock = asyncio.Lock()
-
-
 class AutoYouTubeHandler:
     """自动检测 YouTube URL 并下载发送的 Handler。"""
 
@@ -65,9 +62,8 @@ class AutoYouTubeHandler:
         for index, url in enumerate(urls_to_process, start=1):
             logger.info("[YouTube] 处理链接 %d/%d -> %s", index, len(urls_to_process), url[:100])
             try:
-                async with _download_lock:
-                    with ActivityScope("youtube_downloader", "downloading", "下载 YouTube", description=url[:80]):
-                        await send_youtube_video(bot, event, url, cfg)
+                with ActivityScope("youtube_downloader", "downloading", "下载 YouTube", description=url[:80]):
+                    await send_youtube_video(bot, event, url, cfg)
                 stats_increment(event, "youtube_downloaded", 1)
                 await asyncio.sleep(1.0)
             except YouTubeDownloadError as e:

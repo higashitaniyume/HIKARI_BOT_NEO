@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -28,10 +29,21 @@ logger = logging.getLogger("HikariBot.MediaParser")
 
 get_config()
 
-_parse_queue: asyncio.Queue["MediaParseQueueItem"] | None = None
-_parse_worker_tasks: set[asyncio.Task[None]] = set()
+# Per-conversation parse queues — one conversation cannot starve another
+_parse_queues: dict[str, asyncio.Queue["MediaParseQueueItem"]] = {}
+_parse_worker_sets: dict[str, set[asyncio.Task]] = {}
+_parse_queue_init_lock = asyncio.Lock()
+
+# Per-conversation send queues (bounded — backpressure, not throttling)
 _send_queues: dict[str, asyncio.Queue["MediaSendQueueItem"]] = {}
 _send_worker_tasks: dict[str, asyncio.Task[None]] = {}
+
+# Cached runtime + aiohttp session (recreated on config file change)
+_runtime_cache: MediaParserRuntime | None = None
+_runtime_cache_mtime: float = 0.0
+_runtime_cache_size: int = 0
+_runtime_cache_path = Path("BotData/plugin_configs/media_parser.json")
+_session_cache: aiohttp.ClientSession | None = None
 
 SUPPORTED_LINK_MARKERS = (
     "bilibili.com",
@@ -117,18 +129,50 @@ def _card_url_candidates(data: Any) -> list[str]:
     return candidates
 
 
-def _runtime_from_config() -> MediaParserRuntime | None:
+def _get_runtime() -> MediaParserRuntime | None:
+    """Return cached runtime, recreating when config file changes."""
+    global _runtime_cache, _runtime_cache_mtime, _runtime_cache_size
+
+    try:
+        stat = _runtime_cache_path.stat()
+        mtime = stat.st_mtime
+        size = stat.st_size
+    except OSError:
+        mtime = 0.0
+        size = 0
+
+    if _runtime_cache is not None and mtime == _runtime_cache_mtime and size == _runtime_cache_size:
+        return _runtime_cache
+
+    # Config changed (or first load) → rebuild runtime
     cfg = get_config()
     if not cfg.get("enabled", True):
+        _runtime_cache = None
         return None
     try:
         runtime = create_runtime(cfg)
     except Exception as e:
         logger.warning("[MediaParser] runtime init skipped: %s", e)
+        _runtime_cache = None
         return None
     if not runtime.config_manager.message.has_any_output():
+        _runtime_cache = None
         return None
-    return runtime
+
+    _runtime_cache = runtime
+    _runtime_cache_mtime = mtime
+    _runtime_cache_size = size
+    return _runtime_cache
+
+
+async def _get_session() -> aiohttp.ClientSession:
+    """Return the cached aiohttp session, creating on demand."""
+    global _session_cache
+    if _session_cache is None or _session_cache.closed:
+        _session_cache = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=120),
+        )
+    return _session_cache
 
 
 def is_platform_allowed(platform: str, event: MessageEvent) -> bool:
@@ -171,38 +215,56 @@ def _retry_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _ensure_parse_workers(cfg: dict[str, Any]) -> asyncio.Queue[MediaParseQueueItem]:
-    global _parse_queue
+async def _ensure_parse_workers(key: str, cfg: dict[str, Any]) -> asyncio.Queue[MediaParseQueueItem]:
+    """Get or create per-conversation parse queue + workers."""
+    global _parse_queues, _parse_worker_sets
     settings = _queue_settings(cfg)
-    if _parse_queue is None:
-        _parse_queue = asyncio.Queue(maxsize=settings["max_size"])
-    alive_workers = {task for task in _parse_worker_tasks if not task.done()}
-    _parse_worker_tasks.clear()
-    _parse_worker_tasks.update(alive_workers)
-    while len(_parse_worker_tasks) < settings["max_concurrent"]:
-        worker_no = len(_parse_worker_tasks) + 1
-        task = asyncio.create_task(
-            _parse_worker(),
-            name=f"HikariMediaParserParseQueue-{worker_no}",
-        )
-        _parse_worker_tasks.add(task)
-        task.add_done_callback(_parse_worker_tasks.discard)
-    return _parse_queue
+
+    async with _parse_queue_init_lock:
+        if key not in _parse_queues:
+            _parse_queues[key] = asyncio.Queue(maxsize=settings["max_size"])
+        if key not in _parse_worker_sets:
+            _parse_worker_sets[key] = set()
+
+        alive = {t for t in _parse_worker_sets[key] if not t.done()}
+        _parse_worker_sets[key].clear()
+        _parse_worker_sets[key].update(alive)
+        while len(_parse_worker_sets[key]) < settings["max_concurrent"]:
+            worker_no = len(_parse_worker_sets[key]) + 1
+            task = asyncio.create_task(
+                _parse_worker(key),
+                name=f"HikariMediaParserParse-{key[-32:]}-{worker_no}",
+            )
+            _parse_worker_sets[key].add(task)
+            task.add_done_callback(lambda t, k=key: _parse_worker_sets.get(k, set()).discard(t))
+
+    return _parse_queues[key]
 
 
-async def _parse_worker() -> None:
+async def _parse_worker(key: str) -> None:
+    """Background worker: consume parse queue for one conversation."""
     from core.error_notifier import notify_error_to_superuser, send_user_error
 
-    logger.info("[MediaParser] parse queue worker started")
+    logger.info("[MediaParser] parse worker started -> key=%s", key)
     while True:
-        assert _parse_queue is not None
-        item = await _parse_queue.get()
+        try:
+            queue = _parse_queues.get(key)
+            if queue is None:
+                await asyncio.sleep(0.5)
+                continue
+            item = await queue.get()
+        except asyncio.CancelledError:
+            break
+
         try:
             cfg = get_config()
             await _process_parse_item(item)
             delay = _queue_settings(cfg)["delay_seconds"]
             if delay > 0:
                 await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            queue.task_done()
+            break
         except Exception as e:
             logger.exception("[MediaParser] queued parse failed: %s", e)
             try:
@@ -211,13 +273,11 @@ async def _parse_worker() -> None:
             except Exception as notify_err:
                 logger.exception("发送错误通知失败: %s", notify_err)
         finally:
-            if _parse_queue is not None:
-                QUEUE_SIZES["media_parser_parse"] = _parse_queue.qsize()
-            _parse_queue.task_done()
+            queue.task_done()
 
 
 async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool = False) -> None:
-    runtime = _runtime_from_config()
+    runtime = _get_runtime()
     if runtime is None:
         return
     if not force and not runtime.config_manager.trigger.should_parse(text):
@@ -247,24 +307,11 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
             ))
         return
 
-    queue = _ensure_parse_workers(runtime.config)
-    if queue.full():
-        logger.warning(
-            "[MediaParser] parse queue full -> user=%s, size=%d",
-            event.get_user_id(),
-            queue.qsize(),
-        )
-        if force:
-            await bot.send(event, Message(msg("media_parser.rate_limited", reason="解析队列已满，请稍后再试")))
-        return
-
+    key = _conversation_key(bot, event)
+    queue = await _ensure_parse_workers(key, runtime.config)
     queued = 0
-    dropped = 0
     for link_item in links:
-        if queue.full():
-            dropped += 1
-            continue
-        queue.put_nowait(MediaParseQueueItem(
+        await queue.put(MediaParseQueueItem(
             bot=bot,
             event=event,
             text=link_item[0],
@@ -272,14 +319,9 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
             force=force,
         ))
         queued += 1
-    if dropped and force:
-        await bot.send(event, Message(msg("media_parser.rate_limited", reason=f"解析队列已满，{dropped} 个链接未入队")))
     logger.info(
-        "[MediaParser] queued parse jobs -> user=%s, count=%d, dropped=%d, queue_size=%d",
-        event.get_user_id(),
-        queued,
-        dropped,
-        queue.qsize(),
+        "[MediaParser] queued parse jobs -> key=%s, count=%d, queue_size=%d",
+        key, queued, queue.qsize(),
     )
     QUEUE_SIZES["media_parser_parse"] = queue.qsize()
 
@@ -313,11 +355,11 @@ def _conversation_key(bot: Bot, event: MessageEvent) -> str:
 def _ensure_send_worker(key: str) -> asyncio.Queue[MediaSendQueueItem]:
     queue = _send_queues.get(key)
     if queue is None:
-        queue = asyncio.Queue()
+        queue = asyncio.Queue(maxsize=200)
         _send_queues[key] = queue
     task = _send_worker_tasks.get(key)
     if task is None or task.done():
-        task = asyncio.create_task(_send_worker(key), name=f"HikariMediaParserSendQueue-{key}")
+        task = asyncio.create_task(_send_worker(key), name=f"HikariMediaParserSendQueue-{key[-48:]}")
         _send_worker_tasks[key] = task
         task.add_done_callback(lambda done_task: _clear_send_worker(key, done_task))
     return queue
@@ -331,7 +373,7 @@ def _clear_send_worker(key: str, task: asyncio.Task[None]) -> None:
 async def _enqueue_send(item: MediaSendQueueItem) -> None:
     key = _conversation_key(item.bot, item.event)
     queue = _ensure_send_worker(key)
-    queue.put_nowait(item)
+    await queue.put(item)
     logger.info(
         "[MediaParser] queued send job -> target=%s, items=%d, queue_size=%d",
         key,
@@ -345,12 +387,20 @@ async def _send_worker(key: str) -> None:
 
     logger.info("[MediaParser] send queue worker started -> target=%s", key)
     while True:
-        queue = _send_queues.get(key)
-        if queue is None:
-            return
-        item = await queue.get()
+        try:
+            queue = _send_queues.get(key)
+            if queue is None:
+                await asyncio.sleep(1)
+                continue
+            item = await queue.get()
+        except asyncio.CancelledError:
+            break
+
         try:
             await _send_processed_item(item)
+        except asyncio.CancelledError:
+            queue.task_done()
+            break
         except Exception as e:
             logger.exception("[MediaParser] queued send failed: %s", e)
             try:
@@ -402,7 +452,7 @@ async def _prepare_text(
     force: bool = False,
     links_with_parser: list[tuple[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-    runtime = _runtime_from_config()
+    runtime = _get_runtime()
     if runtime is None:
         return None
     links = list(links_with_parser) if links_with_parser is not None else runtime.parser_manager.extract_all_links(text)
@@ -506,7 +556,7 @@ async def _prepare_links_once(
     text: str,
     links: list[tuple[str, Any]],
 ) -> MediaPrepareAttempt | None:
-    runtime = _runtime_from_config()
+    runtime = _get_runtime()
     if runtime is None:
         return None
     links = [
@@ -519,39 +569,38 @@ async def _prepare_links_once(
     if not links:
         return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
 
+    session = await _get_session()
     platform = getattr(links[0][1], "name", "unknown") if links else "unknown"
     label = f"解析 {platform}"
-    with ActivityScope("media_parser", "parsing", label, description=links[0][0] if links else text) as aid:
-        timeout = aiohttp.ClientTimeout(total=max(30, int(runtime.config.get("api_timeout", 120))))
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            metadata_list = await runtime.parser_manager.parse_text(
-                text,
-                session,
-                links_with_parser=links,
-            )
-            _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
-            if not metadata_list:
-                return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
-            raw_metadata_list = list(metadata_list)
-            metadata_list = _suppress_redundant_error_metadata(metadata_list)
+    with ActivityScope("media_parser", "parsing", label, description=links[0][0] if links else text):
+        metadata_list = await runtime.parser_manager.parse_text(
+            text,
+            session,
+            links_with_parser=links,
+        )
+        _trigger_bilibili_cookie_assist_if_needed(bot, runtime)
+        if not metadata_list:
+            return MediaPrepareAttempt(processed=[], metadata_list=[], config=runtime.config)
+        raw_metadata_list = list(metadata_list)
+        metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
-            processed: list[dict[str, Any]] = []
-            max_send = max(1, int(runtime.config.get("max_send", 8)))
-            cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
-            for metadata in metadata_list:
-                if not _apply_output_modes(runtime, metadata):
-                    continue
-                if metadata.get("_enable_rich_media") and not metadata.get("error"):
-                    metadata = _limit_metadata_for_send(metadata, max_send=max_send)
-                    metadata = await runtime.download_manager.process_metadata(
-                        session=session,
-                        metadata=metadata,
-                        proxy_addr=runtime.config_manager.proxy.address or None,
-                    )
-                    register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
-                processed.append(metadata)
+        processed: list[dict[str, Any]] = []
+        max_send = max(1, int(runtime.config.get("max_send", 8)))
+        cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
+        for metadata in metadata_list:
+            if not _apply_output_modes(runtime, metadata):
+                continue
+            if metadata.get("_enable_rich_media") and not metadata.get("error"):
+                metadata = _limit_metadata_for_send(metadata, max_send=max_send)
+                metadata = await runtime.download_manager.process_metadata(
+                    session=session,
+                    metadata=metadata,
+                    proxy_addr=runtime.config_manager.proxy.address or None,
+                )
+                register_metadata_temp_media(metadata, ttl_seconds=cache_ttl_seconds)
+            processed.append(metadata)
 
-            return MediaPrepareAttempt(processed=processed, metadata_list=raw_metadata_list, config=runtime.config)
+        return MediaPrepareAttempt(processed=processed, metadata_list=raw_metadata_list, config=runtime.config)
 
 
 def _links_for_runtime(runtime: MediaParserRuntime, links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
@@ -716,13 +765,8 @@ def _trigger_bilibili_cookie_assist_if_needed(bot: Bot, runtime: MediaParserRunt
 
 
 def _bilibili_cookie_login_runtime() -> tuple[Any, Any] | None:
-    cfg = get_config()
-    if not cfg.get("enabled", True):
-        return None
-    try:
-        runtime = create_runtime(cfg)
-    except Exception as e:
-        logger.warning("[MediaParser] Bilibili cookie login runtime init failed: %s", e)
+    runtime = _get_runtime()
+    if runtime is None:
         return None
     parser = runtime.config_manager.bilibili_parser
     if parser is None:
@@ -757,7 +801,7 @@ class AutoMediaParserHandler:
         lowered = parse_text.casefold()
         if not any(marker in lowered for marker in SUPPORTED_LINK_MARKERS):
             return False
-        runtime = _runtime_from_config()
+        runtime = _get_runtime()
         if runtime is None:
             return False
         if not runtime.config_manager.trigger.should_parse(parse_text):
