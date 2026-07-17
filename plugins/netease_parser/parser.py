@@ -41,6 +41,19 @@ NETEASE_SHORT_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# 匹配 music.163.com 的专辑链接
+# 格式: https://music.163.com/album/387568337
+#       https://y.music.163.com/m/album?id=387568337
+NETEASE_ALBUM_URL_RE = re.compile(
+    r"(?:https?://)?"
+    r"(?:(?:www|y)\.)?music\.163\.com"
+    r"(?:/#)?"
+    r"(?:/m)?/album"
+    r"(?:/(?P<id_path>\d{5,12})(?:/\?[^\s]*)?(?:\?[^\s]*)?"
+    r"|\?(?:[^\s]*?&)?id=(?P<id_query>\d{5,12}))",
+    re.IGNORECASE,
+)
+
 # 通用 URL 提取
 GENERIC_URL_RE = re.compile(r"https?://[^\s\"'>]+", re.IGNORECASE)
 
@@ -257,6 +270,8 @@ def has_netease_url(text: str) -> bool:
         return True
     if NETEASE_PROGRAM_URL_RE.search(clean):
         return True
+    if NETEASE_ALBUM_URL_RE.search(clean):
+        return True
     return False
 
 
@@ -454,6 +469,78 @@ async def extract_program_ids_from_event(event: MessageEvent) -> list[str]:
         logger.info("[Netease] 播客 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
     else:
         logger.debug("[Netease] 播客 ID 提取完成 (%.2fs) → 未找到", elapsed)
+
+    return ids
+
+
+def extract_album_id_from_url(url: str) -> Optional[str]:
+    """
+    从 URL 中提取专辑 ID。
+
+    支持格式：
+    - https://music.163.com/album/387568337
+    - https://y.music.163.com/m/album?id=387568337
+    """
+    match = NETEASE_ALBUM_URL_RE.search(url)
+    if match:
+        album_id = match.group("id_path") or match.group("id_query")
+        return album_id
+    return None
+
+
+async def extract_album_ids_from_event(event: MessageEvent) -> list[str]:
+    """
+    从消息事件中提取所有网易云音乐专辑 ID。
+
+    处理流程：
+    1. 从消息正文和卡片元数据中提取所有 URL
+    2. 直接匹配 music.163.com/album/... 或 album?id=... 格式 → 提取 ID
+    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
+    4. 去重返回
+    """
+    t_start = time.time()
+    ids: list[str] = []
+    seen_ids: set[str] = set()
+    short_urls_to_resolve: list[str] = []
+
+    all_urls = extract_all_urls(event)
+
+    if not all_urls:
+        return []
+
+    logger.info("[Netease] 从消息中提取到 %d 个 URL（专辑）", len(all_urls))
+
+    for url in all_urls:
+        # 尝试直接匹配 album URL
+        album_id = extract_album_id_from_url(url)
+        if album_id:
+            if album_id not in seen_ids:
+                seen_ids.add(album_id)
+                ids.append(album_id)
+                logger.debug("[Netease] 直接提取到专辑 ID → %s (%s)", album_id, url[:60])
+            continue
+
+        # 匹配 163cn.tv 短链接
+        if NETEASE_SHORT_URL_RE.match(url):
+            short_urls_to_resolve.append(url)
+
+    # 批量解析短链接
+    if short_urls_to_resolve:
+        logger.info("[Netease] 解析 %d 个短链接（专辑）...", len(short_urls_to_resolve))
+        for short_url in short_urls_to_resolve:
+            resolved = await resolve_short_url(short_url)
+            if resolved:
+                album_id = extract_album_id_from_url(resolved)
+                if album_id and album_id not in seen_ids:
+                    seen_ids.add(album_id)
+                    ids.append(album_id)
+                    logger.info("[Netease] 短链接解析 → 提取到专辑 ID: %s → %s", short_url, album_id)
+
+    elapsed = time.time() - t_start
+    if ids:
+        logger.info("[Netease] 专辑 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
+    else:
+        logger.debug("[Netease] 专辑 ID 提取完成 (%.2fs) → 未找到", elapsed)
 
     return ids
 
@@ -763,3 +850,93 @@ async def fetch_song_url(
         type=str(item.get("type", "mp3")),
         code=int(item.get("code", 200)),
     )
+
+
+async def fetch_album_detail(
+    album_id: str,
+    api_base: str,
+    timeout: int = 30,
+    real_ip: str = "",
+) -> tuple[str, list[NeteaseSongInfo]]:
+    """
+    获取专辑详情，包括专辑名和曲目列表。
+
+    调用 /album?id=XXX API，返回 (album_name, songs_list)。
+
+    Raises:
+        httpx.TimeoutException: API 请求超时
+        httpx.HTTPStatusError: HTTP 状态码异常
+        ValueError: 响应格式异常 / 专辑不存在
+    """
+    path = f"/album?id={album_id}"
+    if real_ip:
+        path += f"&realIP={real_ip}"
+
+    url = _api_url(api_base, path)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+    t_start = time.time()
+    logger.info(
+        "[Netease] API GET → %s (timeout=%ds, real_ip=%s)",
+        url, timeout, "已配置" if real_ip else "未配置",
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 超时 (%.1fs) → %s", elapsed, url)
+        raise
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API HTTP 错误 (%.1fs) → %s HTTP %s", elapsed, url, e.response.status_code)
+        raise
+    except Exception:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 请求异常 (%.1fs) → %s", elapsed, url)
+        raise
+
+    elapsed = time.time() - t_start
+
+    if data.get("code") != 200:
+        raise ValueError(
+            f"API 返回异常: code={data.get('code')}, msg={data.get('msg', '')} "
+            f"(elapsed={elapsed:.1f}s)"
+        )
+
+    songs_raw = data.get("songs", [])
+    if not songs_raw:
+        raise ValueError(f"专辑不存在或为空 (id={album_id})")
+
+    # 从第一首歌提取专辑名
+    album_name = ""
+    first = songs_raw[0]
+    al = first.get("al") or {}
+    if isinstance(al, dict):
+        album_name = str(al.get("name", ""))
+
+    songs: list[NeteaseSongInfo] = []
+    for s in songs_raw:
+        artists = s.get("ar") or s.get("artists") or []
+        artist_names = " / ".join(
+            a.get("name", "") for a in artists if isinstance(a, dict)
+        )
+        album_info = s.get("al") or s.get("album") or {}
+        album_name_for_song = album_info.get("name", "") if isinstance(album_info, dict) else ""
+
+        songs.append(NeteaseSongInfo(
+            id=str(s.get("id", "")),
+            name=str(s.get("name", "")),
+            artist=artist_names,
+            album=album_name_for_song,
+            pic_url=album_info.get("picUrl", "") if isinstance(album_info, dict) else "",
+        ))
+
+    logger.info(
+        "[Netease] API album/detail 响应 (%.1fs) → HTTP %d, 专辑=%s, 曲目=%d 首",
+        elapsed, resp.status_code, album_name, len(songs),
+    )
+    return album_name, songs
