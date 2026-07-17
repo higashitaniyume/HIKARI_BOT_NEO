@@ -34,8 +34,8 @@ logger = logging.getLogger("HikariBot.StickerPlugin")
 # 贴纸包最终只发送 GIF；其他素材应先经过 media_transcoder 转换
 MEDIA_EXTS = sticker_library.MEDIA_EXTS
 PACK_LIST_PAGE_SIZE = 5
-SEND_RETRY_ATTEMPTS = 2
-SEND_RETRY_DELAY_SECONDS = 2.0
+SEND_RETRY_ATTEMPTS = 3
+SEND_RETRY_DELAY_BASE = 2.0  # 首次重试等待秒数，后续翻倍
 STICKER_FORWARD_CHUNK_SIZE = 80
 STICKER_FORWARD_CHUNK_DELAY_SECONDS = 1.0
 PACK_PREVIEW_LIMIT = 6
@@ -119,15 +119,16 @@ async def _send_with_retry(
             last_error = e
             if not _is_send_timeout(e) or attempt >= attempts:
                 raise
+            delay = SEND_RETRY_DELAY_BASE * (2 ** (attempt - 1))
             logger.warning(
                 "[Sticker] %s 发送超时，%.1fs 后重试 %d/%d: %s",
                 label,
-                SEND_RETRY_DELAY_SECONDS,
+                delay,
                 attempt,
                 attempts - 1,
                 e,
             )
-            await asyncio.sleep(SEND_RETRY_DELAY_SECONDS)
+            await asyncio.sleep(delay)
 
     assert last_error is not None
     raise last_error
@@ -413,8 +414,8 @@ async def _make_pack_preview_image() -> Path:
             y += card_h + card_gap
 
         SHARED_DIR.mkdir(parents=True, exist_ok=True)
-        out_path = SHARED_DIR / f"pack_preview_{int(time.time())}.png"
-        image.save(out_path, "PNG", optimize=True)
+        out_path = SHARED_DIR / f"pack_preview_{int(time.time())}.jpg"
+        image.save(out_path, "JPEG", quality=80, optimize=True)
         return out_path
 
     return await asyncio.to_thread(_do_render)
