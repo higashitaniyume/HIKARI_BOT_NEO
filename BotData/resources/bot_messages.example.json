@@ -108,6 +108,14 @@
     "failed": "YouTube 视频下载失败：{reason}",
     "info": "YouTube 视频下载完成\n标题：{title}\n频道：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}"
   },
+  "netease": {
+    "fetching": "正在解析网易云音乐链接...",
+    "album_info": "📀 专辑《{album_name}》共 {song_count} 首，正在解析...",
+    "info": "🎵 {name}\n歌手：{artist}\n专辑：{album}",
+    "failed": "网易云音乐解析失败，请稍后再试。",
+    "not_found": "未找到歌曲信息。",
+    "url_unavailable": "无法获取歌曲音频链接（可能需要版权或登录）。"
+  },
   "media_parser": {
     "usage": "用法：媒体解析 <抖音/B站/小红书/小黑盒等平台链接>",
     "no_link": "没有找到可解析的平台链接。",

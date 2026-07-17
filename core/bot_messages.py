@@ -262,6 +262,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "netease": {
         "fetching": "正在解析网易云音乐链接...",
+        "album_info": "📀 专辑《{album_name}》共 {song_count} 首，正在解析...",
         "info": "🎵 {name}\n歌手：{artist}\n专辑：{album}",
         "failed": "网易云音乐解析失败，请稍后再试。",
         "not_found": "未找到歌曲信息。",
