@@ -7,6 +7,7 @@ from nonebot.adapters.onebot.v11 import Message
 from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 
 from .api import Sts2WikiError, Sts2WikiNotFound
 from .config import get_config
@@ -112,6 +113,8 @@ async def handle_sts2_wiki(ctx: CommandContext) -> None:
     except Sts2WikiKeywordTooLong as e:
         await ctx.send(Message(msg("sts2_wiki.too_long", max_chars=e.max_chars)))
         return
+
+    stats_increment(ctx.event, "wiki_queries", 1)
 
     try:
         result = await Sts2WikiService(cfg).lookup(keyword)

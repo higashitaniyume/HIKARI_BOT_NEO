@@ -13,6 +13,7 @@ from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.config_loader import load_main_config
+from core.stats_tracker import increment as stats_increment
 from plugins.push_framework import PushContext, PushMessage, register_push_source
 
 from .config import find_subscription, get_config, save_config
@@ -220,6 +221,7 @@ async def _send_latest(ctx: CommandContext, text: str, *, require_enabled: bool)
         await ctx.send(Message(msg("rss.subscription_disabled", subscription_id=subscription["id"])))
         return
 
+    stats_increment(ctx.event, "rss_reads", 1)
     await ctx.send(Message(msg("rss.fetching", subscription_id=subscription["id"])))
     try:
         feed = await fetch_feed(str(subscription["url"]), cfg)

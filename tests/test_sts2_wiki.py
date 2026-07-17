@@ -141,6 +141,7 @@ class _FakeCtx:
     def __init__(self, args: str) -> None:
         self.args = args
         self.sent: list[str] = []
+        self.event = None  # stats_increment 的 mock 在 patch 中覆盖
 
     async def send(self, message) -> None:
         self.sent.append(str(message))
@@ -368,6 +369,7 @@ class Sts2WikiTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(sts2_wiki_plugin, "get_config", Mock(return_value=_cfg())),
             patch.object(sts2_wiki_plugin, "msg", Mock(return_value="friendly failure")),
+            patch.object(sts2_wiki_plugin, "stats_increment", Mock()),
             patch.object(
                 sts2_wiki_plugin.Sts2WikiService,
                 "lookup",

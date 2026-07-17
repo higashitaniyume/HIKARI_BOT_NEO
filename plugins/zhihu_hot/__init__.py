@@ -12,6 +12,7 @@ from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 from plugins.push_framework import PushContext, PushMessage, register_push_source
 
 from .api import ZhihuHotClient, ZhihuHotError, ZhihuHotItem
@@ -122,6 +123,7 @@ async def handle_zhihu_hot(ctx: CommandContext) -> None:
         return
 
     options = _manual_options(ctx.args)
+    stats_increment(ctx.event, "zhihu_hot_views", 1)
     await ctx.send(Message(msg("zhihu_hot.fetching")))
     try:
         items = await _build_hot_items(options, force=_parse_bool(options.get("force_refresh"), default=False))

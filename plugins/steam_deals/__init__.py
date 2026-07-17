@@ -14,6 +14,7 @@ from nonebot.adapters.onebot.v11.exception import ActionFailed
 from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 from plugins.push_framework.registry import PushContext, PushMessage, register_push_source
 
 from .api import DealMode, SteamDealsClient, SteamDealsError
@@ -265,6 +266,7 @@ async def handle_steam_deals(ctx: CommandContext) -> None:
     if help_requested:
         await ctx.send(Message(msg("steam_deals.help")))
         return
+    stats_increment(ctx.event, "steam_queries", 1)
     await _send_report_to_context(ctx, mode, force_refresh=force_refresh)
 
 

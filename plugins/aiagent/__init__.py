@@ -16,6 +16,7 @@ from core.activity_tracker import ActivityScope
 from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
+from core.stats_tracker import increment as stats_increment
 
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, load_persona_prompt
@@ -193,6 +194,7 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
             await bot.send(event, Message(reply))
+        stats_increment(event, "ai_chat_sessions", 1)
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)

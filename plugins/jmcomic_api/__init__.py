@@ -14,6 +14,7 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, Pr
 from nonebot.params import RegexGroup
 
 from core.bot_messages import get_message as msg
+from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
 
@@ -260,6 +261,7 @@ async def _download_and_send_pdf(
                 logger.exception(f"PDF 上传失败: {pdf_path.resolve()}")
 
             if upload_ok:
+                stats_increment(event, "jmcomic_downloads", 1)
                 result_message = msg("jmcomic.done", album_id=album_id)
             else:
                 result_message = msg("jmcomic.upload_failed")

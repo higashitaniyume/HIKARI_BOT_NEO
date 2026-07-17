@@ -14,6 +14,7 @@ from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 
 from .config import get_config, save_config
 
@@ -306,6 +307,7 @@ async def _handle_tts_command(ctx: CommandContext) -> None:
         _cleanup_cache(cache_dir, cfg.get("cache_ttl_minutes", 60))
         output_path = await _render_fish_tts(text, cfg, cache_dir)
         await ctx.send(Message(MessageSegment.record(output_path.resolve().as_uri())))
+        stats_increment(ctx.event, "tts_generated", 1)
     except FishAudioRequestError as e:
         logger.warning("[TTS] Fish Audio 请求失败: %s", e)
         if e.status_code == 402:

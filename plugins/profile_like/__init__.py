@@ -10,6 +10,7 @@ from typing import Any, Iterable
 from nonebot.adapters.onebot.v11.exception import ActionFailed
 
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
 
@@ -47,6 +48,7 @@ async def handle_profile_like(ctx: CommandContext) -> None:
             max_times=int(cfg.get("max_times", 10)),
         )
         await send_profile_like(ctx.bot, user_id=request.user_id, times=request.times)
+        stats_increment(ctx.event, "profile_likes_given", request.times)
     except ActionFailed as e:
         logger.warning(
             "[ProfileLike] 点赞失败 user_id=%s times=%s info=%s",

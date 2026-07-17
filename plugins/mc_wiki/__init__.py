@@ -8,6 +8,7 @@ from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 
 from .api import McWikiClient, McWikiError, McWikiNotFound, McWikiResult
 from .config import get_config
@@ -96,6 +97,7 @@ async def handle_mc_wiki(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("mc_wiki.usage")))
         return
 
+    stats_increment(ctx.event, "wiki_queries", 1)
     try:
         result = await McWikiClient(get_config()).search(keyword)
         await _send_result(ctx, result)

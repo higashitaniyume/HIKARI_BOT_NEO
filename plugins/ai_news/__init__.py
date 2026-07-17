@@ -12,6 +12,7 @@ from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from core.ai_tool_registry import AIToolContext, register_ai_tool
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
+from core.stats_tracker import increment as stats_increment
 from plugins.push_framework import PushContext, PushMessage, register_push_source
 
 from .ai_summary import enhance_digest
@@ -150,6 +151,7 @@ async def handle_ai_news(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("ai_news.disabled")))
         return
 
+    stats_increment(ctx.event, "ai_news_views", 1)
     max_items = _parse_count(ctx.args)
     options = _manual_options(ctx.args)
     options.update({"max_items": max_items, "only_new": False, "mark_seen": False})
