@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import unquote
 
 from core.access_control import normalize_access_rules
+from core.config_loader import clear_plugin_config_cache
 from plugins.push_framework.config import get_config as get_push_config
 from plugins.push_framework.registry import iter_push_sources
 from plugins.rss_subscriber.config import get_config as get_rss_config
@@ -99,6 +100,11 @@ def _write_plugin_config(name: str, content: str) -> dict[str, Any]:
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_path.write_text(json.dumps(parsed, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp_path, path)
+
+    # 清除插件配置缓存，确保下次 load_plugin_config 从磁盘重新读取
+    plugin_name = path.stem  # "netease_parser.json" → "netease_parser"
+    clear_plugin_config_cache(plugin_name)
+
     return _read_plugin_config(path.name)
 
 

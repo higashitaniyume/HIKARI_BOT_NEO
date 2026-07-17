@@ -22,7 +22,7 @@ def get_config() -> dict[str, Any]:
     如果配置文件不存在，自动创建默认配置。
     """
     global _first_load_done
-    cfg = load_plugin_config("netease_parser", DEFAULT_NETEASE_CONFIG)
+    cfg = load_plugin_config("netease_parser", DEFAULT_NETEASE_CONFIG, force_reload=True)
     if not _first_load_done:
         _first_load_done = True
         _log_config_summary(cfg)

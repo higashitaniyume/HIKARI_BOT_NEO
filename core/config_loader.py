@@ -332,7 +332,12 @@ def load_main_config() -> dict[str, Any]:
     return merged
 
 
-def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, Any]:
+def load_plugin_config(
+    plugin_name: str,
+    defaults: dict[str, Any],
+    *,
+    force_reload: bool = False,
+) -> dict[str, Any]:
     """
     加载插件配置文件 BotData/plugin_configs/<plugin_name>.json。
     如果文件不存在，自动创建默认配置。
@@ -340,6 +345,7 @@ def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, 
     Args:
         plugin_name: 插件名称（不含 .json 后缀），如 "pixiv_parser"
         defaults: 默认配置字典
+        force_reload: 跳过 mtime/size 缓存，强制从磁盘重新读取
 
     Returns:
         合并后的配置字典
@@ -360,10 +366,11 @@ def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, 
     except OSError:
         return copy.deepcopy(defaults)
 
-    with _config_cache_lock:
-        cached = _plugin_config_cache.get(config_path)
-        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
-            return copy.deepcopy(cached[2])
+    if not force_reload:
+        with _config_cache_lock:
+            cached = _plugin_config_cache.get(config_path)
+            if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+                return copy.deepcopy(cached[2])
 
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -378,6 +385,27 @@ def load_plugin_config(plugin_name: str, defaults: dict[str, Any]) -> dict[str, 
         _plugin_config_cache[config_path] = (stat.st_mtime_ns, stat.st_size, merged)
     logger.debug(f"插件配置加载完成: {config_path}")
     return copy.deepcopy(merged)
+
+
+def clear_plugin_config_cache(plugin_name: str | None = None) -> None:
+    """
+    清除插件配置缓存，使下次 load_plugin_config 强制从磁盘重新读取。
+
+    Args:
+        plugin_name: 指定插件名（不含 .json），如 "netease_parser"；
+                     为 None 时清空所有插件配置缓存
+    """
+    with _config_cache_lock:
+        if plugin_name is None:
+            _plugin_config_cache.clear()
+            logger.debug("已清除所有插件配置缓存")
+        else:
+            config_path = PLUGIN_CONFIGS_DIR / f"{plugin_name}.json"
+            removed = _plugin_config_cache.pop(config_path, None)
+            if removed is not None:
+                logger.debug(f"已清除插件配置缓存: {plugin_name}")
+            else:
+                logger.debug(f"插件配置不在缓存中: {plugin_name}")
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
