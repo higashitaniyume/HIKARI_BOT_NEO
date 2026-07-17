@@ -40,31 +40,31 @@ _last_flush_at = time.monotonic()
 # 所有支持的统计键，按类别分组展示
 STAT_KEY_CATEGORIES: dict[str, list[tuple[str, str]]] = {
     "media": [
-        ("pixiv_parsed", "stats_label_pixiv_parsed"),
-        ("media_parser_parsed", "stats_label_media_parser_parsed"),
-        ("cobalt_parsed", "stats_label_cobalt_parsed"),
-        ("youtube_downloaded", "stats_label_youtube_downloaded"),
-        ("netease_parsed", "stats_label_netease_parsed"),
-        ("tg_sticker_parsed", "stats_label_tg_sticker_parsed"),
+        ("pixiv_parsed", "common.stats_label_pixiv_parsed"),
+        ("media_parser_parsed", "common.stats_label_media_parser_parsed"),
+        ("cobalt_parsed", "common.stats_label_cobalt_parsed"),
+        ("youtube_downloaded", "common.stats_label_youtube_downloaded"),
+        ("netease_parsed", "common.stats_label_netease_parsed"),
+        ("tg_sticker_parsed", "common.stats_label_tg_sticker_parsed"),
     ],
     "sticker": [
-        ("stickers_sent", "stats_label_stickers_sent"),
-        ("collage_made", "stats_label_collage_made"),
+        ("stickers_sent", "common.stats_label_stickers_sent"),
+        ("collage_made", "common.stats_label_collage_made"),
     ],
     "query": [
-        ("steam_queries", "stats_label_steam_queries"),
-        ("ai_news_views", "stats_label_ai_news_views"),
-        ("zhihu_hot_views", "stats_label_zhihu_hot_views"),
-        ("rss_reads", "stats_label_rss_reads"),
-        ("wiki_queries", "stats_label_wiki_queries"),
-        ("osu_queries", "stats_label_osu_queries"),
+        ("steam_queries", "common.stats_label_steam_queries"),
+        ("ai_news_views", "common.stats_label_ai_news_views"),
+        ("zhihu_hot_views", "common.stats_label_zhihu_hot_views"),
+        ("rss_reads", "common.stats_label_rss_reads"),
+        ("wiki_queries", "common.stats_label_wiki_queries"),
+        ("osu_queries", "common.stats_label_osu_queries"),
     ],
     "interact": [
-        ("ai_chat_sessions", "stats_label_ai_chat_sessions"),
-        ("voice_triggers", "stats_label_voice_triggers"),
-        ("tts_generated", "stats_label_tts_generated"),
-        ("jmcomic_downloads", "stats_label_jmcomic_downloads"),
-        ("profile_likes_given", "stats_label_profile_likes_given"),
+        ("ai_chat_sessions", "common.stats_label_ai_chat_sessions"),
+        ("voice_triggers", "common.stats_label_voice_triggers"),
+        ("tts_generated", "common.stats_label_tts_generated"),
+        ("jmcomic_downloads", "common.stats_label_jmcomic_downloads"),
+        ("profile_likes_given", "common.stats_label_profile_likes_given"),
     ],
 }
 
@@ -258,12 +258,12 @@ def format_global_stats(global_data: dict[str, Any]) -> str:
     """格式化全局统计为可发送文本。"""
     totals = global_data.get("totals", {})
     sessions = global_data.get("sessions", {})
-    lines: list[str] = [msg("stats.global_header"), ""]
+    lines: list[str] = [msg("common.stats_global_header"), ""]
 
     if sessions.get("total", 0) > 0:
         lines.append(
             msg(
-                "stats.global_sessions",
+                "common.stats_global_sessions",
                 groups=sessions.get("groups", 0),
                 private=sessions.get("private", 0),
             )
@@ -272,17 +272,17 @@ def format_global_stats(global_data: dict[str, Any]) -> str:
 
     has_any = False
     for category_key, category_label_attr in [
-        ("media", "stats.global_category_media"),
-        ("sticker", "stats.global_category_sticker"),
-        ("query", "stats.global_category_query"),
-        ("interact", "stats.global_category_interact"),
+        ("media", "common.stats_global_category_media"),
+        ("sticker", "common.stats_global_category_sticker"),
+        ("query", "common.stats_global_category_query"),
+        ("interact", "common.stats_global_category_interact"),
     ]:
         items = STAT_KEY_CATEGORIES.get(category_key, [])
         cat_lines: list[str] = []
         for key, label_key in items:
             val = totals.get(key, 0)
             if val > 0:
-                cat_lines.append(msg("stats.global_line", label=msg(label_key), count=val))
+                cat_lines.append(msg("common.stats_global_line", label=msg(label_key), count=val))
         if cat_lines:
             has_any = True
             lines.append(msg(category_label_attr))
@@ -296,7 +296,7 @@ def format_global_stats(global_data: dict[str, Any]) -> str:
         if earliest:
             import datetime
             dt = datetime.datetime.fromtimestamp(earliest, tz=datetime.timezone(datetime.timedelta(hours=8)))
-            lines.append(msg("stats.global_first_session", date=dt.strftime("%Y-%m-%d %H:%M")))
+            lines.append(msg("common.stats_global_first_session", date=dt.strftime("%Y-%m-%d %H:%M")))
 
     return "\n".join(lines).rstrip("\n")
 
@@ -314,14 +314,14 @@ def format_stats(event: MessageEvent) -> str:
     if isinstance(meta, dict):
         total_msgs = meta.get("total_messages", 0)
         if total_msgs:
-            lines.append(msg("stats.session_messages", count=total_msgs))
+            lines.append(msg("common.stats_session_messages", count=total_msgs))
 
     has_any = False
     for category_key, category_label_attr in [
-        ("media", "stats.category_media"),
-        ("sticker", "stats.category_sticker"),
-        ("query", "stats.category_query"),
-        ("interact", "stats.category_interact"),
+        ("media", "common.stats_category_media"),
+        ("sticker", "common.stats_category_sticker"),
+        ("query", "common.stats_category_query"),
+        ("interact", "common.stats_category_interact"),
     ]:
         items = STAT_KEY_CATEGORIES.get(category_key, [])
         cat_lines: list[str] = []
