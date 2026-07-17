@@ -1,104 +1,199 @@
 # HIKARI BOT NEO
 
-HIKARI BOT NEO 是一个基于 [NoneBot 2](https://nonebot.dev/) 的 QQ 机器人，通过 NapCat 的 OneBot V11 WebSocket 接入 QQ。它主要用于自动解析 QQ 消息里的媒体链接，并提供贴纸包、错误通知等辅助能力。
+<div align="center">
+
+基于 [NoneBot 2](https://nonebot.dev/) + [NapCat](https://napneko.github.io/) OneBot V11 的 QQ 机器人
+
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
+</div>
+
+HIKARI BOT NEO 是一个功能丰富的 QQ 机器人，通过 NapCat 的 OneBot V11 WebSocket 接入 QQ。它能自动解析主流媒体平台链接（Pixiv、Bilibili、抖音、小红书、YouTube、网易云音乐等），管理贴纸包和语音包，运行 AI 对话（支持人格技能、持久化记忆、联网搜索与工具调用），提供定时推送能力（Steam 日报、AI 资讯、知乎热搜、RSS 订阅），并自带 Web 管理后台。
 
 > [!IMPORTANT]
-> 机器人本体不读取 `.env`。机器人运行配置来自 `BotData/config.json` 和 `BotData/plugin_configs/*.json`；根目录 `.env` 只给 Docker Compose 设置端口、Python 基础镜像和 NapCat 账号。
+> 机器人本体不读取 `.env`。运行配置来自 `BotData/config.json` 和 `BotData/plugin_configs/*.json`；根目录 `.env` 只给 Docker Compose 设置端口、Python 基础镜像和 NapCat 账号。
 
 ---
 
-## 功能概览
+## 📖 目录
 
-| 功能 | 触发方式 | 说明 |
-|------|----------|------|
-| Pixiv 作品解析 | 直接发送 Pixiv 作品链接 | 下载并发送作品图片，支持多图合并转发 |
-| 聚合媒体解析 | 直接发送抖音/B站/小红书/小黑盒等链接；或 `媒体解析 <链接>` | 基于 `astrbot_plugin_media_parser` 解析并发送支持平台的文本、图片和视频 |
-| Instagram / Facebook 解析 | Instagram / Facebook 链接 | 通过自部署 cobalt API 解析并发送图片/视频 |
-| YouTube 视频下载 | 直接发送 YouTube 链接 | 使用 yt-dlp 下载视频并发送，默认限制 1GB |
-| 网易云音乐解析 | 直接发送网易云音乐链接或 QQ 分享卡片 | 通过自部署 api-enhanced 获取歌曲信息，下载 MP3/FLAC 并发送为文件 |
-| 媒体详情 Web | 浏览器打开 `http://服务器IP:53123/` | 输入 URL 后查看机器人支持平台的解析详情、预览和下载媒体 |
-| Telegram 贴纸包解析 | `tg贴纸 <https://t.me/addstickers/set>` | 拉取贴纸包，调用统一转码服务转换为 GIF，保存成本地贴纸包 |
-| 本地贴纸包 | 关键词、`贴纸包 随机`、`贴纸包 拼图 <关键词>` | 从本地贴纸库随机发送贴纸或生成拼图 |
-| 本地语音触发 | 关键词 | 从本地语音库发送指定语音 |
-| TTS 说话 | `说话 <文本>`、`音色列表`、`切换音色 <名称>` | 使用 Fish Audio 当前音色合成语音并发送 |
-| AI Agent 聊天 | 私聊直接发送文本；群聊 @机器人；其他插件未处理时才回复 | 调用兼容 OpenAI Chat Completions 的模型，读取女娲人格 skill 和持久化记忆；支持黑白名单权限控制；长回复自动以合并转发发送 |
-| Bot 后台 | 浏览器打开 `http://服务器IP:54213/` | 管理贴纸包、语音文件和触发关键词 |
-| JMComic PDF | 私聊 `jm <id>` | 下载并转换 PDF 后通过私聊发送，群聊不解析 |
-| osu! 信息查询 | `osu` / `osu 绑定` / `osu 谱面` / `osu 下载` 等命令 | 查询用户、看板、成绩、排行榜、谱面，支持官方源谱面下载；查询结果以图片发送 |
-| Steam 热门热卖日报 | `steam日报` / `steam免费` / `steam低价` | 查询 Steam 热门热卖、免费、低价和大折扣游戏；可配置每日白名单主动推送 |
-| AI 最新资讯日报 | `ai资讯`；推送源 `ai_news` | 聚合 AI 官方、研究、社区和媒体 RSS，去重筛选后渲染成资讯图片 |
-| 知乎热搜 | `知乎热搜`；推送源 `zhihu_hot` | 读取知乎热榜问题，按热度和排名渲染成热搜图片 |
-| 定时推送框架 | `推送 状态` / `推送 触发 <任务ID>` | 提供可注册消息源的通用定时推送能力 |
-| 星露谷物语 Wiki | `星露谷wiki <关键词>` | 搜索中文 Stardew Valley Wiki，以合并转发返回链接、详细描述和主图 |
-| Minecraft Wiki | `mcwiki <关键词>` | 搜索中文 Minecraft Wiki，以合并转发返回链接、详细描述和主图 |
-| 杀戮尖塔 2 Wiki | `塔2wiki <关键词>` / `sts2 <关键词>` | 搜索 Spire Codex 简体中文数据源，返回《杀戮尖塔 2》条目摘要和链接 |
-| 帮助信息 | 私聊 `帮助`；群聊 `@机器人 帮助` | 查看可用能力和用法 |
-| 关于信息 | 私聊 `关于`；群聊 `@机器人 关于` | 查看机器人描述、当前版本、Git 提交标题、运行时长和贴纸库统计 |
-| 错误通知 | 自动 | 用户收到通用失败提示，管理员收到脱敏后的异常 |
-
-本仓库当前包含 Pixiv、抖音、Bilibili、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X、Instagram/Facebook、YouTube、媒体详情 Web、Telegram 贴纸、本地贴纸、本地语音、TTS、AI Agent、JMComic、osu!、Steam 热门热卖日报、AI 最新资讯日报、知乎热搜、定时推送框架、星露谷物语 Wiki、Minecraft Wiki、杀戮尖塔 2 Wiki 和网易云音乐解析相关实现。聚合媒体解析能力来自 vendored 的 `drdon1234/astrbot_plugin_media_parser`。
+- [一、项目简介](#一项目简介)
+- [二、功能一览](#二功能一览)
+- [三、快速部署](#三快速部署)
+  - [Docker Compose 部署（推荐）](#docker-compose-部署推荐)
+  - [一键安装脚本](#一键安装脚本)
+  - [手动部署](#手动部署)
+  - [部署到服务器](#部署到服务器)
+  - [访问地址](#访问地址)
+  - [常用维护命令](#常用维护命令)
+- [四、本地开发](#四本地开发)
+  - [安装依赖](#安装依赖)
+  - [生成配置](#生成配置)
+  - [修改配置](#修改配置)
+  - [启动](#启动)
+- [五、插件功能详解](#五插件功能详解)
+  - [5.1 Pixiv 作品解析](#51-pixiv-作品解析)
+  - [5.2 聚合媒体解析](#52-聚合媒体解析)
+  - [5.3 Instagram / Facebook 解析](#53-instagram--facebook-解析)
+  - [5.4 YouTube 视频下载](#54-youtube-视频下载)
+  - [5.5 网易云音乐解析](#55-网易云音乐解析)
+  - [5.6 媒体详情 Web](#56-媒体详情-web)
+  - [5.7 Telegram 贴纸包解析](#57-telegram-贴纸包解析)
+  - [5.8 本地贴纸包](#58-本地贴纸包)
+  - [5.9 本地语音触发](#59-本地语音触发)
+  - [5.10 TTS 语音合成](#510-tts-语音合成)
+  - [5.11 AI Agent 聊天](#511-ai-agent-聊天)
+  - [5.12 Bot 后台](#512-bot-后台)
+  - [5.13 贴纸静默收集](#513-贴纸静默收集)
+  - [5.14 定时推送框架](#514-定时推送框架)
+  - [5.15 Steam 热门热卖日报](#515-steam-热门热卖日报)
+  - [5.16 AI 最新资讯日报](#516-ai-最新资讯日报)
+  - [5.17 知乎热搜](#517-知乎热搜)
+  - [5.18 RSS 订阅](#518-rss-订阅)
+  - [5.19 星露谷物语 Wiki](#519-星露谷物语-wiki)
+  - [5.20 Minecraft Wiki](#520-minecraft-wiki)
+  - [5.21 杀戮尖塔 2 Wiki](#521-杀戮尖塔-2-wiki)
+  - [5.22 QQ 资料卡点赞](#522-qq-资料卡点赞)
+  - [5.23 空 @ 表情回应](#523-空--表情回应)
+  - [5.24 戳一戳回戳](#524-戳一戳回戳)
+  - [5.25 媒体转码](#525-媒体转码)
+  - [5.26 JMComic PDF 下载](#526-jmcomic-pdf-下载)
+  - [5.27 帮助与关于](#527-帮助与关于)
+  - [5.28 错误通知](#528-错误通知)
+- [六、核心模块](#六核心模块)
+  - [消息处理流程](#消息处理流程)
+  - [模块清单](#模块清单)
+- [七、可热改资源](#七可热改资源)
+  - [生成图片字体](#生成图片字体)
+  - [机器人固定回复](#机器人固定回复)
+- [八、NapCat 文件目录](#八napcat-文件目录)
+- [九、项目结构](#九项目结构)
+- [十、常见问题](#十常见问题)
+- [十一、开发说明](#十一开发说明)
+- [十二、许可证与致谢](#十二许可证与致谢)
+- [十三、用户协议与隐私政策](#十三用户协议与隐私政策)
 
 ---
 
-## 运行环境
+## 一、项目简介
 
-- 推荐部署方式：Docker + Docker Compose
-- 本地开发：Python `>=3.10`，并使用 [uv](https://docs.astral.sh/uv/) 安装依赖
-- QQ 接入：NapCat，并开启 OneBot V11 WebSocket 服务
-- 聚合媒体解析：依赖 `third_party/astrbot_plugin_media_parser`，部分平台建议配置代理；B站高画质、m3u8/DASH 合并和封面截帧依赖 `ffmpeg`
-- Instagram / Facebook 解析：自部署 [cobalt](https://github.com/imputnet/cobalt)
-- YouTube 下载：服务器需要能访问 YouTube；高质量视频合并依赖 `ffmpeg`
-- 网易云音乐解析：自部署 [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)（可选，仅在启用此插件时需要）
-- Telegram 贴纸解析：Telegram Bot Token，并保证服务器能访问 Telegram API
-- 贴纸素材转换：运行容器首次启动时会安装 `ffmpeg`、Cairo/Pango 等转换依赖，并缓存在容器与 Python 依赖卷中
+HIKARI BOT NEO 是一个基于 [NoneBot 2](https://nonebot.dev/) 的 QQ 机器人，通过 NapCat 的 OneBot V11 WebSocket 接入 QQ。Bot 配置不读取 `.env`，运行配置来自 `BotData/config.json` 和 `BotData/plugin_configs/*.json`。
 
----
+### 架构概览
 
-## 快速部署
+```text
+Message from QQ → NapCat → OneBot V11 WS → NoneBot
 
-推荐使用 Docker Compose 部署。本项目不再推荐 systemd 部署。
+  priority=0, block=False → core/command_router.py
+    - 显式命令注册 @command() 装饰器
+    - 匹配成功标记已处理，未匹配则继续
 
-Compose 默认启动 5 个服务：
+  priority=1, block=False → core/message_pipeline.py
+    - URL 自动解析处理器注册 register_handler()
+    - 实现 URLHandler 协议 (match + handle)
 
-| 服务 | 作用 | 默认端口 |
+  其余插件 (on_message, priority=...)
+    - AI Agent 作为最低优先级兜底
+```
+
+### 5 个 Docker Compose 服务
+
+| 服务 | 镜像 | 作用 |
+|------|------|------|
+| `hikaribot` | `python:3.12-slim-bookworm` | 机器人本体 + Bot 后台 + 媒体详情 Web |
+| `napcat` | `mlikiowa/napcat-docker` | QQ / OneBot V11 网关 |
+| `cobalt` | `ghcr.io/imputnet/cobalt:11` | Instagram / Facebook 媒体 API |
+| `searxng` | `searxng/searxng` | AI Agent 网页搜索 |
+| `searxng-valkey` | `valkey/valkey:9-alpine` | SearXNG 缓存 |
+
+### 数据边界
+
+| 路径 | 内容 | Git 跟踪 |
 |------|------|----------|
-| `hikaribot` | 本项目机器人、Bot 后台和媒体详情 Web | `54213`、`53123` |
-| `napcat` | QQ / OneBot 接入 | `3000`、`6099`、`54253` 等 |
-| `cobalt` | Instagram / Facebook 媒体解析 API | `54257` |
-| `searxng` | AI Agent 搜索服务 | `54261` |
-| `searxng-valkey` | SearXNG 缓存 | 内部服务 |
+| `BotData/config.json` | 主配置（超级管理员，NapCat Token） | ❌ |
+| `BotData/plugin_configs/*.json` | 插件配置 | ❌（`*.example.json` ✅） |
+| `BotData/resources/*.json` | 热改资源（字体、回复消息） | ❌（example ✅） |
+| `BotData/Gifs/` | 贴纸文件 | ❌ |
+| `BotData/Voices/` | 语音文件 | ❌ |
+| `BotData/agent_personas/` | AI 人格 skill | ❌ |
+| `UserData/` | 状态、绑定、AI 记忆、统计 | 选择性忽略 |
+| `third_party/` | 上游 vendored 代码 | ✅ |
 
-运行数据会保存在 compose 所在目录，主要包括 `BotData/`、`UserData/`、`napcat/`、`searxng/` 与统一的 `runtime/`。其中 `runtime/shared/` 用于跨容器共享文件，`runtime/tmp/hikari_bot/` 存放 NapCat 可读取的临时媒体。删除容器不会删除这些数据。
+---
 
-### 源码挂载部署（推荐）
+## 二、功能一览
 
-机器人不再构建或分发项目 Docker 镜像。Compose 直接拉取官方 Python 基础镜像，把项目源码目录只读挂载进容器；依赖安装在名为 `hikaribot_venv` 的 Docker volume 中。更新代码时仅同步源码并重启 `hikaribot`，启动过程会按 `uv.lock` 自动同步 Python 依赖。
+| 功能 | 触发方式 | 详细章节 |
+|------|----------|----------|
+| Pixiv 作品解析 | 直接发送 Pixiv 链接 | [5.1](#51-pixiv-作品解析) |
+| 聚合媒体解析（B站/抖音/小红书等） | 直接发送链接 / `媒体解析 <链接>` | [5.2](#52-聚合媒体解析) |
+| Instagram / Facebook 解析 | 直接发送 IG/FB 链接 | [5.3](#53-instagram--facebook-解析) |
+| YouTube 视频下载 | 直接发送 YouTube 链接 | [5.4](#54-youtube-视频下载) |
+| 网易云音乐解析 | 发送网易云链接或 QQ 分享卡片 | [5.5](#55-网易云音乐解析) |
+| 媒体详情 Web | 浏览器打开 `http://IP:53123/` | [5.6](#56-媒体详情-web) |
+| Telegram 贴纸包解析 | `tg贴纸 <链接>` | [5.7](#57-telegram-贴纸包解析) |
+| 本地贴纸包 | 关键词触发 / `贴纸包` 命令 | [5.8](#58-本地贴纸包) |
+| 本地语音触发 | 关键词匹配 | [5.9](#59-本地语音触发) |
+| TTS 语音合成 | `说话 <文本>` / `音色列表` / `切换音色` | [5.10](#510-tts-语音合成) |
+| AI Agent 聊天 | 私聊文本 / 群聊 @机器人 | [5.11](#511-ai-agent-聊天) |
+| Bot 后台 | 浏览器打开 `http://IP:54213/` | [5.12](#512-bot-后台) |
+| 贴纸静默收集 | 自动 | [5.13](#513-贴纸静默收集) |
+| 定时推送框架 | `推送 状态` / `推送 触发 <任务ID>` | [5.14](#514-定时推送框架) |
+| Steam 日报 | `steam日报` / `steam免费` / `steam低价` | [5.15](#515-steam-热门热卖日报) |
+| AI 最新资讯日报 | `ai资讯` | [5.16](#516-ai-最新资讯日报) |
+| 知乎热搜 | `知乎热搜` | [5.17](#517-知乎热搜) |
+| RSS 订阅 | `rss` 系列命令 | [5.18](#518-rss-订阅) |
+| 星露谷物语 Wiki | `星露谷wiki <关键词>` | [5.19](#519-星露谷物语-wiki) |
+| Minecraft Wiki | `mcwiki <关键词>` | [5.20](#520-minecraft-wiki) |
+| 杀戮尖塔 2 Wiki | `塔2wiki <关键词>` / `sts2 <关键词>` | [5.21](#521-杀戮尖塔-2-wiki) |
+| QQ 资料卡点赞 | `点赞` | [5.22](#522-qq-资料卡点赞) |
+| 空 @ 表情回应 | 群聊只 @机器人 | [5.23](#523-空--表情回应) |
+| 戳一戳回戳 | 自动 | [5.24](#524-戳一戳回戳) |
+| 媒体转码 | 自动（贴纸转换） | [5.25](#525-媒体转码) |
+| JMComic PDF | `jm <id>` | [5.26](#526-jmcomic-pdf-下载) |
+| 帮助信息 | `帮助` | [5.27](#527-帮助与关于) |
+| 关于信息 | `关于` | [5.27](#527-帮助与关于) |
+| 错误通知 | 自动 | [5.28](#528-错误通知) |
 
-服务器需要预先安装 Docker Engine、Docker Compose v2 和 Git。新用户只需运行下面一条命令：
+---
 
+## 三、快速部署
+
+### Docker Compose 部署（推荐）
+
+本项目采用**源码挂载部署**方式，不再构建或分发 Docker 镜像。Compose 直接拉取官方 Python 基础镜像，将项目源码目录只读挂载进容器；依赖安装在名为 `hikaribot_venv` 的 Docker volume 中。更新代码时仅同步源码并重启 `hikaribot`，启动过程会按 `uv.lock` 自动同步 Python 依赖。
+
+Docker 启动脚本（`docker/entrypoint.sh`）负责：创建目录、检查/安装系统依赖（ffmpeg、cairo、pango、Noto CJK 字体、7zip）、创建 venv、复制示例配置、执行 `uv sync --frozen --no-dev`，最后启动机器人。
+
+### 一键安装脚本
+
+服务器需要预先安装 Docker Engine、Docker Compose v2 和 Git。
+
+**Linux / macOS（bash）：**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.sh | sudo sh
 ```
 
-PowerShell（Windows 或已安装 PowerShell 的 Linux）可使用：
-
+**PowerShell（Windows / Linux）：**
 ```powershell
 irm https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.ps1 | iex
 ```
 
-该脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部服务。
+脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部 5 个服务。
 
-部署编排会同时启动 SearXNG 搜索服务和 Valkey 缓存，供 AI Agent 的搜索工具使用。默认外部端口为 `54261`，可在 `.env` 中通过 `SEARXNG_HOST`、`SEARXNG_PORT` 和 `SEARXNG_VERSION` 调整；SearXNG 配置目录位于部署根目录的 `searxng/core-config/`。
-
-如果需要使用镜像站、私有仓库或其他目录，可以在执行时覆盖环境变量：
-
+支持自定义仓库地址和部署目录：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.sh | sudo env HIKARI_REPOSITORY_URL=https://example.com/HIKARI_BOT_NEO.git HIKARI_DEPLOY_DIR=/opt/hikari sh
+curl -fsSL https://raw.githubusercontent.com/.../install.sh | sudo env \
+  HIKARI_REPOSITORY_URL=https://example.com/repo.git \
+  HIKARI_DEPLOY_DIR=/opt/hikari \
+  sh
 ```
 
-脚本会保护 `app/` 中的本地源码改动；发现未提交或未跟踪文件时会停止，而不是强制覆盖。
+脚本会保护 `app/` 中的本地源码改动，发现未提交或未跟踪文件时会停止，不会强制覆盖。
 
-也可以手动完成同样的步骤：
+> 部署编排会同时启动 SearXNG 搜索服务和 Valkey 缓存，供 AI Agent 的搜索工具使用。默认外部端口为 `54261`，可在 `.env` 中调整。
+
+### 手动部署
 
 ```bash
 git clone <本仓库地址> /opt/hikaribot-docker/app
@@ -110,28 +205,14 @@ sed -i "s/__SEARXNG_SECRET__/$(openssl rand -hex 32)/g" searxng/core-config/sett
 docker compose up -d
 ```
 
-首次启动会在 `/opt/hikaribot-docker/BotData/` 中生成真实配置文件。编辑这些配置，至少修改：
+首次启动会在 `/opt/hikaribot-docker/BotData/` 中生成真实配置文件。编辑这些配置，至少修改以下必填项：
 
-| 文件 | 必改项 |
-|------|--------|
+| 配置文件 | 必改项 |
+|----------|--------|
 | `BotData/config.json` | `bot.superuser_id`、`napcat.token` |
-| `BotData/plugin_configs/pixiv_parser.json` | Pixiv Cookie 或代理，按需填写 |
-| `BotData/plugin_configs/youtube_downloader.json` | 无必填项；如遇 YouTube 登录验证，可配置 `cookiefile` |
-| `BotData/plugin_configs/media_detail_web.json` | 无必填项；默认监听 `53123` |
-| `BotData/plugin_configs/osu_info.json` | osu! OAuth 客户端 ID 和客户端密钥，按需填写 |
-| `BotData/plugin_configs/steam_deals.json` | 无必填项；每日主动推送需开启 `schedule.enabled` 并填写 `push_whitelist` |
-| `BotData/plugin_configs/ai_news.json` | 无必填项；AI 资讯推送源默认使用公开 RSS/Atom 源，可按需增删 `sources` |
-| `BotData/plugin_configs/zhihu_hot.json` | 无必填项；知乎热搜推送源默认读取公开热榜接口 |
-| `BotData/plugin_configs/push_framework.json` | 无必填项；通用推送需启用对应 `jobs` 并填写目标 |
-| `BotData/plugin_configs/rss_subscriber.json` | 无必填项；RSS 主动推送需在 `subscriptions` 中添加订阅，并在推送任务里引用 |
+| `BotData/plugin_configs/pixiv_parser.json` | Pixiv Cookie 或代理 |
 | `BotData/plugin_configs/bot_admin.json` | `password` |
-| `BotData/plugin_configs/tg_sticker_parser.json` | Telegram Bot Token，按需开启 |
-| `BotData/plugin_configs/stardew_wiki.json` | 无必填项，默认使用中文 Wiki |
-| `BotData/plugin_configs/mc_wiki.json` | 无必填项，默认使用中文 Minecraft Wiki |
-| `BotData/plugin_configs/sts2_wiki.json` | 无必填项，默认使用 Spire Codex 简体中文 API |
-| `BotData/plugin_configs/profile_like.json` | 无必填项；`点赞` 默认点满 QQ 资料卡赞 |
-| `BotData/plugin_configs/mention_reaction.json` | 无必填项；群聊只 @ 机器人时默认用爱心表情回应 |
-| `BotData/plugin_configs/poke_back.json` | 无必填项；被戳一戳时自动戳回 |
+| `BotData/plugin_configs/tg_sticker_parser.json` | Telegram Bot Token |
 
 如果 NapCat 和机器人在同一个 compose 网络内，`BotData/config.json` 可以保持：
 
@@ -151,7 +232,7 @@ docker compose up -d
 docker compose restart hikaribot
 ```
 
-编辑 `.env`，按需填写：
+编辑 `.env`，按需填写 NapCat 账号：
 
 ```text
 NAPCAT_ACCOUNT=你的QQ号
@@ -159,48 +240,41 @@ NAPCAT_ACCOUNT=你的QQ号
 
 ### 部署到服务器
 
-仓库内的 `deploy.ps1` 会通过 SSH 将受 Git 管理的源码同步到服务器的 `app/` 目录，默认部署到 `root@192.168.31.2:/opt/hikaribot-docker`。其他服务器可以改参数：
+仓库内的 `deploy.ps1` 可通过 SSH 将源码同步到服务器：
 
 ```powershell
 .\deploy.ps1 -ServerIP 你的服务器IP -ServerUser root -DeployPath /opt/hikaribot-docker -NapcatAccount 你的QQ号
 ```
 
-`deploy.ps1` 会用 `7z` 将本地源码打包后上传，运行脚本的机器和服务器都需要能执行 `7z` 命令。Bot 后台下载贴纸包时也会调用容器内的 7-Zip 命令行工具；Docker 启动脚本会自动安装 Debian 的 `7zip` 包。
-
-部署和安装脚本会在启动前刷新根目录的 `version.json`，根据 Git 历史写入 `0.0.x` 递增版本、短 hash 和提交标题。`关于` 命令与 Bot 后台总览页都会读取这个文件显示当前版本；后台还会显示完整版本历史。`version.json` 是部署生成物，不需要提交到 Git。
-
-这个脚本会：
-
-1. 首次使用时把历史目录 `/opt/hikaribot-dockcer` 迁移为正确的 `/opt/hikaribot-docker`，并保留所有运行数据
-2. 上传源码到 `/opt/hikaribot-docker/app/`，不会上传 `.env`、真实配置、用户数据或媒体文件
+部署流程：
+1. 首次使用时将历史目录 `/opt/hikaribot-dockcer` 迁移为正确的 `/opt/hikaribot-docker`
+2. 上传源码到 `app/`（不上传 `.env`、真实配置或用户数据）
 3. 上传服务器 Compose 文件
-4. 默认更新并重启 `hikaribot`；当共享目录挂载发生变化时，Compose 会自动重建 `napcat` 以保持同一共享目录，`cobalt` 不受影响
-
-如果是第一次在服务器部署，或者确实想更新所有服务：
+4. 默认更新并重启 `hikaribot`；首次部署或共享目录挂载变化时加 `-AllServices` 更新所有服务
 
 ```powershell
 .\deploy.ps1 -AllServices
 ```
 
-项目源码、持久化数据和容器内依赖的职责如下：
+数据持久化策略：
 
-| 位置 | 用途 | 更新时是否覆盖 |
-|------|------|----------------|
-| `/opt/hikaribot-docker/app/` | 机器人源码、静态资源与 example 配置 | 是 |
-| `/opt/hikaribot-docker/BotData/`、`UserData/` 等 | 真实配置、贴纸、语音、日志与用户数据 | 否 |
-| `/opt/hikaribot-docker/runtime/` | `shared/` 跨容器共享文件与 `tmp/hikari_bot/` 临时媒体 | 否 |
-| Docker volume `hikaribot_hikaribot_venv` | Python 依赖与启动标记 | 仅在依赖锁文件变化时同步 |
+| 位置 | 用途 | 是否覆盖 |
+|------|------|----------|
+| `app/` | 源码、静态资源与 example 配置 | ✅ 是 |
+| `BotData/`、`UserData/` | 真实配置、贴纸、语音、日志与用户数据 | ❌ 否 |
+| `runtime/` | `shared/` 跨容器文件、`tmp/hikari_bot/` 临时媒体 | ❌ 否 |
+| Volume `hikaribot_venv` | Python 依赖与启动标记 | 仅锁文件变化时同步 |
+
+`deploy.ps1` 用 `7z` 打包上传。部署和安装脚本会在启动前刷新 `version.json`（`0.0.x` 递增版本、短 hash、提交标题）。`关于` 命令与 Bot 后台总览页都会读取它显示版本。
 
 ### 访问地址
-
-部署完成后，常用访问地址：
 
 | 服务 | 地址 |
 |------|------|
 | Bot 后台 | `http://服务器IP:54213/` |
 | 媒体详情 Web | `http://服务器IP:53123/` |
 | NapCat WebUI | `http://服务器IP:3000/` |
-| cobalt API | `http://服务器IP:54257/` |
+| Cobalt API | `http://服务器IP:54257/` |
 
 ### 常用维护命令
 
@@ -215,15 +289,15 @@ docker compose up -d
 
 ---
 
-## 本地开发
+## 四、本地开发
 
-### 1. 安装依赖
+### 安装依赖
 
 ```bash
 uv sync
 ```
 
-### 2. 生成配置
+### 生成配置
 
 首次启动会自动创建默认配置文件：
 
@@ -234,7 +308,10 @@ uv run python bot.py
 也可以复制示例配置：
 
 ```bash
+# 主配置
 cp BotData/config.example.json BotData/config.json
+
+# 插件配置
 cp BotData/plugin_configs/pixiv_parser.example.json BotData/plugin_configs/pixiv_parser.json
 cp BotData/plugin_configs/media_parser.example.json BotData/plugin_configs/media_parser.json
 cp BotData/plugin_configs/cobalt_parser.example.json BotData/plugin_configs/cobalt_parser.json
@@ -256,7 +333,7 @@ cp BotData/plugin_configs/mention_reaction.example.json BotData/plugin_configs/m
 cp BotData/plugin_configs/poke_back.example.json BotData/plugin_configs/poke_back.json
 ```
 
-### 3. 修改主配置
+### 修改配置
 
 编辑 `BotData/config.json`：
 
@@ -276,7 +353,7 @@ cp BotData/plugin_configs/poke_back.example.json BotData/plugin_configs/poke_bac
 }
 ```
 
-### 4. 启动
+### 启动
 
 ```bash
 uv run python bot.py
@@ -286,89 +363,66 @@ uv run python bot.py
 
 ---
 
-## 插件配置
+## 五、插件功能详解
 
-### Pixiv
+### 5.1 Pixiv 作品解析
 
-配置文件：`BotData/plugin_configs/pixiv_parser.json`
+**配置文件：** `BotData/plugin_configs/pixiv_parser.json`
 
-关键字段：
+自动解析消息中的 Pixiv 作品链接，下载并发送作品图片，支持多图合并转发。
+
+**支持链接：**
+- `https://www.pixiv.net/artworks/<pid>`
+- `https://www.pixiv.net/i/<pid>`
+
+> 不支持纯数字 PID、`pid:` 格式、用户主页、tag、novel 等链接。
+
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
-| `cookie` | Pixiv Cookie。遇到 403 或 Cloudflare 拦截时通常需要补全 |
+| `cookie` | Pixiv Cookie，遇到 403 或 Cloudflare 拦截时需要补全 |
 | `proxy` | Pixiv 请求代理，例如 `http://127.0.0.1:7890` |
 | `auto_parse` | 是否自动解析消息中的 Pixiv 链接 |
 | `max_send` | 单次最多发送图片数 |
 | `allow_r18` | 是否允许 R18 内容 |
-| `send_link_info` | 是否发送作品标题、作者、链接等详情；设为 `false` 时只发送图片 |
+| `send_link_info` | 是否发送作品标题、作者、链接等详情 |
 | `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot` |
-| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
+| `cache_ttl_seconds` | 下载媒体保留时间，默认 600 秒 |
 
-支持链接形态：
+---
 
-- `https://www.pixiv.net/artworks/<pid>`
-- `https://www.pixiv.net/i/<pid>`
+### 5.2 聚合媒体解析
 
-不支持纯数字 PID、`pid:` 格式、用户主页、tag、novel 等链接。
+**配置文件：** `BotData/plugin_configs/media_parser.json`
 
-### Instagram / Facebook
+基于 vendored 的 [`drdon1234/astrbot_plugin_media_parser`](third_party/astrbot_plugin_media_parser) 解析多个平台链接，使用 HIKARI 的 OneBot 发送链发送文本、图片和视频。
 
-配置文件：`BotData/plugin_configs/cobalt_parser.json`
+**支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X
 
-本插件依赖自部署 cobalt API。不要直接使用 `api.cobalt.tools`，官方实例通常有 bot 保护，主要供 cobalt 前端使用。
+> YouTube 由独立的 `youtube_downloader` 插件处理。
 
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `cobalt_api` | 自部署 cobalt API 地址，例如 `http://127.0.0.1:9000/` |
-| `api_key` | cobalt API Key，可为空 |
-| `api_timeout` | API 超时时间 |
-| `max_send` | 单次最多发送媒体数 |
-| `send_link_info` | 是否发送来源、数量、链接等详情；设为 `false` 时只发送媒体 |
-| `cache_dir` | 下载缓存目录 |
-| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
-
-支持 Instagram 的 `p`、`reel`、`stories`、`tv` 链接，以及 `facebook.com`、`fb.com`、`fb.watch` 链接。
-
-### 聚合媒体解析
-
-配置文件：`BotData/plugin_configs/media_parser.json`
-
-本插件基于 vendored 的 [`drdon1234/astrbot_plugin_media_parser`](third_party/astrbot_plugin_media_parser) 解析平台链接，并用 HIKARI 的 NoneBot/OneBot 发送链发送文本、图片和视频。
-
-支持平台与上游当前主线一致：B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X。YouTube 仍由本仓库独立的 `youtube_downloader` 插件处理。
-
-关键字段：
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
-| `enabled` | 是否启用聚合媒体解析 |
-| `trigger.auto_parse` | 是否自动解析消息里的支持平台链接 |
+| `enabled` | 插件总开关 |
+| `trigger.auto_parse` | 是否自动解析消息中的链接 |
 | `max_links_per_message` | 单条消息最多处理几个链接 |
-| `parse_retry_count` | 解析/下载失败后的重试次数，默认 `2`；每次重试会重新解析链接并重新获取媒体地址 |
-| `parse_retry_delay_seconds` | 每次解析/下载重试前等待秒数，默认 `2.0` |
-| `parse_queue.enabled` | 是否启用解析队列；启用后链接会进入后台解析/下载 worker |
-| `parse_queue.max_size` | 等待解析的最大链接数 |
-| `parse_queue.max_concurrent` | 同时解析/下载的链接数；建议保持小并发，避免平台风控和本机 IO 抢占 |
-| `parse_queue.delay_seconds` | 每个解析 worker 完成一个任务后的等待秒数 |
-| `max_send` | 单条链接最多发送多少个图片/视频节点，默认 80；合并转发每包也按这个数量打包 |
-| `send_strategy.forward_timeout_seconds` | 单次合并转发 OneBot 调用的超时时间；超时后按策略回退到逐条发送 |
-| `parsers.<平台>` | 每个平台的输出模式：`关闭`、`全部发送`、`仅文本`、`仅富媒体` |
-| `permissions.whitelist` / `permissions.blacklist` | 插件自己的 QQ/群黑白名单，可在 Bot 后台“权限”页管理 |
-| `download.cache_dir` | 媒体缓存目录；Docker/NapCat 部署时应放在双方都能访问的 `/tmp/hikari_bot` 子目录 |
-| `download.cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒；只清理解析生成的媒体子目录，不清理 B站 Cookie 等运行时数据 |
-| `download.max_video_size_mb` | 单个视频大小上限 |
+| `parse_retry_count` | 解析/下载失败重试次数，默认 2 |
+| `parse_queue.enabled` | 是否启用解析队列（后台 worker） |
+| `parse_queue.max_concurrent` | 同时解析的最大链接数 |
+| `max_send` | 单条链接最多发送多少媒体，默认 80 |
+| `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` |
+| `permissions` | QQ/群黑白名单 |
 | `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890` |
-| `bilibili_enhanced.cookie` | 可选 B站 Cookie，用于高画质和受限内容解析 |
-| `bilibili_enhanced.admin_assist.enable` | B站 Cookie 不可用时是否私聊超级管理员协助扫码登录 |
-| `message.media_display.video_cover_only` | 是否把视频改为只发封面 |
+| `bilibili_enhanced.cookie` | B站 Cookie（高画质和受限内容） |
+| `bilibili_enhanced.admin_assist.enable` | Cookie 失效时私聊管理员协助扫码登录 |
+| `download.max_video_size_mb` | 单个视频大小上限 |
 
-开启 `bilibili_enhanced.use_cookie` 且开启 `bilibili_enhanced.admin_assist.enable` 后，B站 Cookie 缺失或失效时，Bot 会私聊 `BotData/config.json` 里的 `bot.superuser_id`。超级管理员回复“确定”后会收到 Bilibili 登录二维码图片和备用登录链接；扫码成功后，新 Cookie 会保存到 `download.cache_dir/runtime_manager/bilibili/cookie.json`，无需手动替换配置文件里的 Cookie。超级管理员也可以发送 `B站登录` / `B站Cookie` 手动触发私聊二维码登录。
+**B站 Cookie 辅助登录：** 开启 `bilibili_enhanced.use_cookie` 和 `admin_assist.enable` 后，Cookie 缺失或失效时 Bot 会私聊超级管理员。回复"确定"后会收到 Bilibili 登录二维码图片和备用链接；扫码成功后新 Cookie 自动保存，无需手动替换。超级管理员也可发送 `B站登录` / `B站Cookie` 手动触发。
 
-显式命令：
-
+**显式命令：**
 ```text
 媒体解析 <链接>
 解析媒体 <链接>
@@ -377,1030 +431,320 @@ B站登录
 B站Cookie
 ```
 
-上游更新：
-
+**更新上游：**
 ```powershell
 .\scripts\update_media_parser_vendor.ps1
 uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_media_parser
 ```
 
-更新脚本会替换 `third_party/astrbot_plugin_media_parser/`，HIKARI 自己的 NoneBot 适配代码仍保留在 `plugins/media_parser/`。
+---
 
-### YouTube 视频下载
+### 5.3 Instagram / Facebook 解析
 
-配置文件：`BotData/plugin_configs/youtube_downloader.json`
+**配置文件：** `BotData/plugin_configs/cobalt_parser.json`
 
-本插件使用 `yt-dlp` 下载 YouTube 视频。直接发送 YouTube 视频链接即可触发解析；默认一条消息最多处理 20 个链接，下载完成后先发送视频信息，再发送视频文件。
+通过自部署 cobalt API 解析 Instagram 和 Facebook 的图片/视频。
 
-关键字段：
+> 不要直接使用 `api.cobalt.tools`，官方实例有 bot 保护，主要供 cobalt 前端使用。
+
+**支持链接：** Instagram 的 `p`、`reel`、`stories`、`tv` 链接，以及 `facebook.com`、`fb.com`、`fb.watch` 链接。
+
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
-| `enabled` | 是否启用插件 |
-| `auto_parse` | 是否自动解析消息中的 YouTube 链接 |
-| `max_links_per_message` | 单条消息最多处理几个 YouTube 链接，默认 `1` |
-| `max_file_mb` | 视频文件大小上限，默认 `1024` MB |
-| `max_height` | 默认最高下载清晰度，默认 `720` |
-| `send_link_info` | 是否发送标题、频道、时长、链接等详情；设为 `false` 时只发送视频 |
-| `download_timeout` | 单个视频下载超时时间，单位秒 |
-| `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot/youtube_downloader` |
-| `cache_ttl_seconds` | 下载媒体保留时间，默认 `600` 秒 |
-| `cookiefile` | 可选 yt-dlp cookies 文件路径；YouTube 要求登录验证时使用 |
-| `format` | 可选 yt-dlp format selector；为空时使用插件默认选择 |
+| `cobalt_api` | 自部署 cobalt API 地址 |
+| `api_key` | cobalt API Key（可为空） |
+| `api_timeout` | API 超时时间 |
+| `max_send` | 单次最多发送媒体数 |
+| `send_link_info` | 是否发送来源、数量、链接等详情 |
+| `cache_dir` | 下载缓存目录 |
+| `cache_ttl_seconds` | 下载媒体保留时间，默认 600 秒 |
 
-支持常见 `youtube.com/watch`、`youtube.com/shorts`、`youtube.com/live`、`youtu.be` 和 `youtube-nocookie.com/embed` 链接。播放列表不会批量下载，只处理单个视频。
+---
 
-### 网易云音乐解析
+### 5.4 YouTube 视频下载
 
-配置文件：`BotData/plugin_configs/netease_parser.json`
+**配置文件：** `BotData/plugin_configs/youtube_downloader.json`
 
-本插件通过自部署 [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) 服务器解析网易云音乐链接。自动检测消息中的 `music.163.com` 歌曲链接和 `163cn.tv` 短链接（含 QQ 分享卡片），获取歌曲信息和音频文件后上传到当前聊天。
+使用 `yt-dlp` 下载 YouTube 视频。直接发送视频链接即可触发解析。
 
-**发送方式**：通过 NapCat 的 `upload_group_file` / `upload_private_file` 发送为文件，不是语音消息。文件名格式为 `歌手 - 歌名.mp3`（或 `.flac`）。
+**支持链接：** `youtube.com/watch`、`youtube.com/shorts`、`youtube.com/live`、`youtu.be`、`youtube-nocookie.com/embed`
 
-**前置依赖**：需要额外部署 api-enhanced 服务：
+> 播放列表不会批量下载，只处理单个视频。
 
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `auto_parse` | 是否自动解析消息中的链接 |
+| `max_links_per_message` | 单条消息最多处理的链接数，默认 1 |
+| `max_file_mb` | 视频大小上限，默认 1024 MB |
+| `max_height` | 默认最高清晰度，默认 720 |
+| `send_link_info` | 是否发送标题、频道、时长等详情 |
+| `download_timeout` | 下载超时（秒） |
+| `cookiefile` | yt-dlp cookies 文件路径（登录验证） |
+| `format` | yt-dlp format selector（为空则使用默认） |
+
+---
+
+### 5.5 网易云音乐解析
+
+**配置文件：** `BotData/plugin_configs/netease_parser.json`
+
+通过自部署 [api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) 服务器解析网易云音乐链接。自动检测 `music.163.com` 歌曲链接和 `163cn.tv` 短链接（含 QQ 分享卡片）。
+
+**发送方式：** 通过 NapCat 上传文件到聊天（`歌手 - 歌名.mp3` 或 `.flac`），不是语音消息。
+
+**前置依赖：**
 ```bash
 docker run -d -p 3000:3000 moefurina/ncm-api:latest
 ```
 
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `auto_parse` | 是否自动解析消息中的网易云音乐链接 |
-| `api_base_url` | api-enhanced 服务地址，例如 `http://192.168.31.2:5111` |
-| `api_timeout` | API 请求超时时间，默认 30s |
-| `high_quality` | 是否请求最高可用音质（`br=999000`）；设为 `false` 时为 `br=320000` |
-| `cookie` | 网易云音乐登录后的 Cookie（用于 VIP 歌曲完整播放）；留空时 VIP 歌曲只返回 30 秒试听 |
-| `real_ip` | 用于绕过地区限制的国内 IP（海外服务器需要） |
-| `max_file_mb` | 单文件大小上限，默认 `50` MB |
-| `send_link_info` | 是否先发送歌曲信息文本再传文件 |
-| `cache_dir` | 下载缓存目录，默认 `/tmp/hikari_bot/netease` |
-| `cache_ttl_seconds` | 下载音频保留时间，默认 `600` 秒 |
-
-支持链接形态：
-
+**支持链接：**
 - `https://music.163.com/song/33894312`
 - `https://music.163.com/#/song?id=33894312`
-- `https://163cn.tv/xxxxx`（QQ 分享短链接，自动跟随重定向解析）
-- QQ 音乐分享卡片（自动从卡片元数据提取 URL）
+- `https://163cn.tv/xxxxx`（QQ 分享短链接）
+- QQ 音乐分享卡片（自动提取 URL）
 
-### 媒体详情 Web
-
-配置文件：`BotData/plugin_configs/media_detail_web.json`
-
-本插件会单独启动一个 Web 页面，默认监听：
-
-```text
-0.0.0.0:53123
-```
-
-打开 `http://服务器IP:53123/` 后，可以粘贴 Pixiv、YouTube、Instagram/Facebook 或聚合媒体解析支持的平台链接，页面会展示标题、作者、描述、标签、媒体数量、跳过原因等详情，并为解析到的图片/视频提供浏览器预览和下载入口。
-
-页面 HTML 文件位于：
-
-```text
-plugins/media_detail_web/templates/index.html
-```
-
-关键字段：
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
-| `enabled` | 是否启用独立页面 |
-| `host` / `port` | 监听地址和端口，默认 `0.0.0.0:53123` |
+| `auto_parse` | 是否自动解析网易云链接 |
+| `api_base_url` | api-enhanced 服务地址 |
+| `api_timeout` | API 超时，默认 30s |
+| `high_quality` | 是否请求最高音质（`br=999000`） |
+| `cookie` | 网易云登录 Cookie（VIP 歌曲完整播放） |
+| `real_ip` | 国内 IP（海外服务器绕过地区限制） |
+| `max_file_mb` | 单文件大小上限，默认 50 MB |
+
+---
+
+### 5.6 媒体详情 Web
+
+**配置文件：** `BotData/plugin_configs/media_detail_web.json`
+
+独立的 Web 页面，默认监听 `0.0.0.0:53123`。
+
+打开后可以粘贴 Pixiv、YouTube、Instagram/Facebook 或聚合媒体解析支持的链接，页面展示标题、作者、描述、标签、媒体数量等详情，并为解析到的图片/视频提供浏览器预览和下载入口。
+
+**页面文件：** `plugins/media_detail_web/templates/index.html`
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `host` / `port` | 监听地址，默认 `0.0.0.0:53123` |
 | `max_links_per_request` | 单次最多解析几个链接 |
-| `auto_download` | 页面默认是否勾选“自动下载媒体” |
-| `token_ttl_seconds` | 页面下载链接的内存 token 有效期 |
-| `max_registry_entries` | 最多保留多少个下载 token |
-| `max_remote_proxy_mb` | 未自动下载时，远程媒体经页面代理预览/下载的大小上限 |
-| `operation_timeout_seconds` | 单次解析/下载请求最长执行时间 |
+| `auto_download` | 页面默认是否勾选"自动下载" |
+| `token_ttl_seconds` | 下载 token 有效期 |
+| `max_remote_proxy_mb` | 远程媒体代理预览大小上限 |
 
-Docker 部署时，`hikaribot` 服务会把宿主机 `${HIKARI_MEDIA_DETAIL_WEB_PORT:-53123}` 映射到容器内 `53123`。
+---
 
-### 媒体转码
+### 5.7 Telegram 贴纸包解析
 
-配置文件：`BotData/plugin_configs/media_transcoder.json`
+**配置文件：** `BotData/plugin_configs/tg_sticker_parser.json`
 
-贴纸相关插件统一调用这个转码服务。原则是：只要最终进入本地贴纸包，就必须保存为 GIF；普通 Pixiv、Cobalt、JMComic 等非贴纸媒体不走这里。
+**必填配置：** Telegram Bot Token（`bot_token`），以及确保服务器能访问 Telegram API（必要时配置 `proxy`）。
 
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `sticker_gif_fps` | 视频/WebP 动态贴纸转 GIF 的帧率 |
-| `sticker_gif_width` | 转 GIF 宽度；`0` 表示尽量保持原尺寸 |
-| `sticker_gif_max_colors` | GIF 调色板颜色数，最大 256 |
-| `sticker_gif_dither` | GIF 抖动算法 |
-| `sticker_ffmpeg_concurrency` | 同时执行的贴纸转码数量 |
-| `tgs_converter_cmd` | TGS 转 GIF 的外部命令 |
-
-### osu! 信息查询
-
-配置文件：`BotData/plugin_configs/osu_info.json`
-
-本插件使用 osu!api v2 的 Client Credentials OAuth 流程，只读取公开资料。需要先到 osu! 账号设置里创建 OAuth 应用，然后填写：
-
-| 字段 | 说明 |
-|------|------|
-| `client_id` | osu! OAuth Application 的 Client ID |
-| `client_secret` | osu! OAuth Application 的 Client Secret |
-| `default_mode` | 默认模式，支持 `osu`、`taiko`、`fruits`、`mania` |
-| `proxy` | 请求 osu! API 的代理，可为空 |
-| `cache_dir` | 查询结果图片和头像封面缓存目录，默认 `/tmp/hikari_bot/osu_info` |
-| `download_no_video` | 下载谱面时默认使用 osu! 官方无视频下载入口 |
-| `download_max_file_mb` | 谱面文件大小上限，默认 `80` MB |
-| `session_cookie` | 可选 osu! 登录 Cookie；官方下载入口要求登录时才需要，属于敏感配置，不要提交到 git |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `osu 帮助` | 查看 osu! 查询命令图 |
-| `帮助 osu` | 查看 osu! 子命令详细用法 |
-| `osu 绑定 <用户名/ID> [模式]` | 将当前 QQ 绑定到 osu! 账号 |
-| `osu 解绑` | 解除当前 QQ 的 osu! 绑定 |
-| `osu [模式] [用户名/ID]` | 查询用户信息；不填用户时查询绑定账号 |
-| `osu 用户 [模式] [用户名/ID]` | 显式查询用户信息 |
-| `osu 看板 [模式] [用户名/ID]` | 查询个人看板和最近成绩 |
-| `osu 成绩 [best|recent|firsts] [模式] [用户名/ID]` | 查询最好、最近或第一名成绩 |
-| `osu 排名 [模式] [国家代码]` | 查询全球或指定国家排行榜前列，例如 `osu 排名 osu JP` |
-| `osu 谱面 <谱面ID|关键词>` | 查询谱面详情或搜索谱面 |
-| `osu 下载 <谱面集ID|谱面链接|关键词>` | 优先从 osu! 官方源下载 `.osz`；官方源需要登录或返回页面时，会发送官方下载链接兜底 |
-
-所有 osu! 查询结果都会渲染为图片发送，谱面下载会通过 QQ 文件上传发送 `.osz`。QQ 绑定数据保存在 `UserData/osu_bindings.json`。
-
-### Steam 热门热卖日报
-
-配置文件：`BotData/plugin_configs/steam_deals.json`
-
-本插件调用 Steam Store 的 `featuredcategories` 接口，并用 Steam 搜索热卖榜和特惠结果补充内容；`steam日报` 默认展示热门热卖榜单，`steam低价` 仍然筛选免费、超低价、大折扣、新打折和折扣加深游戏。还会尝试读取 SteamDB Free Promotions，为限时免费领取和免费试玩活动打标；SteamDB 抓取失败时会自动降级为普通 Steam 日报。默认不会主动每日推送；即使开启定时任务，也只会发送到 `push_whitelist` 中列出的群或私聊。手动发送命令查询不受白名单限制。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `country` | Steam 商店地区代码，默认 `cn` |
-| `language` | Steam 商店语言，默认 `schinese` |
-| `max_low_price_cents` | 低价阈值，单位为分；默认 `1000` 即约 `¥10` |
-| `min_discount_percent` | 大折扣阈值，默认 `90` |
-| `max_items` | 单张日报最多展示多少款游戏，默认 `18` |
-| `include_market_results` | 是否在 `steam日报` 中加入 Steam 榜单源 |
-| `market_filters` | Steam 榜单过滤器，默认 `topsellers` 热卖榜 |
-| `market_pages` | 榜单源最多拉取页数 |
-| `market_count_per_page` | 榜单源每页条数 |
-| `include_search_results` | 是否用 Steam 搜索特惠结果补充日报内容 |
-| `search_pages` | 搜索特惠补充源最多拉取页数 |
-| `search_count_per_page` | 搜索特惠补充源每页条数 |
-| `search_sort_by` | 搜索特惠排序源，默认同时抓 `Discount_DESC`、`Reviews_DESC`、`Released_DESC` |
-| `search_category1` | Steam 搜索分类，默认 `998` 只取游戏，避免原声带/工具占位 |
-| `price_watch.enabled` | 是否启用本地价格快照，用于判断“新打折”和“折扣加深” |
-| `price_watch.mark_first_seen_as_new` | 快照已初始化后，新进入观察范围的特惠是否标记为“新打折” |
-| `price_watch.max_entries` | 本地价格快照最多保留多少个 AppID |
-| `daily_filter.enabled` | 是否启用日报筛选，减少老低价和同系列刷屏 |
-| `daily_filter.max_per_title_family` | 同一标题系列最多保留多少条，默认 `2` |
-| `daily_filter.min_review_count_for_plain_low_price` | 纯低价项目进入日报所需最低评价数 |
-| `daily_filter.min_discount_for_plain_low_price` | 纯低价项目进入日报所需最低折扣 |
-| `daily_filter.min_discount_for_recent_deal` | 近期发布项目进入日报所需最低折扣，默认 `20` |
-| `daily_filter.require_recent_search_results` | 搜索特惠结果是否必须是近期发布，默认开启 |
-| `daily_filter.max_search_release_age_days` | 搜索特惠结果最大发布时间跨度，默认 `730` 天 |
-| `include_steamdb_free_promotions` | 是否用 SteamDB Free Promotions 辅助标注限免领取/免费试玩 |
-| `steamdb_free_url` | SteamDB Free Promotions 页面地址 |
-| `render.image_format` | 日报图片格式，默认 `JPEG`，比长 PNG 更适合 QQ/NapCat 发送 |
-| `render.jpeg_quality` | JPEG 压缩质量，默认 `82` |
-| `send_retry_attempts` | NapCat 发送图片/文本超时时的重试次数 |
-| `schedule.enabled` | 是否开启每日主动推送 |
-| `schedule.time` | 每日推送时间，格式 `HH:MM` |
-| `schedule.timezone` | 推送时区，默认 `Asia/Shanghai` |
-| `push_whitelist.group_ids` | 允许主动推送的群号列表 |
-| `push_whitelist.private_user_ids` | 允许主动推送的私聊 QQ 号列表 |
-| `proxy` | 请求 Steam 商店和封面图的代理，可为空 |
-| `cache_dir` | 日报图片和封面缓存目录，默认 `/tmp/hikari_bot/steam_deals` |
-
-`price_watch` 首次启用时只会建立价格基线，不会把所有当前特惠都标成“新打折”；之后再次抓取时，快照中新进入观察范围的特惠会标记为“新打折”，折扣百分比提高或到手价下降的项目会标记为“折扣加深”。
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `steam日报` | 查询免费、低价和大折扣游戏日报 |
-| `steam免费` / `steam日报 免费` | 只看免费游戏 |
-| `steam低价` / `steam日报 低价` | 查看低价和大折扣游戏 |
-| `steam日报 刷新` | 忽略短期缓存重新获取 |
-
-需要主动推送时，将配置改成类似：
-
-```json
-{
-  "schedule": {
-    "enabled": true,
-    "time": "10:00",
-    "timezone": "Asia/Shanghai"
-  },
-  "push_whitelist": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  }
-}
+**使用方式：**
+```text
+tg贴纸 https://t.me/addstickers/<set_name>
 ```
 
-### AI 最新资讯日报
-
-配置文件：`BotData/plugin_configs/ai_news.json`
-
-本插件注册通用推送源 `ai_news`，从公开 RSS/Atom 源聚合 AI 最新资讯，按来源权重、发布时间和关键词加权筛选，去重后渲染成一张图片。默认源包含 OpenAI News、Google AI、Hugging Face Blog、arXiv AI、Hacker News AI、TechCrunch AI、The Verge AI 和 VentureBeat AI。手动命令 `ai资讯` 只用于预览，不写入推送去重状态。
-
-可选的 AI 摘要/翻译功能会复用 `BotData/plugin_configs/aiagent.json` 中的 `model` 配置，包括 `base_url`、`api_key`、`model` 和 `proxy`；`ai_news.json` 不单独保存模型 Key。AI 摘要默认关闭，避免无意消耗 token。开启后，插件会先筛选资讯，再请求 AI Agent 同款 OpenAI-compatible 接口生成中文总览并翻译标题/摘要；如果请求失败且 `fallback_to_original` 为 `true`，会降级发送原始资讯图片，只在日志里记录失败原因。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用 AI 资讯源 |
-| `sources[].id` | 数据源 ID，可在推送任务的 `source_options.source_ids` 中筛选 |
-| `sources[].enabled` | 是否启用该数据源 |
-| `sources[].group` | 数据源分组，默认使用 `official`、`research`、`community`、`media` |
-| `sources[].url` | RSS/Atom 地址；新增数据源时优先使用官方 RSS |
-| `sources[].weight` | 来源权重，官方源建议高于媒体源 |
-| `max_items` | 单张图片默认最多展示多少条资讯 |
-| `max_per_source` | 单个数据源最多展示多少条，避免 arXiv/HN 这类高频源刷屏 |
-| `max_age_hours` | 只展示最近多少小时内的条目；`0` 表示不限制时间 |
-| `ai_summary.enabled` | 是否默认开启 AI 总结和翻译 |
-| `ai_summary.translate` | 是否翻译标题和摘要 |
-| `ai_summary.target_language` | 目标语言，默认 `zh-CN` |
-| `ai_summary.max_input_items` | 最多把多少条资讯交给 AI 总结 |
-| `ai_summary.max_summary_bullets` | 图片顶部 AI 总览最多几条要点 |
-| `ai_summary.fallback_to_original` | AI 请求失败时是否降级为原始资讯图片 |
-| `only_new` | 推送时是否只发送未见过的条目 |
-| `send_first_run` | 第一次推送时是否发送当前最新条目；关闭后第一次只建立基线 |
-| `max_state_entries` | `UserData/ai_news_state.json` 中保留多少去重键 |
-| `cache_dir` | 资讯图片缓存目录，默认 `/tmp/hikari_bot/ai_news` |
-| `render.image_format` | 图片格式，默认 `PNG` |
-| `proxy` | 请求 Feed 的 HTTP 代理，可为空 |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `ai资讯` | 生成默认条数的 AI 资讯图片 |
-| `ai资讯 5` | 生成最多 5 条资讯的图片 |
-| `ai资讯 总结 5` | 使用 AI Agent 的模型配置翻译并总结后生成图片 |
-
-中午 12 点推送示例：
-
-```json
-{
-  "id": "ai_news_noon",
-  "enabled": true,
-  "trigger": "schedule",
-  "source": "ai_news",
-  "time": "12:00",
-  "timezone": "Asia/Shanghai",
-  "targets": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  },
-  "source_options": {
-    "max_items": 10,
-    "max_per_source": 3,
-    "ai_summary": true,
-    "translate": true,
-    "target_language": "zh-CN",
-    "only_new": true,
-    "send_first_run": true,
-    "include_links": false
-  }
-}
-```
-
-### 知乎热搜
-
-配置文件：`BotData/plugin_configs/zhihu_hot.json`
-
-本插件注册通用推送源 `zhihu_hot`，读取知乎热榜接口并渲染成一张图片。图片会展示榜单排名、问题标题、摘要、回答/关注数和知乎返回的热度文本。手动命令 `知乎热搜` 用于预览；推送任务里默认只发图片，`include_links` 开启后会追加问题链接。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用知乎热搜源 |
-| `api_url` | 热榜接口地址，默认 `https://api.zhihu.com/topstory/hot-list` |
-| `max_items` | 单张图片默认最多展示多少条热搜，最多 30 条 |
-| `summary_max_chars` | 每条问题摘要最多保留多少字符；`0` 表示不显示摘要 |
-| `cache_ttl_minutes` | 接口短期缓存时间，避免手动预览和推送连续请求 |
-| `cache_dir` | 热搜图片缓存目录，默认 `/tmp/hikari_bot/zhihu_hot` |
-| `render.image_format` | 图片格式，默认 `PNG` |
-| `proxy` | 请求知乎接口的 HTTP 代理，可为空 |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `知乎热搜` | 生成默认条数的知乎热搜图片 |
-| `知乎热搜 10` | 生成最多 10 条热搜的图片 |
-| `知乎热搜 10 刷新` | 忽略短期缓存重新读取 |
-| `知乎热搜 链接` | 图片后额外发送问题链接 |
-
-中午 12 点推送示例：
-
-```json
-{
-  "id": "zhihu_hot_noon",
-  "enabled": true,
-  "trigger": "schedule",
-  "source": "zhihu_hot",
-  "time": "12:00",
-  "timezone": "Asia/Shanghai",
-  "targets": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  },
-  "source_options": {
-    "max_items": 15,
-    "include_links": false
-  }
-}
-```
-
-### 定时推送框架
-
-配置文件：`BotData/plugin_configs/push_framework.json`
-
-`push_framework` 是通用推送骨架：它只负责定时、目标发送、失败重试和同一轮去重；具体内容由消息源提供。内置 `static_text` 消息源可用于测试链路，后续插件可以调用 `register_push_source()` 注册自己的消息源。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用推送框架 |
-| `startup_delay_seconds` | 机器人启动后等待多少秒再开始检查任务 |
-| `check_interval_seconds` | 定时检查间隔，默认 `60` 秒 |
-| `send_retry_attempts` | NapCat 发送失败时的重试次数 |
-| `jobs[].id` | 推送任务 ID，手动测试时使用 |
-| `jobs[].enabled` | 是否启用该任务 |
-| `jobs[].trigger` | 触发器，支持 `schedule`、`startup`、`shutdown`、`manual`；默认 `schedule` |
-| `jobs[].source` | 消息源名称，例如内置 `static_text` |
-| `jobs[].time` / `jobs[].times` | 推送时间，格式 `HH:MM`；`times` 可配置多个时间点 |
-| `jobs[].timezone` | 推送时区，默认 `Asia/Shanghai` |
-| `jobs[].days` | 可选星期限制；为空表示每天，可写 `mon`、`周一`、`二` 等 |
-| `jobs[].late_grace_seconds` | 错过计划时间后仍允许补发的秒数，默认 `7200`；`0` 表示当天过点后都可补发 |
-| `jobs[].dedupe` | 去重方式，默认 `daily`；`none` 表示不做定时去重 |
-| `jobs[].targets.group_ids` | 需要主动推送的群号列表 |
-| `jobs[].targets.private_user_ids` | 需要主动推送的私聊 QQ 号列表 |
-| `jobs[].source_options` | 传给消息源的自定义参数 |
-
-可用指令仅超级管理员可用：
-
-| 消息 | 效果 |
-|------|------|
-| `推送 状态` | 查看框架、任务和消息源状态 |
-| `推送 源` | 查看已注册消息源 |
-| `推送 触发 <任务ID>` | 立即按该任务的目标试发一次，不写入定时去重状态 |
-
-内置消息源：
-
-| source | 说明 | 常用 `source_options` |
-|--------|------|------------------------|
-| `static_text` | 发送固定文本，用于测试链路 | `text` |
-| `steam_deals` | 发送 Steam 热门热卖、免费和低价游戏日报图片 | `mode`: `all`/`free`/`low`；`include_links`: `true`/`false`；`force_refresh`: `true`/`false` |
-| `ai_news` | 发送 AI 最新资讯图片 | `max_items`: 条数；`max_per_source`: 单源上限；`groups`: 分组；`source_ids`: 指定源；`only_new`: `true`/`false`；`include_links`: `true`/`false`；`ai_summary`: `true`/`false`；`translate`: `true`/`false`；`target_language`: 目标语言 |
-| `zhihu_hot` | 发送知乎热搜图片 | `max_items`: 条数；`include_links`: `true`/`false`；`force_refresh`: `true`/`false` |
-| `rss_feed` | 发送 RSS/Atom 订阅更新 | `subscription_id`: 订阅 ID；`url`: 临时 Feed URL；`max_items`: 条数；`only_new`: `true`/`false`；`mark_seen`: 显式写入去重状态 |
-
-Steam 原插件自己的 `BotData/plugin_configs/steam_deals.json` 定时白名单仍然保留兼容；新建推送任务时推荐走 `push_framework.json`，也就是 source 写 `steam_deals`。
-
-Bot 后台的“推送”页面可以编辑同一份配置；在“任务设置”里点击“立即推送当前任务”会先保存当前表单，再按该任务目标手动执行一次，方便测试消息源和目标是否可用。`manual` 触发器不会被定时循环自动执行，只会被后台按钮或 `推送 触发 <任务ID>` 这类手动入口执行。
-
-定时推送最小配置示例：
-
-```json
-{
-  "enabled": true,
-  "jobs": [
-    {
-      "id": "daily_text",
-      "enabled": true,
-      "trigger": "schedule",
-      "source": "static_text",
-      "time": "09:00",
-      "timezone": "Asia/Shanghai",
-      "targets": {
-        "group_ids": [123456789],
-        "private_user_ids": []
-      },
-      "source_options": {
-        "text": "早上好，今日推送测试。"
-      }
-    }
-  ]
-}
-```
-
-Steam 日报推送示例：
-
-```json
-{
-  "id": "steam_daily",
-  "enabled": true,
-  "trigger": "schedule",
-  "source": "steam_deals",
-  "time": "10:00",
-  "timezone": "Asia/Shanghai",
-  "targets": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  },
-  "source_options": {
-    "mode": "all",
-    "include_links": true,
-    "force_refresh": false
-  }
-}
-```
-
-生命周期推送示例：
-
-```json
-{
-  "id": "bot_started_notice",
-  "enabled": true,
-  "trigger": "startup",
-  "source": "static_text",
-  "targets": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  },
-  "source_options": {
-    "text": "HIKARI Bot 已启动。"
-  }
-}
-```
-
-自定义消息源建议新建插件目录，例如 `plugins/my_push_source/__init__.py`：
-
-```python
-from nonebot.adapters.onebot.v11 import Message, MessageSegment
-
-from plugins.push_framework import PushContext, PushMessage, register_push_source
-
-
-@register_push_source("my_source", description="我的自定义推送源")
-async def build_message(ctx: PushContext):
-    keyword = ctx.options.get("keyword", "默认主题")
-    return f"今日主题：{keyword}"
-```
-
-消息源函数可以返回字符串、`Message`、`PushMessage`，或这些值组成的列表。需要发送图片时可返回：
-
-```python
-return [
-    PushMessage(Message(MessageSegment.image(path.resolve().as_uri())), "图片"),
-    PushMessage(Message("附加说明文本"), "说明"),
-]
-```
-
-然后在 `push_framework.json` 的任务中写 `"source": "my_source"`，并通过 `source_options` 传入该源需要的参数。
-
-### RSS 订阅
-
-配置文件：`BotData/plugin_configs/rss_subscriber.json`
-
-后台“RSS”页面可以维护同一份订阅配置；命令和推送任务都可以通过订阅 ID 复用这些 Feed。支持常见 RSS 2.0 和 Atom，不需要额外账号。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用 RSS 插件 |
-| `timeout_seconds` | 拉取 Feed 的请求超时 |
-| `proxy` | 可选 HTTP 代理 |
-| `max_items` | 默认读取条目数 |
-| `summary_max_chars` | 单条摘要截断长度，`0` 表示不显示摘要 |
-| `max_message_chars` | 单条机器人消息最大长度 |
-| `max_state_entries` | 每个订阅保留多少去重状态 |
-| `subscriptions[].id` | 订阅 ID，命令和推送任务引用它 |
-| `subscriptions[].url` | RSS/Atom Feed URL |
-| `subscriptions[].only_new` | 推送时是否只发送状态中未见过的条目 |
-| `subscriptions[].send_first_run` | 第一次推送时是否发送最新条目；关闭后第一次只建立基线 |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `rss 列表` | 查看已配置订阅 |
-| `rss 看 <订阅ID|URL> [数量]` | 读取最新条目，不写入去重状态 |
-| `rss 测试 <订阅ID|URL> [数量]` | 超级管理员试读订阅 |
-| `rss 添加 <订阅ID> <URL> [标题]` | 超级管理员新增订阅 |
-| `rss 删除 <订阅ID>` | 超级管理员删除订阅 |
-| `rss 开启 <订阅ID>` / `rss 关闭 <订阅ID>` | 超级管理员启停订阅 |
-
-RSS 推送任务示例：
-
-```json
-{
-  "id": "rss_news_daily",
-  "enabled": true,
-  "trigger": "schedule",
-  "source": "rss_feed",
-  "time": "09:30",
-  "timezone": "Asia/Shanghai",
-  "targets": {
-    "group_ids": [123456789],
-    "private_user_ids": []
-  },
-  "source_options": {
-    "subscription_id": "example_news",
-    "max_items": 3,
-    "include_summary": true,
-    "only_new": true,
-    "send_first_run": true
-  }
-}
-```
-
-### 星露谷物语 Wiki
-
-配置文件：`BotData/plugin_configs/stardew_wiki.json`
-
-本插件调用 Stardew Valley Wiki 的 MediaWiki API，不需要账号或密钥。默认查询中文 Wiki。命令会以合并转发发送结果：第一条为页面链接，第二条为详细描述，第三条为页面主图（如果 Wiki 提供）。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `api_url` | MediaWiki API 地址，默认中文站 `https://zh.stardewvalleywiki.com/mediawiki/api.php` |
-| `timeout` | 请求超时时间，单位秒 |
-| `search_limit` | 搜索候选数量，插件会取最佳结果 |
-| `summary_max_chars` | 简介字段的最大字符数，供 AI 工具等短结果使用 |
-| `detail_max_chars` | 合并转发中详细描述的最大字符数 |
-| `image_size` | 请求 Wiki 主图缩略图的目标尺寸 |
-| `proxy` | 请求 Wiki API 的代理，可为空 |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `星露谷wiki <关键词>` | 搜索中文 Wiki，以合并转发返回链接、详细描述和主图 |
-| `svwiki <关键词>` | 同上 |
-| `stardewwiki <关键词>` | 同上 |
-
-### Minecraft Wiki
-
-配置文件：`BotData/plugin_configs/mc_wiki.json`
-
-本插件调用 Minecraft Wiki 的 MediaWiki API，不需要账号或密钥。默认查询中文 Minecraft Wiki。命令会以合并转发发送结果：第一条为页面链接，第二条为详细描述，第三条为页面主图（如果 Wiki 提供）。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `api_url` | MediaWiki API 地址，默认中文站 `https://zh.minecraft.wiki/api.php` |
-| `timeout` | 请求超时时间，单位秒 |
-| `search_limit` | 搜索候选数量，插件会取最佳结果 |
-| `summary_max_chars` | 简介字段的最大字符数，供 AI 工具等短结果使用 |
-| `detail_max_chars` | 合并转发中详细描述的最大字符数 |
-| `image_size` | 请求 Wiki 主图缩略图的目标尺寸 |
-| `proxy` | 请求 Wiki API 的代理，可为空 |
-| `user_agent` | 请求 Wiki API 时使用的 User-Agent |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `mcwiki <关键词>` | 搜索中文 Wiki，以合并转发返回链接、详细描述和主图 |
-| `我的世界wiki <关键词>` | 同上 |
-| `mc百科 <关键词>` | 同上 |
-
-### 杀戮尖塔 2 Wiki
-
-配置文件：`BotData/plugin_configs/sts2_wiki.json`
-
-本插件默认调用 Spire Codex 的 Slay the Spire 2 简体中文 JSON API，不需要账号、密钥或 Cloudflare Cookie。命令会优先读取 `UserData/sts2_wiki_cache.json` 本地缓存；缓存未命中或过期时才请求外站。默认缓存有效期为 24 小时。
-
-灰机的 `sts2.huijiwiki.com` 是中文 Wiki，但其 `api.php` 当前会对普通 `httpx` 请求返回 Cloudflare challenge HTML，不能作为稳定的机器人 JSON 数据源。不要把手动浏览器 Cookie 写进机器人配置来绕过 challenge；如果将来灰机提供机器人可用 API 或授权访问，再切换更合适。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `source` | 数据源类型，默认 `spire_codex`；可选 `mediawiki` 作为旧 wiki.gg 模式 |
-| `api_url` | API 地址，默认 `https://spire-codex.com/api` |
-| `site_url` | 详情页站点地址，默认 `https://spire-codex.com` |
-| `language` | 数据语言，默认 `zhs` 简体中文 |
-| `version` | Spire Codex 数据版本，默认空值表示稳定数据；测试版可设为 `latest` 或具体版本号如 `v0.106.0` |
-| `cache_ttl_seconds` | 本地缓存有效期，默认 86400 秒 |
-| `timeout` | 请求超时时间，单位秒 |
-| `search_limit` | 搜索候选数量，插件会取最相关的第一个结果 |
-| `summary_max_chars` | 返回摘要最大字符数 |
-| `query_max_chars` | 用户关键词最大字符数 |
-| `max_cache_entries` | 本地缓存最多保留的查询条目数 |
-| `proxy` | 请求 Wiki API 的代理，可为空 |
-| `user_agent` | 请求 Wiki API 时使用的 User-Agent |
-| `search_categories` | Spire Codex 查询类别，默认查卡牌、角色、遗物、药水、能力效果、关键词、怪物和事件 |
-| `query_aliases` | 查询别名映射，用于把英文或简称转成中文搜索词，例如 `Strike` -> `打击` |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `塔2wiki <关键词>` | 搜索 Wiki 条目，返回标题、摘要和链接 |
-| `塔2 <关键词>` | 同上 |
-| `sts2 <关键词>` | 同上 |
-
-AI Agent 工具：`sts2_wiki_search`。这是只读插件工具，返回结构化 JSON，不会直接发消息、写配置或触发推送。
-
-### QQ 互动插件
-
-#### 资料卡点赞
-
-配置文件：`BotData/plugin_configs/profile_like.json`
-
-本插件调用 NapCat/OneBot 的 `send_like` API。默认 `点赞` 会给发命令的人点满 10 次；群聊里不需要 @ 机器人。点赞会静默执行，成功或失败都不会在聊天里发送文字消息，失败细节只写入日志。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `default_times` | 未指定次数时默认点赞次数，默认 10 |
-| `max_times` | 单次命令允许的最大点赞次数，最高 10 |
-
-可用指令：
-
-| 消息 | 效果 |
-|------|------|
-| `点赞` | 静默给自己点满赞 |
-| `点赞 @用户` | 静默给被 @ 的用户点赞 |
-| `点赞 QQ号` | 静默给指定 QQ 号点赞 |
-| `点赞 QQ号 5` | 静默给指定 QQ 号点赞 5 次 |
-
-#### 空 @ 表情回应
-
-配置文件：`BotData/plugin_configs/mention_reaction.json`
-
-本插件监听群聊消息。如果群友只发送 `@机器人`，没有任何文字、图片或其他消息段，机器人会调用 NapCat/OneBot 的 `set_msg_emoji_like` 给这条消息添加表情回应；不会发送文字提示。普通的 `@机器人 你好` 仍由 AI Agent 或其他插件处理。
-
-默认使用 QQ 系统表情 `66`（爱心）。以后要换表情，修改配置里的 `emoji_ids` 即可；配置会按文件修改时间热重读，下一次触发时生效。
-
-常用示例：
-
-```json
-{
-  "enabled": true,
-  "group_enabled": true,
-  "emoji_ids": ["66"],
-  "random": false,
-  "allowed_groups": [],
-  "ignored_users": []
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `group_enabled` | 是否在群聊启用 |
-| `emoji_ids` | 表情 ID 列表；默认 `["66"]`，即爱心 |
-| `random` | 多个表情 ID 时是否随机选一个 |
-| `allowed_groups` | 仅允许这些群号触发；留空表示所有群 |
-| `ignored_users` | 忽略这些 QQ 号 |
-
-常见表情 ID：`66` 爱心、`76` 赞、`201` 点赞、`319` 比心、`124` OK、`99` 鼓掌。想随机回应可以写成：
-
-```json
-{
-  "emoji_ids": ["66", "319", "76"],
-  "random": true
-}
-```
-
-#### 戳一戳回戳
-
-配置文件：`BotData/plugin_configs/poke_back.json`
-
-本插件监听 OneBot V11 的戳一戳通知。如果有人戳到机器人，机器人会立刻调用 NapCat `send_poke` 戳回对方；不会发送文字提示。戳一戳发送依赖 NapCat 当前 packetBackend/QQ 协议支持，如果 NapCat 返回失败，机器人只记录日志。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用插件 |
-| `group_enabled` | 是否在群聊里戳回 |
-| `private_enabled` | 是否在私聊里戳回 |
-
-### Telegram 贴纸包
-
-配置文件：`BotData/plugin_configs/tg_sticker_parser.json`
-
-首次加载插件会自动创建配置文件。至少需要填写：
-
-```json
-{
-  "enabled": true,
-  "auto_parse": false,
-  "bot_token": "你的 Telegram Bot Token",
-  "proxy": ""
-}
-```
-
-发送 `tg贴纸 https://t.me/addstickers/<set_name>` 后，机器人会：
-
-1. 优先复用本地贴纸库中已保存的同名贴纸包。
-2. 无本地缓存或带 `refresh` 参数时，调用 Telegram Bot API 获取贴纸包。
-3. 调用 `media_transcoder` 将贴纸统一转换为 GIF。
-4. 默认保存到统一贴纸文件夹 `BotData/Gifs/_library/`，并写入贴纸库索引。
-5. 自动更新贴纸包关键词，让贴纸包名称成为触发词。
-6. 发送转换后的 GIF。
-
-可选参数直接跟在链接后：
+**处理流程：**
+1. 优先复用本地贴纸库中已保存的同名贴纸包
+2. 无缓存或带 `refresh` 时，调用 Telegram Bot API 获取
+3. 调用 `media_transcoder` 统一转换为 GIF
+4. 默认保存到 `BotData/Gifs/_library/`，更新贴纸库索引
+5. 自动更新贴纸包关键词
+
+**可选参数：**
 
 | 参数 | 效果 |
 |------|------|
-| `zip` | 打包为 ZIP 文件发送 |
+| `zip` | 打包为 ZIP 发送 |
 | `refresh` | 忽略本地缓存，重新获取并转换 |
-| `nosave` | 只发送本次结果，不保存成本地贴纸包 |
-| `name=关键词` / `keyword=关键词` / `kw=关键词` | 额外注册一个触发词 |
+| `nosave` | 只发送本次结果，不保存到本地 |
+| `name=关键词` / `keyword=关键词` / `kw=关键词` | 额外注册触发词 |
 
-示例：
-
+**示例：**
 ```text
 tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 ```
 
-### 本地贴纸包
+---
 
-配置文件：`BotData/plugin_configs/sticker_library.json`
+### 5.8 本地贴纸包
 
-贴纸文件统一放在：
+**配置文件：** `BotData/plugin_configs/sticker_library.json`
 
-```text
-BotData/Gifs/_library/
-```
+**贴纸文件目录：** `BotData/Gifs/_library/`
 
-配置示例：
+关键词可以关联多个贴纸包，一个贴纸也可以属于多个贴纸包。触发时自动合并并去重。贴纸最终只识别 `.gif` 格式。
 
-```json
-{
-  "version": 1,
-  "storage_root": "BotData/Gifs/_library",
-  "stickers": {
-    "abc123.gif": {
-      "file": "abc123.gif",
-      "sha256": "abc123...",
-      "source": "upload",
-      "original_name": "cute.gif",
-      "created_at": 1782144000
-    }
-  },
-  "packs": {
-    "capoo_gif": {
-      "keywords": ["capoo", "猫猫虫"],
-      "stickers": ["abc123.gif"]
-    }
-  }
-}
-```
-
-旧版 `BotData/Gifs/<贴纸包目录>/` 会在首次使用贴纸库时自动迁移到 `_library` 并生成索引。`BotData/plugin_configs/sticker_trigger.json` 仍会被同步写出作为兼容文件，但新的管理入口以 `sticker_library.json` 为准。
-
-一个关键词可以关联多个贴纸包，一个贴纸也可以属于多个贴纸包。触发、拼图和批量发送时，如果关键词命中多个贴纸包，会自动合并这些贴纸包里的贴纸并去重。
-
-可用指令：
+**可用指令：**
 
 | 消息 | 效果 |
 |------|------|
 | `猫猫虫` | 随机发送一张匹配贴纸 |
-| `猫猫虫 10` | 随机发送 10 张，不重复 |
+| `猫猫虫 10` | 随机发送 10 张（不重复） |
 | `贴纸包 随机` | 从所有贴纸包随机发送 |
 | `贴纸包 拼图 猫猫虫` | 将贴纸包第一帧拼成预览图 |
-| `贴纸包 统计` | 查看唯一贴纸数、贴纸包数和关键词数 |
-| `贴纸包 列表` | 分页查看已配置贴纸包和关键词，每页 5 个 |
-| `贴纸包 列表 2` | 查看第 2 页贴纸包 |
-| `贴纸包 列表 全部` | 通过合并转发查看完整贴纸包列表 |
-| `贴纸包 预览` | 生成包含所有贴纸包名称、关键词和 6 张预览图的长图 |
+| `贴纸包 统计` | 查看贴纸数、贴纸包数和关键词数 |
+| `贴纸包 列表` | 分页查看贴纸包和关键词 |
+| `贴纸包 列表 全部` | 通过合并转发查看完整列表 |
+| `贴纸包 预览` | 生成含名称、关键词和 6 张预览图的长图 |
 | `贴纸包 帮助` / `帮助 贴纸包` | 查看贴纸包子命令 |
 | `统计` | 查看当前会话统计 |
 
-本地贴纸包最终只识别 `.gif`。如果素材是 `.jpg`、`.png`、`.webp`、`.mp4` 等，请通过 Bot 后台或 `media_transcoder` 先转换为 GIF。
+---
 
-### 本地语音触发
+### 5.9 本地语音触发
 
-配置文件：`BotData/plugin_configs/voice_trigger.json`
+**配置文件：** `BotData/plugin_configs/voice_trigger.json`
 
-语音文件统一放在：
+**语音文件目录：** `BotData/Voices/_library/`
 
-```text
-BotData/Voices/_library/
-```
+用户发送纯文本关键词并完全匹配时，机器人随机发送关联语音。推荐使用 `.silk` 或 `.amr`；后台也允许上传 `.mp3`、`.wav`、`.ogg` 等格式，实际能否作为 QQ 语音发送取决于 NapCat/QQ 的支持。
 
-配置示例：
+---
 
-```json
-{
-  "version": 1,
-  "storage_root": "BotData/Voices/_library",
-  "voices": {
-    "abc123.silk": {
-      "file": "abc123.silk",
-      "sha256": "abc123...",
-      "display_name": "晚安语音",
-      "original_name": "goodnight.silk",
-      "keywords": ["晚安", "睡觉"],
-      "created_at": 1782144000
-    }
-  }
-}
-```
+### 5.10 TTS 语音合成
 
-用户发送纯文本关键词并完全匹配时，机器人会随机发送关联语音。一个关键词可以关联多条语音，一条语音也可以有多个关键词。推荐使用 `.silk` 或 `.amr`；后台也允许上传 `.mp3`、`.wav`、`.ogg`、`.m4a`、`.aac`、`.flac`、`.opus`，实际能否作为 QQ 语音发送取决于 NapCat/QQ 的支持。
+**配置文件：** `BotData/plugin_configs/tts_speaker.json`
 
-### TTS 说话
+使用 [Fish Audio](https://fish.audio) 合成语音。预置音色包括永雏塔菲、蒋介石和电棍，也可在 Bot 后台新增或编辑。
 
-配置文件：`BotData/plugin_configs/tts_speaker.json`
-
-本插件仅使用 Fish Audio 合成语音。`说话 <文本>` 使用当前选中的 Fish 音色；生成的音频会放到 `/tmp/hikari_bot/tts`，再通过 OneBot 语音消息发送。音色库预置永雏塔菲、蒋介石和电棍，也可在 Bot 后台新增或编辑。
-
-关键字段：
-
-| 字段 | 说明 |
-|------|------|
-| `enabled` | 是否启用 `说话` 命令 |
-| `selected_voice` | 当前使用的音色名称 |
-| `voices` | 音色库，每项包含 `name` 和 Fish 模型 `reference_id` |
-| `fish_audio.api_key` | Fish Audio API Key |
-| `fish_audio.model` | Fish Audio 模型，默认 `s2-pro` |
-| `fish_audio.retry_count` | 主模型在临时错误时的重试次数，默认 `3` |
-| `fish_audio.retry_delay_seconds` | 每次主模型重试前的等待秒数，默认 `1.0` |
-| `fish_audio.backup_model` | 主模型最终失败后调用一次的备用模型，默认 `s2.1-pro-free`；留空则关闭备用模型 |
-| `fish_audio.speed`、`fish_audio.volume` | Fish 原生语速倍率和响度（dB） |
-| `fish_audio.pitch_semitones` | 音高半音，使用本机 FFmpeg 后处理 |
-| `fish_audio.temperature`、`fish_audio.top_p` | 表现力和多样性参数 |
-| `fish_audio.normalize_loudness` | Fish 输出响度归一化（S2-Pro） |
-| `proxy` | 访问 TTS 服务的代理，可为空 |
-| `max_chars` | 单次合成文本长度上限 |
-| `cooldown_seconds` | 同一用户命令冷却秒数 |
-| `cache_dir` | 临时语音缓存目录，默认 `/tmp/hikari_bot/tts` |
-
-可用指令：
+**可用指令：**
 
 | 消息 | 效果 |
 |------|------|
-| `说话 你好哇` | 合成“你好哇”并发送为语音 |
+| `说话 你好哇` | 用当前音色合成语音 |
 | `tts 你好哇` | 同上 |
-| `音色列表` | 显示当前可用音色和正在使用的音色 |
-| `切换音色 蒋介石` | 切换当前 Fish Audio 音色 |
+| `音色列表` | 显示可用音色和当前使用的音色 |
+| `切换音色 蒋介石` | 切换 Fish Audio 音色 |
 
-### AI Agent 聊天
+**关键配置：**
 
-配置文件：`BotData/plugin_configs/aiagent.json`
+| 字段 | 说明 |
+|------|------|
+| `selected_voice` | 当前使用的音色名称 |
+| `voices` | 音色库（name + Fish reference_id） |
+| `fish_audio.api_key` | Fish Audio API Key |
+| `fish_audio.model` | 模型，默认 `s2-pro` |
+| `fish_audio.backup_model` | 主模型失败时的备用模型 |
+| `fish_audio.speed`、`volume` | 语速倍率和响度（dB） |
+| `fish_audio.pitch_semitones` | 音高半音（FFmpeg 后处理） |
+| `fish_audio.temperature`、`top_p` | 表现力参数 |
+| `max_chars` | 单次合成文本长度上限 |
+| `cooldown_seconds` | 同一用户冷却时间 |
 
-本插件目前只实现聊天。它直接调用 OpenAI-compatible `chat/completions` 接口，因此可配置 OpenAI、DeepSeek 或其他兼容服务。
+---
 
-开启后，AI Agent 作为最低优先级兜底：私聊里发送文本会在其他插件未处理时进入 AI Agent；群聊里必须 @机器人 且没有被其他插件处理才会回复。关闭后不会响应。
+### 5.11 AI Agent 聊天
 
-AI Agent 回复默认不超过 `max_reply_chars` 字符（默认 3500）；超出时自动切成多段并以**合并转发**消息发送，避免截断。
+**配置文件：** `BotData/plugin_configs/aiagent.json`
 
-AI Agent 支持通过 `permissions` 字段进行**白名单/黑名单权限控制**，与媒体解析等插件共用同一套规则。可在 Bot 后台"权限"页管理。群聊中受权限限制的用户消息会被静默忽略。
+最低优先级兜底插件。调用 OpenAI-compatible 的 `chat/completions` 接口（可配置 OpenAI、DeepSeek 等）。
 
-下列媒体平台链接默认不会被 AI Agent 兜底回复：抖音、Bilibili、小红书、小黑盒、Twitter/X、今日头条、快手、微博和 TikTok。
+**行为：**
+- **私聊：** 其他插件未处理时进入 AI Agent
+- **群聊：** 必须 @机器人 且未被其他插件处理才回复
+- 回复默认不超过 `max_reply_chars`（默认 3500），超出时自动以**合并转发**发送
+- 支持白名单/黑名单权限控制，可在 Bot 后台"权限"页管理
+- 受权限限制的用户消息会被静默忽略
+- 抖音、Bilibili、小红书等媒体链接默认不会被 AI 兜底回复
 
-关键字段：
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
 | `enabled` | AI Agent 总开关 |
-| `model.base_url` | 兼容 OpenAI 的 API 根地址，例如 `https://api.deepseek.com/v1` |
-| `model.api_key` | API Key，属于敏感配置，不要提交到 git |
-| `model.model` | 模型名称，例如 `deepseek-chat` |
-| `model.temperature`、`model.top_p`、`model.max_tokens` | 聊天生成参数 |
-| `model.proxy` | 请求模型 API 的代理，可为空 |
-| `persona.skill_path` | 人格 skill 路径，必须位于 `BotData/agent_personas/` 下 |
-| `persona.fallback_prompt` | 人格 skill 文件缺失或读取失败时的备用提示词；支持 `{bot_name}` 占位符 |
-| `persona.max_chars` | 最多读取多少字符的人格 skill 内容 |
-| `persona.include_references` | 是否读取人格 skill 中显式引用的本地 `.md`、`.txt`、`.json` 补充资源 |
-| `persona.reference_max_depth` | 引用展开深度，默认只读取入口文件直接引用的资源 |
-| `persona.reference_max_files` | 最多读取多少个补充资源文件 |
-| `persona.reference_max_chars_per_file` | 每个补充资源最多读取多少字符 |
-| `persona.reference_max_total_chars` | 所有补充资源合计最多读取多少字符 |
+| `model.base_url` | OpenAI-compatible API 根地址 |
+| `model.api_key` | API Key |
+| `model.model` | 模型名称 |
+| `model.temperature`、`top_p`、`max_tokens` | 生成参数 |
+| `model.proxy` | 请求代理 |
+| `persona.skill_path` | 人格 skill 路径（`BotData/agent_personas/` 下） |
+| `persona.fallback_prompt` | skill 缺失时的备用提示词 |
 | `chat.max_user_chars` | 单次用户消息最大字符数，默认 2000 |
-| `chat.max_reply_chars` | 单次回复最大字符数；超出时自动以合并转发发送，默认 3500 |
-| `chat.cooldown_seconds` | 同一用户命令冷却秒数，默认 3 |
-| `chat.max_history_messages` | 每个会话保留的上下文消息数；设为 `0` 即无历史 |
-| `chat.system_prompt_extra` | 追加在人格 skill 后的额外系统提示词 |
-| `chat.blocked_url_domains` | 默认不交给 AI 回复的媒体链接域名 |
-| `memory.enabled` | 是否启用持久化记忆，默认 `true` |
-| `memory.root` | 持久化记忆根目录，默认 `UserData/aiagent_memory` |
-| `memory.max_read_chars_per_file` | 每个 memory.md 注入提示词的最大字符数 |
-| `memory.max_file_chars` | 单个 memory.md 保留的最大字符数 |
-| `tools.search.enabled` | 是否向模型提供 `web_search` 搜索工具 |
-| `tools.search.base_url` | SearXNG 地址；Docker 部署内默认 `http://searxng-core:8080` |
-| `tools.search.max_results` | 每次搜索最多返回多少条结果 |
-| `tools.search.safesearch` | SearXNG 安全搜索等级，`0` 关闭、`1` 中等、`2` 严格 |
-| `tools.search.language` | 搜索语言，默认 `auto` |
-| `tools.search.categories` | 搜索分类，默认 `general` |
-| `tools.files.enabled` | 是否向模型提供文件工具 |
-| `tools.files.max_read_chars` | 单次读取文件最多返回多少字符 |
-| `tools.files.max_write_chars` | 单次写入 UserData 文件最多允许多少字符 |
-| `tools.plugin_tools.enabled` | 是否向模型提供插件显式声明的 AI tools |
-| `tools.plugin_tools.allow_side_effects` | 是否允许非只读插件工具；默认 `false` |
-| `tools.plugin_tools.enabled_names` | 可选工具白名单；为空时使用所有默认启用且未禁用的插件工具 |
-| `tools.plugin_tools.disabled_names` | 插件工具黑名单 |
-| `tools.max_tool_rounds` | 单次回复最多允许多少轮工具调用，默认 4 |
-| `permissions` | 白名单/黑名单规则，与媒体解析等插件共用同一套权限体系；可在 Bot 后台「权限」页管理 |
+| `chat.max_reply_chars` | 单次回复最大字符数，默认 3500 |
+| `chat.cooldown_seconds` | 冷却秒数，默认 3 |
+| `chat.max_history_messages` | 上下文保留消息数 |
+| `chat.system_prompt_extra` | 额外系统提示词 |
+| `memory.enabled` | 是否启用持久化记忆 |
+| `memory.root` | 记忆根目录（默认 `UserData/aiagent_memory`） |
+| `tools.search.enabled` | 是否启用网页搜索（SearXNG） |
+| `tools.files.enabled` | 是否启用文件工具 |
+| `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
+| `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
+| `permissions` | 白名单/黑名单 |
 
-女娲人格 skill 放在：
+**AI Agent 工具：**
 
-```text
-BotData/agent_personas/
-```
+插件工具由各插件显式注册，默认只提供只读查询：
 
-推荐每个人格一个目录，例如：
+| 工具 | 来源 | 说明 |
+|------|------|------|
+| `web_search` | 内置 | 通过 SearXNG 搜索网页 |
+| `mc_wiki_search` | mc_wiki | Minecraft Wiki 查询 |
+| `stardew_wiki_search` | stardew_wiki | 星露谷 Wiki 查询 |
+| `sts2_wiki_search` | sts2_wiki | 杀戮尖塔 2 Wiki 查询 |
+| `zhihu_hot_list` | zhihu_hot | 知乎热搜列表 |
+| `steam_deals_list` | steam_deals | Steam 游戏列表 |
+| `ai_news_list` | ai_news | AI 资讯列表 |
+| `rss_latest` | rss_subscriber | RSS 订阅最新 |
+| `osu_user_lookup`、`osu_scores_lookup` 等 | osu_info | osu! 查询 |
 
-```text
-BotData/agent_personas/nuwa_hikari/SKILL.md
-```
+**人格 skill 路径：** `BotData/agent_personas/`，支持目录结构（优先读取 `SKILL.md`、`skill.md`、`PERSONA.md` 等）或直接指向 `.md`、`.txt`、`.json` 文件。支持引用补充资源文件。
 
-插件会优先读取目录中的 `SKILL.md`、`skill.md`、`PERSONA.md`、`persona.md` 或 `README.md`，也支持直接把 `persona.skill_path` 指向 `.md`、`.txt`、`.json` 文件。默认还会读取入口 skill 中通过 Markdown 链接或裸相对路径显式引用的本地补充资源，例如 `[语气细则](tone.md)` 或 `references/style.md`；引用必须仍位于 `BotData/agent_personas/` 下，且受 `persona.reference_*` 限制。后台管理页面的 “AI Agent” 页会扫描 `BotData/agent_personas/` 下可用的人格 skill，并支持配置 API 地址、模型、Key、代理、上下文长度和人格路径。
-
-搜索工具使用 OpenAI-compatible Chat Completions 的 `tools` / function calling。模型需要支持工具调用才会主动搜索；如果 SearXNG 使用自定义配置，请确保 `search.formats` 包含 `json`，否则 JSON 搜索接口不可用。
-
-文件工具同样使用 function calling。模型只能读取 `BotData/agent_personas/` 下的 `.md`、`.txt`、`.json` 人格 skill 资源；不能读取 `BotData/config.json`、`BotData/plugin_configs/` 或其他可能含有密钥的配置。`UserData/` 是唯一允许读写的用户数据目录，写入工具会拒绝绝对路径和任何逃出 `UserData/` 的相对路径。
-
-插件工具由各插件显式注册，不会自动暴露所有命令。默认只提供只读查询类能力，包括 `mc_wiki_search`、`stardew_wiki_search`、`sts2_wiki_search`、`zhihu_hot_list`、`steam_deals_list`、`ai_news_list`、`rss_latest`、`osu_user_lookup`、`osu_scores_lookup`、`osu_beatmap_lookup` 和 `osu_ranking_lookup`。这些工具返回结构化 JSON 供模型组织回答；不会直接发送图片、上传文件、触发推送、修改绑定或写入配置。媒体解析、后台管理、TTS、点赞/戳一戳等有明显副作用的能力默认不作为 AI tool 暴露。
-
-可用指令：
+**可用指令：**
 
 | 消息 | 效果 |
 |------|------|
-| 私聊 `你好` | 其他插件未处理时，使用当前模型和人格 skill 回复 |
-| 群聊 `@机器人 你好` | 其他插件未处理时，使用当前模型和人格 skill 回复 |
-| 私聊 `重置` / 群聊 `@机器人 重置` | 清空当前会话上下文和对应持久化记忆 |
+| 私聊 `你好` | 使用当前模型和人格 skill 回复 |
+| 群聊 `@机器人 你好` | 同上 |
+| `重置` / `ai 重置` / `清空上下文` | 清空当前会话上下文和持久化记忆 |
+| `查看记忆` / `看记忆` / `memory` | 查看持久化记忆内容（隐藏命令） |
+| `总结记忆` / `总结` / `summarize` | 手动触发 AI 记忆总结（隐藏命令） |
 
-持久化记忆按下面的文件组织：
-
+**持久化记忆文件结构：**
 ```text
 UserData/aiagent_memory/private/<QQ>/memory.md
 UserData/aiagent_memory/groups/<群号>/memory.md
 UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 ```
 
-### 可热改资源
+---
 
-资源目录：`BotData/resources/`
+### 5.12 Bot 后台
 
-首次启动时会从 `.example.json` 自动生成真实资源文件。修改真实 `.json` 后不需要重新构建项目镜像；机器人运行中会按文件修改时间重新读取。
+**配置文件：** `BotData/plugin_configs/bot_admin.json`
 
-`deploy.ps1` 会同步 `BotData/resources/` 和 `BotData/fonts/` 到服务器数据目录。
+Python 托管的 Web 管理后台，默认监听 `0.0.0.0:54213`。
 
-#### 生成图片字体
+**功能总览：**
+- **总览页：** 机器人实时运行状态，包括各插件当前进行的解析、下载和回复活动
+- **贴纸管理：** 上传贴纸素材到已有贴纸包或创建新包，保存前统一转换为 GIF；填写额外触发词
+- **表情收集箱：** 整理机器人静默收集的待整理表情，批量加入贴纸包或删除
+- **语音管理：** 上传语音文件，管理触发关键词，浏览器预览播放
+- **TTS 管理：** 管理 Fish Audio 音色库、API Key、模型、语速、响度等参数
+- **AI Agent 配置：** 配置 API 地址、模型参数、Key、人格 skill 路径和聊天限制
+- **权限管理：** 管理各插件的 QQ/群黑白名单和启用状态
+- **推送管理：** 管理定时推送任务、消息源参数、目标群号/私聊，支持立即推送测试
+- **配置编辑：** 在线编辑 `BotData/plugin_configs/*.json`，保存前校验 JSON
+- **日志查看：** 查看 `BotData/logs/*.log` 尾部内容
 
-配置文件：`BotData/resources/rendering.json`
+**上传支持的素材格式：**
+- **贴纸：** `.gif`、`.jpg`、`.jpeg`、`.png`、`.webp`、`.mp4`、`.webm`、`.mov`、`.mkv`、`.tgs` → 最终保存为 `.gif`（SHA256 哈希命名，去重）
+- **语音：** `.silk`、`.amr`、`.mp3`、`.wav`、`.ogg`、`.m4a`、`.aac`、`.flac`、`.opus`（SHA256 去重）
 
-推荐准备两个字体文件：
-
-- 常规字重：例如 `BotData/fonts/MyFont-Regular.ttf`
-- 粗体字重：例如 `BotData/fonts/MyFont-Bold.ttf`
-
-示例：
-
-```json
-{
-  "font_regular": "BotData/fonts/MyFont-Regular.ttf",
-  "font_bold": "BotData/fonts/MyFont-Bold.ttf",
-  "fallback_fonts_regular": [
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
-  ],
-  "fallback_fonts_bold": [
-    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-  ]
-}
-```
-
-如果没有放自定义字体，会按 `fallback_fonts_*` 查找。运行容器首次启动会安装 `fonts-noto-cjk`，通常会 fallback 到 Noto Sans CJK；如果所有字体都找不到，则退回 Pillow 默认字体，中文可能显示为方块。
-
-#### 机器人固定回复
-
-配置文件：`BotData/resources/bot_messages.json`
-
-常见固定回复已经抽到这个 JSON，例如错误提示、JMComic、Pixiv/Cobalt 部分错误、贴纸命令提示等。修改后不需要重新构建项目镜像；下一次发送对应消息时会读取新内容。
-
-### Bot 后台
-
-配置文件：`BotData/plugin_configs/bot_admin.json`
-
-机器人启动后会用 Python 托管一个管理后台，默认监听：
-
-```text
-0.0.0.0:54213
-```
-
-> TCP 端口最大为 `65535`，因此不能使用 `542123`。如需修改端口，请改 `bot_admin.json` 中的 `port`。如果服务器上已有旧的 `sticker_web.json`，首次启动会自动迁移。
-
-后台 API 也可以直接用请求头鉴权，token 就是 `bot_admin.json` 里的 `password`；该方式只对 `/api/...` 路径生效，不改变浏览器登录页的 cookie/session 登录。
+**API 认证：**
 
 ```bash
 curl -H "X-Admin-Token: <后台密码>" http://服务器IP:54213/api/aiagent-config
@@ -1409,79 +753,478 @@ curl -H "Authorization: Bearer <后台密码>" http://服务器IP:54213/api/stat
 
 完整 HTTP API 文档见 [`docs/API.md`](docs/API.md)。
 
-打开 `http://服务器IP:54213/` 后，总览页会显示机器人实时运行状态——包括各插件当前正在进行的解析、下载和回复活动。可以：
+---
 
-- 上传贴纸素材到已有贴纸包，保存前会统一转换为 GIF。
-- 输入新贴纸包名称并上传，自动创建贴纸包。
-- 填写额外触发词，自动写入贴纸库索引。
-- 整理机器人静默收集到的待整理表情，并批量加入贴纸包或删除。
-- 上传语音文件，管理语音触发关键词，并在浏览器里预览播放。
-- 管理 Fish Audio 音色库、API Key、模型、语速、响度、音高、表现力、代理、长度限制、冷却时间和缓存目录。
-- 配置 AI Agent 的 OpenAI-compatible API、模型参数、API Key、人格 skill 路径和聊天限制。
-- 管理 Pixiv、聚合媒体解析、Instagram/Facebook 和 YouTube 插件自己的 QQ/群黑名单、白名单和启用状态。
-- 管理通用定时推送框架的任务、消息源参数、群号和私聊目标，并可在任务设置中立即推送当前任务做测试。
-- 在线编辑 `BotData/plugin_configs/*.json` 插件配置，保存前会校验 JSON。
-- 查看 `BotData/logs/*.log` 运行日志的尾部内容。
+### 5.13 贴纸静默收集
 
-支持上传素材后缀：`.gif`、`.jpg`、`.jpeg`、`.png`、`.webp`、`.mp4`、`.webm`、`.mov`、`.mkv`、`.tgs`。最终保存为 `.gif`。上传内容会用 SHA256 哈希命名；同一份素材重复上传会复用已有 GIF，不会再生成副本。
+**配置文件：** `BotData/plugin_configs/sticker_collector.json`
 
-支持上传语音后缀：`.silk`、`.amr`、`.mp3`、`.wav`、`.ogg`、`.m4a`、`.aac`、`.flac`、`.opus`。语音内容同样会用 SHA256 哈希命名；同一份语音重复上传会复用已有文件。
-
-### 贴纸静默收集
-
-配置文件：`BotData/plugin_configs/sticker_collector.json`
-
-机器人会静默收集群聊和私聊消息中的图片表情，统一转为 GIF 后放入待整理收集箱：
+机器人静默收集群聊和私聊消息中的图片表情，统一转为 GIF 后放入待整理收集箱：
 
 ```text
 BotData/Gifs/_inbox/
 BotData/plugin_configs/sticker_inbox.json
 ```
 
-待整理表情不会自动进入正式贴纸包，需要在 Bot 后台中手动分配或删除。收集箱按 GIF 哈希去重；如果超过配置的 `max_pending`，会自动移除最旧的待整理项。
+待整理表情不会自动进入正式贴纸包，需要在 Bot 后台中手动分配或删除。收集箱按 GIF 哈希去重。
 
-关键字段：
+**关键配置：**
 
 | 字段 | 说明 |
 |------|------|
 | `enabled` | 是否启用静默收集 |
 | `collect_group` | 是否收集群聊图片 |
 | `collect_private` | 是否收集私聊图片 |
-| `allowed_groups` | 指定允许收集的群号；为空表示所有群 |
-| `ignored_users` | 忽略指定 QQ 用户 |
-| `max_pending` | 收集箱最多保留多少个待整理项 |
-| `temp_root` | 下载和转码临时目录 |
+| `allowed_groups` | 允许收集的群号（空 = 所有群） |
+| `ignored_users` | 忽略的 QQ 用户 |
+| `max_pending` | 收集箱最大待整理数 |
 
-### JMComic
+---
 
-配置文件：
+### 5.14 定时推送框架
 
-- `BotData/jmcomic/option.yml`：JMComic 下载配置
-- `BotData/plugin_configs/jmcomic_api.json`：机器人触发配置
+**配置文件：** `BotData/plugin_configs/push_framework.json`
 
-默认仅私聊可用，所有用户都可以触发：
+通用推送骨架：负责定时、目标发送、失败重试和同一轮去重；具体内容由消息源提供。插件可以调用 `register_push_source()` 注册自己的消息源。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `startup_delay_seconds` | 启动后等待秒数再开始检查 |
+| `check_interval_seconds` | 检查间隔，默认 60 秒 |
+| `jobs[].id` | 任务 ID，手动测试时使用 |
+| `jobs[].trigger` | 触发器：`schedule` / `startup` / `shutdown` / `manual` |
+| `jobs[].source` | 消息源名称 |
+| `jobs[].time` / `times` | 推送时间（`HH:MM`，`times` 支持多点） |
+| `jobs[].days` | 星期限制 |
+| `jobs[].dedupe` | 去重方式：`daily` / `none` |
+| `jobs[].targets` | 推送目标（群号、私聊） |
+| `jobs[].source_options` | 消息源自定义参数 |
+
+**可用指令（仅超级管理员）：**
+
+| 消息 | 效果 |
+|------|------|
+| `推送 状态` | 查看框架、任务和消息源状态 |
+| `推送 源` | 查看已注册消息源 |
+| `推送 触发 <任务ID>` | 立即按该任务目标试发一次，不写入去重状态 |
+
+**内置消息源：**
+
+| source | 说明 |
+|--------|------|
+| `static_text` | 发送固定文本，用于测试链路 |
+| `steam_deals` | 发送 Steam 日报图片 |
+| `ai_news` | 发送 AI 最新资讯图片 |
+| `zhihu_hot` | 发送知乎热搜图片 |
+| `rss_feed` | 发送 RSS/Atom 订阅更新 |
+
+**最小配置示例：**
+```json
+{
+  "jobs": [{
+    "id": "daily_text",
+    "enabled": true,
+    "trigger": "schedule",
+    "source": "static_text",
+    "time": "09:00",
+    "timezone": "Asia/Shanghai",
+    "targets": {"group_ids": [123456789]},
+    "source_options": {"text": "早上好，今日推送测试。"}
+  }]
+}
+```
+
+**自定义消息源：**
+```python
+from plugins.push_framework import register_push_source, PushContext
+
+@register_push_source("my_source", description="我的自定义推送源")
+async def build_message(ctx: PushContext):
+    keyword = ctx.options.get("keyword", "默认主题")
+    return f"今日主题：{keyword}"
+```
+
+---
+
+### 5.15 Steam 热门热卖日报
+
+**配置文件：** `BotData/plugin_configs/steam_deals.json`
+
+调用 Steam Store 接口生成日报图片。`steam日报` 展示热门热卖榜单；`steam低价` 筛选免费、超低价、大折扣和折扣加深游戏。默认不会主动每日推送；即使开启定时任务，也只发送到 `push_whitelist` 中列出的目标。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `steam日报` | 查询免费、低价和大折扣游戏日报 |
+| `steam免费` / `steam日报 免费` | 只看免费游戏 |
+| `steam低价` / `steam日报 低价` | 查看低价和大折扣游戏 |
+| `steam日报 刷新` | 忽略缓存重新获取 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `country` | Steam 地区代码，默认 `cn` |
+| `language` | 语言，默认 `schinese` |
+| `max_low_price_cents` | 低价阈值（分），默认 1000（¥10） |
+| `min_discount_percent` | 大折扣阈值，默认 90 |
+| `max_items` | 单张日报最多展示游戏数，默认 18 |
+| `include_steamdb_free_promotions` | 是否用 SteamDB 标注限免/试玩 |
+| `price_watch.enabled` | 本地价格快照（标记"新打折""折扣加深"） |
+| `daily_filter` | 日报筛选（去同系列刷屏、最低评价数等） |
+| `render.image_format` | 图片格式，默认 JPEG |
+| `render.jpeg_quality` | JPEG 质量，默认 82 |
+| `schedule.enabled` | 是否开启每日主动推送 |
+| `schedule.time` | 推送时间 `HH:MM` |
+| `push_whitelist` | 允许主动推送的群和私聊 |
+| `proxy` | Steam API 代理 |
+
+---
+
+### 5.16 AI 最新资讯日报
+
+**配置文件：** `BotData/plugin_configs/ai_news.json`
+
+注册通用推送源 `ai_news`，从公开 RSS/Atom 源聚合 AI 最新资讯，按来源权重、发布时间和关键词加权筛选，去重后渲染成图片。
+
+**默认源：** OpenAI News、Google AI、Hugging Face Blog、arXiv AI、Hacker News AI、TechCrunch AI、The Verge AI、VentureBeat AI
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `ai资讯` | 生成默认条数的 AI 资讯图片 |
+| `ai资讯 5` | 生成最多 5 条资讯的图片 |
+| `ai资讯 总结 5` | 使用 AI Agent 模型翻译并总结后生成图片 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `sources[].id` | 数据源 ID |
+| `sources[].group` | 分组：`official` / `research` / `community` / `media` |
+| `sources[].url` | RSS/Atom 地址 |
+| `sources[].weight` | 来源权重 |
+| `max_items` | 单张图片最多展示条数 |
+| `max_per_source` | 单源最多展示条数 |
+| `max_age_hours` | 时间范围限制 |
+| `ai_summary.enabled` | 是否开启 AI 总结与翻译（复用 aiagent 模型配置） |
+| `only_new` | 推送时是否只发送未见过的条目 |
+
+---
+
+### 5.17 知乎热搜
+
+**配置文件：** `BotData/plugin_configs/zhihu_hot.json`
+
+注册通用推送源 `zhihu_hot`，读取知乎热榜接口渲染成图片，展示排名、问题标题、摘要、回答/关注数和热度文本。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `知乎热搜` | 生成默认条数的热搜图片 |
+| `知乎热搜 10` | 生成最多 10 条 |
+| `知乎热搜 10 刷新` | 忽略缓存重新读取 |
+| `知乎热搜 链接` | 图片后额外发送问题链接 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `max_items` | 最多展示条数（最多 30） |
+| `summary_max_chars` | 摘要截断字符数 |
+| `cache_ttl_minutes` | 接口缓存时间 |
+| `proxy` | 请求代理 |
+
+---
+
+### 5.18 RSS 订阅
+
+**配置文件：** `BotData/plugin_configs/rss_subscriber.json`
+
+支持常见 RSS 2.0 和 Atom Feed，不需要额外账号。后台"RSS"页面可维护同一份配置。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `rss 列表` | 查看已配置订阅 |
+| `rss 看 <订阅ID\|URL> [数量]` | 读取最新条目 |
+| `rss 测试 <订阅ID\|URL> [数量]` | 超级管理员试读 |
+| `rss 添加 <订阅ID> <URL> [标题]` | 超级管理员新增订阅 |
+| `rss 删除 <订阅ID>` | 超级管理员删除订阅 |
+| `rss 开启 <订阅ID>` / `rss 关闭 <订阅ID>` | 启停订阅 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `proxy` | HTTP 代理 |
+| `max_items` | 默认读取条目数 |
+| `summary_max_chars` | 摘要截断长度 |
+| `subscriptions[].id` | 订阅 ID |
+| `subscriptions[].url` | Feed URL |
+| `subscriptions[].only_new` | 推送是否只发新条目 |
+
+---
+
+### 5.19 星露谷物语 Wiki
+
+**配置文件：** `BotData/plugin_configs/stardew_wiki.json`
+
+调用 Stardew Valley Wiki 的 MediaWiki API（默认中文站），不需要账号或密钥。以合并转发发送结果：链接 → 详细描述 → 主图。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `星露谷wiki <关键词>` | 搜索中文 Wiki |
+| `svwiki <关键词>` | 同上 |
+| `stardewwiki <关键词>` | 同上 |
+
+---
+
+### 5.20 Minecraft Wiki
+
+**配置文件：** `BotData/plugin_configs/mc_wiki.json`
+
+调用 Minecraft Wiki 的 MediaWiki API（默认中文站），不需要账号或密钥。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `mcwiki <关键词>` | 搜索中文 Wiki |
+| `我的世界wiki <关键词>` | 同上 |
+| `mc百科 <关键词>` | 同上 |
+
+---
+
+### 5.21 杀戮尖塔 2 Wiki
+
+**配置文件：** `BotData/plugin_configs/sts2_wiki.json`
+
+默认调用 Spire Codex 的 Slay the Spire 2 中文 API，不需要账号或密钥。优先读取本地缓存（默认 24 小时有效）。
+
+> 灰机 Wiki 的 `api.php` 当前会对普通请求返回 Cloudflare challenge，不能作为稳定数据源。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `塔2wiki <关键词>` | 搜索 Wiki 条目 |
+| `塔2 <关键词>` | 同上 |
+| `sts2 <关键词>` | 同上 |
+
+**AI Agent 工具：** `sts2_wiki_search`（只读插件工具）
+
+---
+
+### 5.22 QQ 资料卡点赞
+
+**配置文件：** `BotData/plugin_configs/profile_like.json`
+
+调用 NapCat 的 `send_like` API。静默执行，不会在聊天里发送消息。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `点赞` | 给自己点满赞（默认 10 次） |
+| `点赞 @用户` | 给被 @ 的用户点赞 |
+| `点赞 QQ号` | 给指定 QQ 号点赞 |
+| `点赞 QQ号 5` | 点赞指定次数 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `default_times` | 默认点赞次数，默认 10 |
+| `max_times` | 单次最大次数（最高 10） |
+
+---
+
+### 5.23 空 @ 表情回应
+
+**配置文件：** `BotData/plugin_configs/mention_reaction.json`
+
+群聊中，如果只发送 `@机器人`（无其他内容），调用 NapCat 的 `set_msg_emoji_like` 添加表情回应。默认使用 QQ 爱心表情（ID `66`）。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `group_enabled` | 群聊启用 |
+| `emoji_ids` | 表情 ID 列表，默认 `["66"]`（爱心） |
+| `random` | 多个表情时是否随机选择 |
+| `allowed_groups` | 允许的群号（空 = 全部） |
+| `ignored_users` | 忽略的用户 |
+
+**常见表情 ID：** `66` 爱心、`76` 赞、`201` 点赞、`319` 比心、`124` OK、`99` 鼓掌
+
+---
+
+### 5.24 戳一戳回戳
+
+**配置文件：** `BotData/plugin_configs/poke_back.json`
+
+监听 OneBot V11 的戳一戳通知。被戳到时立刻戳回对方，不发送文字提示。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `group_enabled` | 群聊戳回 |
+| `private_enabled` | 私聊戳回 |
+
+---
+
+### 5.25 媒体转码
+
+**配置文件：** `BotData/plugin_configs/media_transcoder.json`
+
+贴纸相关插件的统一转码服务。只要最终进入本地贴纸包，就必须保存为 GIF；非贴纸媒体不走这里。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `sticker_gif_fps` | 视频/WebP 转 GIF 帧率 |
+| `sticker_gif_width` | 转 GIF 宽度（0 = 保持原尺寸） |
+| `sticker_gif_max_colors` | GIF 调色板颜色数（最大 256） |
+| `sticker_gif_dither` | 抖动算法 |
+| `sticker_ffmpeg_concurrency` | 同时转码数量 |
+| `tgs_converter_cmd` | TGS 转 GIF 外部命令 |
+
+---
+
+### 5.26 JMComic PDF 下载
+
+**配置文件：** `BotData/plugin_configs/jmcomic_api.json` + `BotData/jmcomic/option.yml`
+
+默认仅私聊可用，所有用户都可触发。下载漫画、导出 PDF、通过 NapCat 上传文件。
 
 ```text
 jm 123456
 ```
 
-如果需要允许群聊识别，把 `BotData/plugin_configs/jmcomic_api.json` 改为：
-
+需要允许群聊时，将配置改为：
 ```json
-{
-  "allow_group": true
-}
+{"allow_group": true}
 ```
-
-机器人会下载漫画、导出 PDF，并通过 NapCat 上传到当前私聊或群聊。下载和 PDF 临时目录默认位于 `/tmp/hikari_bot/jmcomic`。
 
 ---
 
-## NapCat 文件目录
+### 5.27 帮助与关于
 
-机器人会把图片、视频、贴纸、PDF 等临时文件放到 `/tmp/hikari_bot`。NapCat 必须能读取这个目录，否则会出现“解析成功但发送失败”。Pixiv、Cobalt、聚合媒体解析和 YouTube 下载的临时媒体默认登记为 10 分钟后清理，可通过各插件的 `cache_ttl_seconds` 调整。
+**配置文件：** `plugins/bot_help/`（无独立配置）
 
-如果 NapCat 运行在 Docker 容器中，请挂载同一个目录：
+| 消息 | 效果 |
+|------|------|
+| 私聊 `帮助` | 查看可用能力和用法 |
+| 群聊 `@机器人 帮助` | 同上 |
+| 私聊 `关于` | 查看机器人描述、版本、Git 提交、运行时长、贴纸库统计 |
+| 群聊 `@机器人 关于` | 同上 |
+
+---
+
+### 5.28 错误通知
+
+自动错误处理。用户收到通用失败提示，管理员（超级管理员）收到脱敏后的异常 traceback 通知。
+
+---
+
+## 六、核心模块
+
+核心模块位于 [`core/`](core/) 目录，提供机器人底层能力。
+
+### 消息处理流程
+
+```
+Message from QQ → NapCat → OneBot V11 WS → NoneBot
+
+  priority=0, block=False → core/command_router.py
+    - 显式命令路由，@command() 装饰器注册
+    - 创建 CommandContext，匹配成功标记已处理
+
+  priority=1, block=False → core/message_pipeline.py
+    - URL/自动解析处理器，register_handler() 注册
+    - URLHandler 协议 match + handle
+    - 被 command_router 处理的消息跳过
+
+  其余插件 (on_message, priority=...)
+    - AI Agent 最低优先级兜底
+```
+
+### 模块清单
+
+| 模块 | 职责 |
+|------|------|
+| [`config_loader.py`](core/config_loader.py) | 加载主配置 + 插件配置，深合并默认值，mtime/size 热重载 |
+| [`command_router.py`](core/command_router.py) | 显式命令分发，`@command()` 装饰器，priority=0 |
+| [`message_pipeline.py`](core/message_pipeline.py) | URL 自动解析注册器，`register_handler()`，priority=1 |
+| [`rendering.py`](core/rendering.py) | 图片文字渲染，`load_font()` 从配置读取字体链 |
+| [`bot_messages.py`](core/bot_messages.py) | 用户面向回复，`get_message(key)` 从 `bot_messages.json` 读取 |
+| [`ai_tool_registry.py`](core/ai_tool_registry.py) | `register_ai_tool()` 暴露插件函数为 AI Agent 工具 |
+| [`access_control.py`](core/access_control.py) | QQ/群黑白名单检查 |
+| [`error_notifier.py`](core/error_notifier.py) | 用户友好错误提示 + 管理员 traceback 通知 |
+| [`lifecycle_logging.py`](core/lifecycle_logging.py) | 启动摘要、插件加载日志、事件描述辅助 |
+| [`temp_media_cleaner.py`](core/temp_media_cleaner.py) | 定时清理临时下载媒体 |
+| [`activity_tracker.py`](core/activity_tracker.py) | 实时活动跟踪，供 Admin 总览页展示 |
+| [`stats_tracker.py`](core/stats_tracker.py) | 会话使用统计 |
+| [`bot_identity.py`](core/bot_identity.py) | 机器人名称/身份，从配置读取 |
+| [`resources.py`](core/resources.py) | 加载/回填 `BotData/resources/` 下的 JSON 资源 |
+| [`runtime_info.py`](core/runtime_info.py) | 运行时长、版本信息（`version.json`） |
+
+---
+
+## 七、可热改资源
+
+**目录：** `BotData/resources/`
+
+首次启动时从 `.example.json` 自动生成真实资源文件。修改后不需要重新构建项目镜像；机器人运行中会按文件修改时间重新读取。
+
+### 生成图片字体
+
+**配置文件：** `BotData/resources/rendering.json`
+
+推荐准备两个字体文件：
+- 常规字重：`BotData/fonts/MyFont-Regular.ttf`
+- 粗体字重：`BotData/fonts/MyFont-Bold.ttf`
+
+```json
+{
+  "font_regular": "BotData/fonts/MyFont-Regular.ttf",
+  "font_bold": "BotData/fonts/MyFont-Bold.ttf",
+  "fallback_fonts_regular": ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"],
+  "fallback_fonts_bold": ["/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"]
+}
+```
+
+如果不放自定义字体，运行容器会安装 `fonts-noto-cjk` 做 fallback。
+
+### 机器人固定回复
+
+**配置文件：** `BotData/resources/bot_messages.json`
+
+常见的固定回复已抽到该 JSON（错误提示、JMComic、Pixiv/Cobalt 部分错误、贴纸命令提示等）。修改后下一次发送对应消息时会读取新内容。
+
+---
+
+## 八、NapCat 文件目录
+
+机器人会把图片、视频、贴纸、PDF 等临时文件放到 `/tmp/hikari_bot`。NapCat 必须能读取这个目录，否则会出现"解析成功但发送失败"。
+
+各插件的临时媒体默认 10 分钟后清理（通过 `cache_ttl_seconds` 调整）。
+
+Docker 部署时请挂载共享目录：
 
 ```yaml
 services:
@@ -1492,111 +1235,173 @@ services:
 
 ---
 
-
-## 项目结构
+## 九、项目结构
 
 ```text
 HIKARI_BOT_NEO/
-  bot.py                         # 程序入口
-  core/
-    command_router.py            # 明确命令路由
-    config_loader.py             # 主配置和插件配置加载
-    error_notifier.py            # 错误通知
-    logger_setup.py              # 日志初始化
-    message_pipeline.py          # 自动解析管道
-    stats_tracker.py             # 会话统计
-    activity_tracker.py          # 插件实时活动跟踪，供 admin 总览页展示
-  plugins/
-    media_parser/                # 抖音/B站/小红书/小黑盒等聚合媒体解析适配
-    pixiv_parser/                # Pixiv 解析
-    cobalt_parser/               # Instagram / Facebook 解析
-    media_detail_web/            # 独立媒体详情解析与下载页面
-    netease_parser/              # 网易云音乐解析
-    tg_sticker_parser/           # Telegram 贴纸包解析
-    sticker_collector/           # 群聊/私聊表情静默收集
-    sticker_trigger/             # 本地贴纸关键词触发
-    voice_trigger/               # 本地语音关键词触发
-    tts_speaker/                 # Fish Audio 语音合成命令
-    bot_admin/                   # Bot 后台页面
-    sticker_web/                 # 旧后台插件兼容占位
-    bot_help/                    # 帮助信息
-    jmcomic_api/                 # JMComic PDF 下载上传
-    steam_deals/                 # Steam 免费和低价游戏日报
-    ai_news/                     # AI 最新资讯图片和推送源
-    zhihu_hot/                   # 知乎热搜图片和推送源
-    push_framework/              # 通用定时推送框架
-    rss_subscriber/              # RSS/Atom 订阅命令和推送消息源
-    stardew_wiki/                # 星露谷物语 Wiki 查询
-    mc_wiki/                     # Minecraft Wiki 查询
-    sts2_wiki/                   # 杀戮尖塔 2 Wiki 查询
-    profile_like/                # QQ 资料卡点赞命令
-    mention_reaction/            # 群聊空 @ 时添加消息表情回应
-    poke_back/                   # 被戳一戳时自动戳回
-  BotData/
-    config.example.json          # 主配置模板
-    config.json                  # 主配置，含敏感信息，不提交
-    plugin_configs/              # 插件配置
-    Gifs/_library/               # 本地贴纸统一文件库
-    Voices/_library/             # 本地语音统一文件库
-    jmcomic/option.yml           # JMComic 配置
-  third_party/
-    astrbot_plugin_media_parser/ # 上游 AGPL 聚合解析器源码
-  UserData/
-    stats/                       # 会话统计数据
-  pyproject.toml                 # Python 依赖和 NoneBot 配置
-  docker-compose.yml             # 源码挂载 Docker 编排
-  deploy/
-    docker-compose.server.yml    # 服务器源码挂载部署编排
-  docker/
-    entrypoint.sh                # 容器首次启动时初始化配置模板
+├── bot.py                              # 程序入口
+├── pyproject.toml                      # Python 依赖和 NoneBot 配置
+│
+├── core/                               # 核心模块
+│   ├── command_router.py               #   命令路由
+│   ├── config_loader.py                #   配置加载（含热重载）
+│   ├── message_pipeline.py             #   自动解析管道
+│   ├── rendering.py                    #   图片渲染
+│   ├── bot_messages.py                 #   固定回复
+│   ├── ai_tool_registry.py             #   AI 工具注册
+│   ├── access_control.py               #   黑白名单
+│   ├── error_notifier.py               #   错误通知
+│   ├── activity_tracker.py             #   实时活动跟踪
+│   ├── stats_tracker.py                #   会话统计
+│   ├── bot_identity.py                 #   机器人身份
+│   ├── resources.py                    #   资源加载
+│   ├── runtime_info.py                 #   运行时信息
+│   ├── lifecycle_logging.py            #   生命周期日志
+│   └── temp_media_cleaner.py           #   临时媒体清理
+│
+├── plugins/                            # 插件目录
+│   ├── pixiv_parser/                   #   Pixiv 作品解析
+│   ├── media_parser/                   #   聚合媒体解析适配层
+│   ├── cobalt_parser/                  #   Instagram / Facebook 解析
+│   ├── netease_parser/                 #   网易云音乐解析
+│   ├── youtube_downloader/             #   YouTube 视频下载
+│   ├── media_detail_web/               #   媒体详情 Web 页面
+│   ├── tg_sticker_parser/              #   Telegram 贴纸包导入
+│   ├── sticker_trigger/                #   本地贴纸触发
+│   ├── sticker_collector/              #   贴纸静默收集
+│   ├── voice_trigger/                  #   本地语音触发
+│   ├── tts_speaker/                    #   Fish Audio TTS
+│   ├── aiagent/                        #   AI Agent 聊天
+│   ├── bot_admin/                      #   Web 管理后台
+│   ├── bot_help/                       #   帮助 / 关于
+│   ├── push_framework/                 #   定时推送框架
+│   ├── steam_deals/                    #   Steam 日报
+│   ├── ai_news/                        #   AI 资讯日报
+│   ├── zhihu_hot/                      #   知乎热搜
+│   ├── rss_subscriber/                 #   RSS 订阅
+│   ├── osu_info/                       #   osu! 信息查询
+│   ├── stardew_wiki/                   #   星露谷物语 Wiki
+│   ├── mc_wiki/                        #   Minecraft Wiki
+│   ├── sts2_wiki/                      #   杀戮尖塔 2 Wiki
+│   ├── jmcomic_api/                    #   JMComic PDF
+│   ├── profile_like/                   #   QQ 资料卡点赞
+│   ├── mention_reaction/               #   空 @ 表情回应
+│   ├── poke_back/                      #   戳一戳回戳
+│   ├── media_transcoder/               #   媒体转码服务
+│   └── sticker_web/                    #   旧后台兼容占位
+│
+├── third_party/                        # 上游 vendored 代码
+│   └── astrbot_plugin_media_parser/    #   聚合媒体解析器（AGPL）
+│
+├── BotData/                            # 运行时数据
+│   ├── config.json                     #   主配置（不提交）
+│   ├── config.example.json             #   配置模板
+│   ├── plugin_configs/                 #   插件配置
+│   ├── resources/                      #   热改资源（rendering, messages）
+│   ├── fonts/                          #   自定义字体
+│   ├── Gifs/_library/                  #   贴纸统一文件库
+│   ├── Voices/_library/                #   语音统一文件库
+│   └── agent_personas/                 #   AI 人格 skill
+│
+├── UserData/                           # 用户数据（选择性忽略 git）
+│   ├── stats/                          #   会话统计
+│   ├── aiagent_memory/                 #   AI 持久化记忆
+│   └── osu_bindings.json              #   osu! 绑定数据
+│
+├── docker/                             # Docker 相关
+│   └── entrypoint.sh                   #   容器启动脚本
+│
+├── deploy/                             # 部署配置
+│   ├── docker-compose.server.yml       #   服务器 Compose 编排
+│   └── searxng/                        #   SearXNG 配置
+│
+├── docs/                               # 文档
+│   └── API.md                          #   HTTP API 文档
+│
+├── scripts/                            # 辅助脚本
+│   └── update_media_parser_vendor.ps1  #   更新 vendored 解析器
+│
+├── deploy.ps1                          # SSH 部署脚本（PowerShell）
+├── install.sh                          # 一键安装脚本（Linux）
+├── install.ps1                         # 一键安装脚本（PowerShell）
+├── LICENSE                             # AGPL v3 许可证
+├── USER_AGREEMENT.md                   # 用户协议模板
+└── PRIVACY_POLICY.md                   # 隐私政策模板
 ```
 
 ---
 
-## 常见问题
+## 十、常见问题
 
 | 症状 | 常见原因 | 处理方式 |
 |------|----------|----------|
-| 启动后机器人不在线 | NapCat WebSocket 地址或 Token 错误 | 检查 `BotData/config.json` 的 `napcat.ws_url` 和 `napcat.token` |
-| `tg贴纸` 没有反应 | 插件关闭、链接不匹配、NapCat 未连接 | 检查 `tg_sticker_parser.json` 的 `enabled` 和 `bot_token`，再看日志 |
-| 图片或视频发送失败 | NapCat 读不到临时文件 | 挂载 `./runtime/tmp/hikari_bot:/tmp/hikari_bot`，并确认 systemd `PrivateTmp=no` |
-| Pixiv 403 / Cloudflare | Cookie 失效或不完整 | 更新 `pixiv_parser.json` 的 `cookie`，必要时补 `cf_clearance` |
-| Pixiv 连接失败 | 网络无法直连 Pixiv | 配置 `proxy` |
-| Instagram / Facebook 解析失败 | cobalt API 不可用或地址写错 | 确认 `cobalt_api` 指向自部署实例 |
-| 抖音/B站/小红书等解析失败 | 平台风控、Cookie 失效、代理不可用或媒体过大 | 检查 `media_parser.json` 的代理、B站 Cookie、大小限制和日志 |
-| Telegram 贴纸解析失败 | `bot_token` 未配置或无法访问 Telegram | 填写 Token，必要时配置 `proxy` |
-| Telegram 动态贴纸转换失败 | 缺少转换依赖 | 检查 `ffmpeg`、lottie 转换命令和日志 |
-| JSON 配置报错 | JSON 格式错误 | 运行 `python -m json.tool <配置文件>` 检查 |
+| 启动后机器人不在线 | NapCat WebSocket 地址或 Token 错误 | 检查 `BotData/config.json` 的 `ws_url` 和 `token` |
+| `tg贴纸` 没有反应 | 插件关闭、链接不匹配、NapCat 未连接 | 检查配置和日志 |
+| 图片或视频发送失败 | NapCat 读不到临时文件 | 挂载共享目录，检查 `PrivateTmp` |
+| Pixiv 403 / Cloudflare | Cookie 失效或不完整 | 更新 Cookie，必要时补 `cf_clearance` |
+| Pixiv 连接失败 | 网络无法直连 | 配置 `proxy` |
+| Instagram / Facebook 解析失败 | cobalt API 不可用 | 确认 `cobalt_api` 地址正确 |
+| 抖音/B站/小红书等解析失败 | 平台风控、Cookie 失效、代理不可用 | 检查配置、代理和日志 |
+| Telegram 贴纸解析失败 | Token 未配置或无法访问 Telegram API | 填写 Token，配置代理 |
+| Telegram 动态贴纸转换失败 | 缺少转换依赖 | 检查 ffmpeg、lottie 命令 |
+| JSON 配置报错 | 格式错误 | 运行 `python -m json.tool <文件>` 检查 |
 
 ---
 
-## 开发说明
+## 十一、开发说明
 
-- 插件目录由 `pyproject.toml` 中的 `plugin_dirs = ["plugins"]` 配置。
-- `core.message_pipeline` 会先注册全局消息管道，自动解析类插件通过 `register_handler()` 接入。
-- 插件配置大多支持热重载，修改 JSON 后下条消息即可生效。
-- `BotData/config.json`、`BotData/plugin_configs/*.json`、`UserData/stats`、日志和实际贴纸媒体文件默认不提交。
+- **插件目录：** 由 `pyproject.toml` 中的 `plugin_dirs = ["plugins"]` 配置。
+- **自动解析：** `core.message_pipeline` 注册全局管道，插件通过 `register_handler()` 接入。
+- **热重载：** 插件配置修改 JSON 后下条消息即可生效。
+- **不提交：** `BotData/config.json`、`BotData/plugin_configs/*.json`、`UserData/stats`、日志和媒体文件。
+- **配置文件：** 定义默认值 → `config_loader.load_plugin_config("name", DEFAULT)` 深合并用户 JSON。
+- **命令注册：** `@command()` 装饰器，`CommandContext` 提供解析参数和作用域。
+- **AI 工具注册：** `@register_ai_tool()`，默认只读，返回 JSON 序列化数据。
+- **图片渲染：** 始终使用 `core.rendering.load_font()`，避免固定宽度布局。
+- **用户回复：** 通过 `core.bot_messages.get_message()`，不硬编码文本。
+
+**验证命令：**
+
+```bash
+# Python 语法检查
+uv run python -m compileall <changed paths>
+
+# 运行全部测试
+uv run python -m unittest discover -s tests
+
+# 单个测试
+uv run python -m unittest tests.test_<name>
+
+# JSON 校验
+python -m json.tool BotData/plugin_configs/<file>.json
+
+# JS 语法检查
+node --check plugins/bot_admin/static/<file>.js
+```
 
 ---
 
-## 许可证
+## 十二、许可证与致谢
+
+### 许可证
 
 本项目使用 [GNU Affero General Public License v3.0 or later](LICENSE) 开源。
 
 使用本项目解析、下载或转发第三方平台内容时，请自行确认相关平台服务条款和内容版权要求。
 
-## 参考与致谢
+### 参考与致谢
 
-本项目开发和实现过程中参考或使用了这些开源项目：
+- [NoneBot 2](https://github.com/nonebot/nonebot2) — 机器人框架
+- [NapCatQQ](https://github.com/NapNeko/NapCatQQ) — QQ / OneBot V11 接入
+- [drdon1234/astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser) — 聚合媒体解析能力（AGPL）
+- [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) — YouTube 等站点视频信息提取与下载
+- [imputnet/cobalt](https://github.com/imputnet/cobalt) — Instagram / Facebook 媒体解析 API
+- [searxng/searxng](https://github.com/searxng/searxng) — AI Agent 搜索工具的元搜索服务
+- [valkey-io/valkey](https://github.com/valkey-io/valkey) — SearXNG 缓存服务
+- [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) — 网易云音乐解析 API
 
-- [NoneBot 2](https://github.com/nonebot/nonebot2)：机器人框架。
-- [NapCatQQ](https://github.com/NapNeko/NapCatQQ)：QQ / OneBot V11 接入。
-- [drdon1234/astrbot_plugin_media_parser](https://github.com/drdon1234/astrbot_plugin_media_parser)：抖音、B站、小红书、小黑盒等聚合媒体解析能力。
-- [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp)：YouTube 等站点的视频信息提取与下载能力。
-- [imputnet/cobalt](https://github.com/imputnet/cobalt)：Instagram / Facebook 等媒体解析 API。
-- [searxng/searxng](https://github.com/searxng/searxng)：AI Agent 搜索工具的元搜索服务。
-- [valkey-io/valkey](https://github.com/valkey-io/valkey)：SearXNG 缓存服务。
+---
 
-## 用户协议与隐私政策
+## 十三、用户协议与隐私政策
 
 仓库提供了面向自部署场景的 [用户协议模板](USER_AGREEMENT.md) 和 [隐私政策模板](PRIVACY_POLICY.md)。实际部署前，请将服务运营者、联系方式、数据保存期限和第三方服务配置补充为你的真实情况。
