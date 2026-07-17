@@ -163,6 +163,7 @@ The AI Agent strips Markdown from model replies before sending to QQ. The `strip
 - **Admin API**: Bot admin endpoints under `/api/*` support `X-Admin-Token` header auth and session cookies.
 - **Rendered images**: Always use `core.rendering.load_font()` so fonts are configurable. Avoid fixed-width layouts. Use wrapped text and dynamic measurement for CJK strings.
 - **User-facing replies**: Go through `core.bot_messages.get_message()` — never hard-code reply text in plugins. Keys live in `BotData/resources/bot_messages.json`.
+- **Message key defaults in code**: When adding a new `get_message()` key reference in plugin code, ALWAYS add the corresponding default value to the `DEFAULT_MESSAGES` dict in `core/bot_messages.py`. The runtime auto-backfills missing keys from this dict into the user's `bot_messages.json`, so adding the default in code ensures the message works on existing deployments without manual config edits. `BotData/resources/bot_messages.json` is gitignored and cannot be relied upon for deployment. Test by searching for the new key in `DEFAULT_MESSAGES` after adding it.
 
 ### Data Boundaries
 
