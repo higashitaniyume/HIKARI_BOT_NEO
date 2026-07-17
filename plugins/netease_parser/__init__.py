@@ -622,8 +622,10 @@ class AutoNeteaseHandler:
     async def match(self, event: MessageEvent, text: str) -> bool:
         cfg = get_config()
         if not cfg.get("auto_parse", True):
+            logger.debug("[Netease] match ✗ auto_parse=False, 跳过")
             return False
         if not is_event_allowed(cfg, event):
+            logger.debug("[Netease] match ✗ 权限限制 user=%s", event.get_user_id())
             return False
 
         # 检查正文是否包含网易云链接
@@ -635,12 +637,17 @@ class AutoNeteaseHandler:
         from .parser import extract_all_urls
 
         card_urls = extract_all_urls(event)
-        for url in card_urls:
-            if has_netease_url(url):
-                logger.debug(
-                    "[Netease] match ✓ 卡片元数据命中 → url=%s", url[:80],
-                )
-                return True
+        if card_urls:
+            logger.debug("[Netease] match 从卡片提取到 %d 个 URL: %s", len(card_urls), card_urls)
+            for url in card_urls:
+                if has_netease_url(url):
+                    logger.debug(
+                        "[Netease] match ✓ 卡片元数据命中 → url=%s", url[:80],
+                    )
+                    return True
+                logger.debug("[Netease] match   URL 非网易云: %s", url[:80])
+        else:
+            logger.debug("[Netease] match 卡片未提取到任何 URL")
 
         return False
 
