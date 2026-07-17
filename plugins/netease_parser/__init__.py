@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
 from core.access_control import is_event_allowed
@@ -317,10 +317,9 @@ async def _process_single_album(
     cfg: dict,
 ) -> None:
     """
-    处理专辑：逐首下载 → 合并转发消息（每首歌一个 file 段） → 一次性发送。
+    处理专辑：顺序逐首处理，每首歌 → 发信息 → 上传文件 → 下一首。
 
-    顺序保证：逐首 await，不会乱序。
-    文件共享：/tmp/hikari_bot/ 在 bot 和 NapCat 容器之间共享。
+    保证顺序：信息-文件-信息-文件-... 不会乱序。
     """
     session_start = time.time()
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
@@ -333,72 +332,71 @@ async def _process_single_album(
     cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
     max_links = max(1, int(cfg.get("max_links_per_message", 5)))
 
+    log_extra = f"album_id={album_id}"
     logger.info(
         "[Netease] ════════════════════════════════════════════\n"
-        "[Netease]  ⏳ 开始处理专辑 → id=%s, api=%s\n"
+        "[Netease]  ⏳ 开始处理专辑 → id=%s, api=%s, hq=%s\n"
         "[Netease] ════════════════════════════════════════════",
-        album_id, api_base,
+        album_id, api_base, high_quality,
     )
 
-    # ===== 步骤 1: 获取专辑详情 =====
+    # ===== 步骤 1: 获取专辑详情和曲目列表 =====
     step_start = time.time()
-    logger.info("[Netease] ▶ [1/2] 获取专辑详情 → /album?id=%s", album_id)
+    logger.info("[Netease] ▶ 专辑[1/2] 获取详情 → /album?id=%s", album_id)
     try:
         album_name, songs = await fetch_album_detail(album_id, api_base, api_timeout, real_ip)
     except Exception as e:
-        logger.error("[Netease] ✗ [1/2] 失败 (%.1fs) → %s", time.time() - step_start, e)
+        elapsed = time.time() - step_start
+        logger.error("[Netease] ✗ 专辑[1/2] 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
         raise
 
+    step_elapsed = time.time() - step_start
     if not songs:
-        logger.warning("[Netease] ✗ [1/2] (%.1fs) → 专辑为空", time.time() - step_start)
+        logger.warning("[Netease] ✗ 专辑[1/2] (%.1fs) → 专辑为空, id=%s", step_elapsed, album_id)
         await bot.send(event, Message(msg("netease.not_found")))
         return
 
     logger.info(
-        "[Netease] ✓ [1/2] (%.1fs) → 《%s》共 %d 首",
-        time.time() - step_start, album_name, len(songs),
+        "[Netease] ✓ 专辑[1/2] (%.1fs) → 《%s》共 %d 首",
+        step_elapsed, album_name, len(songs),
     )
 
     songs_to_process = [s for s in songs if s.id][:max_links]
     total_to_process = len(songs_to_process)
 
+    # 发送专辑信息
     await bot.send(event, Message(
         msg("netease.album_info", album_name=album_name, song_count=total_to_process)
     ))
 
-    # ===== 步骤 2: 逐首下载 + 构建合并转发节点 =====
+    # ===== 步骤 2: 逐首处理 =====
     ok_count = 0
     fail_count = 0
-    forward_nodes: list[MessageSegment] = []
 
     for idx, song_info in enumerate(songs_to_process, 1):
         song_label = f"[{idx}/{total_to_process}]"
         logger.info(
-            "[Netease] ▶ [2/2] %s %s — %s",
+            "[Netease] ▶ 专辑[2/2] %s %s — %s",
             song_label, song_info.name, song_info.artist,
         )
 
         try:
-            # 获取音频 URL
+            # 2a. 获取音频 URL
             url_result = await fetch_song_url(
                 song_info.id, api_base, api_timeout,
                 real_ip, high_quality, cookie,
             )
             if not url_result or not url_result.url:
-                forward_nodes.append(MessageSegment.node_custom(
-                    user_id=int(bot.self_id),
-                    nickname="网易云音乐",
-                    content=Message([
-                        MessageSegment.text(f"❌ {song_info.name} — {song_info.artist}（不可用）"),
-                    ]),
-                ))
+                logger.warning(
+                    "[Netease]  ├─ ✗ %s 不可用 (版权限制) → %s — %s",
+                    song_label, song_info.name, song_info.artist,
+                )
                 fail_count += 1
-                logger.warning("[Netease]  ├─ ✗ %s 不可用", song_label)
                 continue
 
             file_ext = f".{url_result.type}" if url_result.type in ("flac", "ogg", "wav") else ".mp3"
 
-            # 下载
+            # 2b. 下载音频
             audio_path = await download_audio(
                 url_result.url,
                 cache_dir=cache_dir,
@@ -409,87 +407,47 @@ async def _process_single_album(
             )
             file_size_mb = audio_path.stat().st_size / 1024 / 1024
             logger.info(
-                "[Netease]  ├─ ✓ %s 下载完成 (%.1fMB)",
-                song_label, file_size_mb,
+                "[Netease]  ├─ ✓ %s 下载完成 → %s — %s (%.1fMB)",
+                song_label, song_info.name, song_info.artist, file_size_mb,
             )
 
-            # 构建合并转发节点：文字信息 + file 段
-            info_text = msg(
-                "netease.info", name=song_info.name,
-                artist=song_info.artist, album=album_name,
-            )
+            # 2c. 发送歌曲信息文本
+            await bot.send(event, Message(
+                msg("netease.info", name=song_info.name, artist=song_info.artist, album=album_name)
+            ))
+
+            # 2d. 上传文件（等待上传完成后再处理下一首）
             file_name = _sanitize_filename(
                 f"{song_info.artist} - {song_info.name}{file_ext}"
             )
-            forward_nodes.append(MessageSegment.node_custom(
-                user_id=int(bot.self_id),
-                nickname="网易云音乐",
-                content=Message([
-                    MessageSegment.text(f"{info_text}\n"),
-                    MessageSegment("file", {
-                        "file": str(audio_path),
-                        "name": file_name,
-                    }),
-                ]),
-            ))
+            if isinstance(event, GroupMessageEvent):
+                await bot.call_api(
+                    "upload_group_file",
+                    group_id=event.group_id,
+                    file=str(audio_path),
+                    name=file_name,
+                )
+            elif isinstance(event, PrivateMessageEvent):
+                await bot.call_api(
+                    "upload_private_file",
+                    user_id=event.user_id,
+                    file=str(audio_path),
+                    name=file_name,
+                )
+            logger.info(
+                "[Netease]  ├─ ✓ %s 上传完成 → %s",
+                song_label, file_name,
+            )
             ok_count += 1
 
         except Exception as e:
-            forward_nodes.append(MessageSegment.node_custom(
-                user_id=int(bot.self_id),
-                nickname="网易云音乐",
-                content=Message([
-                    MessageSegment.text(f"❌ {song_info.name} — {song_info.artist}（下载失败: {e}）"),
-                ]),
-            ))
+            logger.warning(
+                "[Netease]  ├─ ✗ %s 处理失败: %s — %s: %s",
+                song_label, song_info.name, song_info.artist, e,
+            )
             fail_count += 1
-            logger.warning("[Netease]  ├─ ✗ %s 失败: %s", song_label, e)
 
-    # ===== 发送合并转发消息 =====
-    if not forward_nodes:
-        logger.warning("[Netease] 专辑歌曲全部失败，无内容可发送")
-        await bot.send(event, Message(msg("netease.failed")))
-        return
-
-    try:
-        if isinstance(event, GroupMessageEvent):
-            await bot.send_group_forward_msg(group_id=event.group_id, messages=forward_nodes)
-        elif isinstance(event, PrivateMessageEvent):
-            await bot.send_private_forward_msg(user_id=event.user_id, messages=forward_nodes)
-        logger.info(
-            "[Netease] ✓ 合并转发已发送 → %d 个节点 (%d 成功, %d 失败)",
-            len(forward_nodes), ok_count, fail_count,
-        )
-    except Exception as e:
-        logger.error("[Netease] ✗ 合并转发发送失败, 回退为逐条上传: %s", e)
-        # 回退：从每个节点提取文本发送 + 单独上传文件
-        for node in forward_nodes:
-            try:
-                content: Message = node.data.get("content")
-                if not isinstance(content, Message):
-                    continue
-                # 提取文本段和文件段
-                text_parts = []
-                file_path = None
-                file_name = None
-                for seg in content:
-                    if seg.type == "text":
-                        text_parts.append(seg.data.get("text", ""))
-                    elif seg.type == "file":
-                        file_path = seg.data.get("file")
-                        file_name = seg.data.get("name", "audio.mp3")
-                # 先发文本
-                if text_parts:
-                    await bot.send(event, Message(MessageSegment.text("".join(text_parts))))
-                # 再传文件
-                if file_path:
-                    if isinstance(event, GroupMessageEvent):
-                        await bot.call_api("upload_group_file", group_id=event.group_id, file=file_path, name=file_name)
-                    elif isinstance(event, PrivateMessageEvent):
-                        await bot.call_api("upload_private_file", user_id=event.user_id, file=file_path, name=file_name)
-            except Exception as send_err:
-                logger.warning("[Netease] 回退发送失败: %s", send_err)
-
+    # ===== 完成 =====
     total_elapsed = time.time() - session_start
     logger.info(
         "[Netease] ════════════════════════════════════════════\n"
