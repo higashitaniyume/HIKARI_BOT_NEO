@@ -55,8 +55,17 @@ class CommandSpec:
 
 
 _commands: list[CommandSpec] = []
-_handled_event_ids: dict[int, float] = {}
+_handled_event_keys: dict[str, float] = {}
 _HANDLED_TTL_SECONDS = 300
+
+
+def _event_key(event: MessageEvent) -> str:
+    """为事件生成全局唯一键，避免 id() 内存地址重用导致误判。
+
+    Python 的 id() 返回对象内存地址，GC 后可被新对象重用。
+    用 (会话ID + 消息ID) 替代，这两个字段在 OneBot 中是消息级别的全局唯一标识。
+    """
+    return f"{event.get_session_id()}:{event.message_id}"
 
 
 def command(
@@ -118,7 +127,7 @@ def format_command_help() -> str:
 
 def is_command_handled(event: MessageEvent) -> bool:
     _cleanup_handled_events()
-    return id(event) in _handled_event_ids
+    return _event_key(event) in _handled_event_keys
 
 
 def mark_event_handled(event: MessageEvent) -> None:
@@ -127,20 +136,20 @@ def mark_event_handled(event: MessageEvent) -> None:
 
 def _mark_command_handled(event: MessageEvent) -> None:
     _cleanup_handled_events()
-    _handled_event_ids[id(event)] = time.monotonic()
+    _handled_event_keys[_event_key(event)] = time.monotonic()
 
 
 def _cleanup_handled_events() -> None:
-    if len(_handled_event_ids) < 1000:
+    if len(_handled_event_keys) < 1000:
         return
     now = time.monotonic()
     expired = [
-        event_id
-        for event_id, marked_at in _handled_event_ids.items()
+        key
+        for key, marked_at in _handled_event_keys.items()
         if now - marked_at > _HANDLED_TTL_SECONDS
     ]
-    for event_id in expired:
-        _handled_event_ids.pop(event_id, None)
+    for key in expired:
+        _handled_event_keys.pop(key, None)
 
 
 def _normalize_for_match(value: str) -> str:
