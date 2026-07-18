@@ -305,6 +305,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "fish_auth_failed": "Fish Audio API Key 无效或没有权限，请在 Bot 后台更新 API Key。",
         "failed": "语音生成失败，请稍后再试。",
     },
+    "friend_manager": {
+        "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
+    },
     "aiagent": {
         "usage": "用法：私聊直接发送文本；群聊 @机器人。发送“重置”可清空当前会话上下文和持久化记忆。",
         "disabled": "AI Agent 当前已关闭，请先在 Bot 后台启用并配置模型。",

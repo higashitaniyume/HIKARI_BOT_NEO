@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "auto_approve": true,
+  "comment_keyword": "",
+  "allowed_users": [],
+  "blocked_users": [],
+  "welcome_enabled": true
+}
