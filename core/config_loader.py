@@ -85,6 +85,7 @@ DEFAULT_COBALT_CONFIG: dict[str, Any] = {
     "cache_dir": "/tmp/hikari_bot",
     "cache_ttl_seconds": 600,
     "api_key": "",
+    "instagram_cookie": "",
     "send_strategy": {
         "prefer_forward_message": True,
         "fallback_to_separate_media": True,

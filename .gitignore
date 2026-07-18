@@ -24,6 +24,9 @@ env/
 !.env.example
 dotenv*
 
+# Cobalt API cookies (contains Instagram session secrets)
+/cookies.json
+
 # Config files with secrets (templates in *.example.json)
 BotData/config.json
 BotData/plugin_configs/*.json

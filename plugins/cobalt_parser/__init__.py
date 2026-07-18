@@ -9,7 +9,7 @@ NoneBot 加载此插件时自动注册：
 import asyncio
 import logging
 
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
 from core.access_control import is_event_allowed
 from core.activity_tracker import ActivityScope
@@ -18,8 +18,10 @@ from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.stats_tracker import increment as stats_increment
 
 from .config import get_config
-from .parser import CobaltResult, extract_social_urls, call_cobalt_api
+from .parser import CobaltResult, extract_social_urls, call_cobalt_api, INSTAGRAM_URL_RE
 from .sender import send_cobalt_result
+from .ins_downloader import download_media as ins_download_media, extract_shortcode
+from .ins_ytdlp import download_instagram_video as ytdlp_download
 
 logger = logging.getLogger("HikariBot.CobaltPlugin")
 
@@ -82,6 +84,62 @@ async def call_cobalt_api_with_retries(url: str, cfg: dict) -> CobaltResult:
     raise RuntimeError("Cobalt API 重试失败")
 
 
+async def _try_instagram_fallback(bot: Bot, event: MessageEvent, url: str, cfg: dict) -> bool:
+    """Instagram 三层回退：yt-dlp → og:image 直链提取。
+
+    Returns:
+        True 表示成功发送媒体，False 表示全部失败。
+    """
+    shortcode = extract_shortcode(url)
+    if not shortcode:
+        return False
+
+    cookie_str = cfg.get("instagram_cookie", "")
+
+    # Tier 2: yt-dlp（处理 Reels / 视频帖子）
+    if cookie_str:
+        try:
+            logger.info(f"[Cobalt] Instagram fallback tier-2 → yt-dlp")
+            path = await ytdlp_download(
+                url,
+                cookie_str,
+                cfg.get("cache_dir", "/tmp/hikari_bot"),
+                cfg.get("max_file_mb", 200),
+            )
+            if path:
+                uri = path.as_uri()
+                if path.suffix.lower() in (".mp4", ".webm", ".mov", ".mkv"):
+                    await bot.send(event, Message(MessageSegment.video(uri)))
+                else:
+                    await bot.send(event, Message(MessageSegment.image(uri)))
+                logger.info(f"[Cobalt] Instagram yt-dlp 下载成功 → {path.name}")
+                return True
+        except Exception as e:
+            logger.warning(f"[Cobalt] Instagram yt-dlp 失败: {e}")
+
+    # Tier 3: og:image 直链提取（单图兜底）
+    try:
+        logger.info(f"[Cobalt] Instagram fallback tier-3 → og:image")
+        path = await ins_download_media(
+            shortcode,
+            cfg.get("cache_dir", "/tmp/hikari_bot"),
+        )
+        if path:
+            uri = path.as_uri()
+            if path.suffix.lower() in (".mp4", ".webm", ".mov", ".mkv"):
+                segment = MessageSegment.video(uri)
+            else:
+                segment = MessageSegment.image(uri)
+            await bot.send(event, Message(segment))
+            logger.info(f"[Cobalt] Instagram og:image 下载成功 → {path.name}")
+            return True
+    except Exception as e:
+        logger.warning(f"[Cobalt] Instagram og:image 下载失败: {e}")
+
+    logger.warning(f"[Cobalt] Instagram 三层回退全部失败 → {shortcode}")
+    return False
+
+
 class AutoCobaltHandler:
     """自动检测 Instagram / Facebook URL 并解析的 Handler。"""
 
@@ -125,6 +183,13 @@ class AutoCobaltHandler:
                         result.error_code,
                         url[:80],
                     )
+
+                    # Instagram: 三层回退（Cobalt → yt-dlp → og:image）
+                    if INSTAGRAM_URL_RE.match(url):
+                        if await _try_instagram_fallback(bot, event, url, cfg):
+                            stats_increment(event, "cobalt_parsed", 1)
+                            continue
+
                     await send_user_error(bot, event)
                     continue
 

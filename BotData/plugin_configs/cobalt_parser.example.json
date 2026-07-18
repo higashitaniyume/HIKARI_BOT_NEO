@@ -11,6 +11,7 @@
   "cache_dir": "/tmp/hikari_bot",
   "cache_ttl_seconds": 600,
   "api_key": "",
+  "instagram_cookie": "",
   "send_strategy": {
     "prefer_forward_message": true,
     "fallback_to_separate_media": true
