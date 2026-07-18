@@ -22,10 +22,10 @@ logger = logging.getLogger("HikariBot.CobaltParser")
 # URL 正则
 # =========================
 
-# Instagram: /p/CODE, /reel/CODE, /stories/USER/ID, /tv/CODE
+# Instagram: /p/CODE, /reel/CODE, /reels/CODE, /stories/USER/ID, /tv/CODE
 INSTAGRAM_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?instagram\.com"
-    r"/(?:p|reel|stories|tv)/[\w\-]+"
+    r"/(?:p|reel|reels|stories|tv)/[\w\-]+"
     r"(?:/[^?\s]*)?(?:\?[^\s]*)?",
     re.IGNORECASE,
 )
