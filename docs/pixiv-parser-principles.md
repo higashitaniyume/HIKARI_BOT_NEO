@@ -1,33 +1,41 @@
-# Pixiv 作品解析原理
+# 从零开始用 Python 解析 Pixiv 作品
 
-## 概述
+本文以**教程**的形式，从零开始讲解如何用 Python 从 Pixiv 获取作品信息与图片。每步都配有可运行的代码，读完就能写一个自己的 Pixiv 下载工具。
 
-Pixiv 是一个日本插画、漫画和小说创作平台。要自动化获取 Pixiv 的作品信息与图片，核心思路是**模拟浏览器访问 Pixiv Web 端，调用其 Ajax 内部 API**。这套接口返回 JSON 数据，结构清晰，无需维护独立的 OAuth 认证流程，仅需一个有效的登录 Cookie（`PHPSESSID`）即可工作。
-
-整个解析流程分三个阶段：
-
-1. **URL 匹配** — 从文本中识别 Pixiv 作品链接，提取作品 ID
-2. **API 调用** — 通过作品 ID 请求 Web Ajax 接口，获取元数据和图片地址
-3. **下载与降级** — 优先下载原图（original），超限时自动降级到常规尺寸（regular）
+> 如果读完某一步觉得"就这？"——恭喜，你已经上手了。
 
 ---
 
-## 一、URL 匹配
+## 准备工作
 
-Pixiv 的作品页面有几种典型 URL 格式：
+安装依赖，只需要一个库：
+
+```bash
+pip install httpx
+```
+
+[`httpx`](https://www.python-httpx.org/) 是一个现代化的 Python HTTP 客户端，支持异步、流式下载，比 `requests` 更适合文件下载场景。
+
+> 想用 `requests` 也行，把 `async with` 换成同步调用即可，原理一样。
+
+---
+
+## 第一步：从 URL 中提取作品 ID
+
+Pixiv 作品的 URL 长这样：
 
 ```
 https://www.pixiv.net/artworks/12345678
 https://www.pixiv.net/en/artworks/12345678
 https://www.pixiv.net/i/12345678
-https://pixiv.net/artworks/12345678
 ```
 
-作品 ID 是 5～12 位纯数字。下面是一个 Python 正则匹配示例：
+不管哪种格式，最后那串数字就是**作品 ID**（也叫 illust ID）。我们要做的就是把 ID 从 URL 里抠出来。
 
 ```python
 import re
 
+# 正则匹配 Pixiv 作品 URL，提取 ID
 PIXIV_URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?pixiv\.net"
     r"/(?:en/)?"
@@ -35,11 +43,8 @@ PIXIV_URL_RE = re.compile(
     re.IGNORECASE,
 )
 
-def extract_pixiv_ids(text: str) -> list[str]:
-    """
-    从文本中提取所有 Pixiv 作品 ID（去重，保持顺序）。
-    只匹配 artworks 和 i 格式，不匹配用户主页、tag、novel 等链接。
-    """
+def extract_illust_id(text: str) -> list[str]:
+    """从文本中提取所有 Pixiv 作品 ID，去重保序。"""
     ids: list[str] = []
     seen: set[str] = set()
     for match in PIXIV_URL_RE.finditer(text):
@@ -48,156 +53,145 @@ def extract_pixiv_ids(text: str) -> list[str]:
             seen.add(illust_id)
             ids.append(illust_id)
     return ids
+
+
+# 试试看
+print(extract_illust_id("看这个 https://www.pixiv.net/artworks/12345678 还有这个 https://pixiv.net/i/87654321"))
+# 输出: ['12345678', '87654321']
 ```
 
-**关键点：**
-
-- 只匹配 `/artworks/` 和 `/i/` 路径——这是作品详情页的标准路径
-- 可选的前缀 `en/` 用于英文版 Pixiv
-- 不匹配纯数字（如用户直接发 `12345678`），避免误伤
-- 去重保留顺序，同一条消息中的同一个链接只处理一次
+**为什么只匹配 `artworks` 和 `i`？** 因为 Pixiv 上还有用户主页（`/users/`）、Tag 页（`/tags/`）、小说（`/novels/`）等链接，它们也带数字 ID，但不代表作品。只匹配作品页的路径可以避免误伤。
 
 ---
 
-## 二、Work Info API：获取作品元信息
+## 第二步：获取 Cookie
 
-Pixiv Web 端使用 Ajax 接口 `/ajax/illust/{illust_id}` 返回作品元数据。
+Pixiv 的 Web Ajax API 需要登录态才能访问。最简单的方式就是从浏览器里复制 Cookie。
 
-### 请求示例
+**操作步骤：**
+
+1. 浏览器打开 `https://www.pixiv.net` 并登录
+2. 按 F12 打开开发者工具 → Network 标签
+3. 刷新页面，点任意一个请求
+4. 在 Request Headers 里找到 `Cookie` 字段
+5. 复制完整的 Cookie 字符串
+
+其中最重要的字段是 **`PHPSESSID`** —— Pixiv 的会话 token。把 Cookie 存到一个变量里，后面所有请求都要带上它：
+
+```python
+COOKIE = "PHPSESSID=abc123...; device_token=xyz..."
+```
+
+> 你的 Cookie 不要提交到 GitHub。建议存在环境变量或本地配置文件里，然后用 `os.getenv()` 读取。
+
+---
+
+## 第三步：调用 API 获取作品信息（试试水）
+
+Pixiv 网站本身是用 Ajax 加载数据的，它的内部 API 接口长这样：
+
+```
+GET https://www.pixiv.net/ajax/illust/{illust_id}
+```
+
+这个接口返回 JSON，包含作品的标题、作者、标签等信息。我们来调一下试试：
 
 ```python
 import httpx
 
 async def fetch_artwork_info(illust_id: str, cookie: str) -> dict:
-    """
-    调用 Pixiv Ajax 接口获取作品元信息。
-    cookie 至少需要 PHPSESSID 字段。
-    """
+    """获取 Pixiv 作品的元信息。"""
     headers = {
-        "user-agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/136.0.7103.48 Safari/537.36"
-        ),
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.7103.48 Safari/537.36",
         "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja-JP;q=0.6,ja;q=0.5",
         "referer": f"https://www.pixiv.net/artworks/{illust_id}",
         "cookie": cookie.strip(),
     }
 
-    async with httpx.AsyncClient(
-        headers=headers,
-        timeout=httpx.Timeout(60.0, connect=20.0),
-        follow_redirects=True,
-    ) as client:
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
         resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}")
+        resp.raise_for_status()
+        return resp.json()
 
-        # 检查是否返回了 HTML（被 Cloudflare 拦截等异常情况）
-        content_type = resp.headers.get("content-type", "")
-        if "text/html" in content_type.lower():
-            raise RuntimeError("Pixiv 返回了 HTML，Cookie 可能已失效或被 Cloudflare 拦截")
 
-        data = resp.json()
-
-    if data.get("error"):
-        raise RuntimeError(f"API 返回错误: {data.get('message')}")
-
-    return data["body"]
+# 跑一下看看（假设你有 cookie）
+import asyncio
+result = asyncio.run(fetch_artwork_info("12345678", COOKIE))
+print(result)
 ```
 
-### 返回数据结构
+**关于请求头：**
 
-该接口返回的 `body` 字段结构如下（仅列出关键字段）：
+- `user-agent`：模拟 Chrome 浏览器，别让服务器认出你是脚本
+- `referer`：**必填**。Pixiv 的 CDN 和 API 都会检查这个头，值设为对应的作品页
+- `cookie`：登录凭证，前面刚拿到的
+
+运行成功后，你会看到类似这样的返回结构：
 
 ```json
 {
-  "illustId": "12345678",
-  "illustTitle": "作品标题",
-  "illustComment": "作品描述...",
-  "userId": "87654321",
-  "userName": "作者名",
-  "createDate": "2025-03-15T12:00:00+09:00",
-  "pageCount": 4,
-  "xRestrict": 0,
-  "aiType": 0,
-  "sl": 6,
-  "tags": {
-    "tags": [
-      {
-        "tag": "オリジナル",
-        "translation": { "en": "Original" }
-      },
-      {
-        "tag": "風景",
-        "translation": { "en": "Landscape" }
-      }
-    ]
-  },
-  "width": 1200,
-  "height": 800
+  "error": false,
+  "body": {
+    "illustId": "12345678",
+    "illustTitle": "夏日海滩",
+    "illustComment": "暑假画的一张图...",
+    "userId": "87654321",
+    "userName": "Pixiv作者名",
+    "pageCount": 4,
+    "xRestrict": 0,
+    "aiType": 0,
+    "sl": 6,
+    "tags": {
+      "tags": [
+        { "tag": "オリジナル", "translation": { "en": "Original" } },
+        { "tag": "風景", "translation": { "en": "Landscape" } }
+      ]
+    },
+    "width": 1200,
+    "height": 800
+  }
 }
 ```
 
-**字段说明：**
+关键字段一览：
 
 | 字段 | 含义 |
 |------|------|
-| `illustId` | 作品唯一 ID |
 | `illustTitle` | 作品标题 |
 | `userName` | 作者昵称 |
-| `userId` | 作者用户 ID |
-| `pageCount` | 总页数（多图作品的图片数量） |
-| `xRestrict` | 分级标志：`0`=全年龄，`1`=R-18，`2`=R-18G |
-| `aiType` | AI 作品标志：`0`=非 AI，`2`=AI 生成 |
-| `sl` | 安全等级（sanity level），用于额外过滤 |
-| `tags.tags[].tag` | 标签名（日文原始名） |
-| `tags.tags[].translation.en` | 标签的英文译名（如果有） |
-
-### 标签处理技巧
-
-标签是嵌套结构，每个标签项除了原始日文名，还可能包含多语言翻译。实践中常优先使用英文译名：
-
-```python
-tags: list[str] = []
-for item in tags_raw:
-    tag_name = item.get("tag", "")
-    if not tag_name:
-        continue
-    # 统一 R-18 标签名
-    if tag_name == "R-18":
-        tag_name = "R18"
-    # 优先使用英文翻译
-    translation = item.get("translation") or {}
-    if translation.get("en"):
-        tag_name = translation["en"]
-    tags.append(tag_name.replace(" ", "_"))
-```
+| `pageCount` | 总页数（多图时有效） |
+| `xRestrict` | `0` 全年龄 / `1` R-18 / `2` R-18G |
+| `aiType` | `0` 非 AI / `2` AI 生成 |
+| `tags.tags[]` | 标签列表（每个有 tag + translation） |
 
 ---
 
-## 三、Pages API：获取多页图片 URL
+## 第四步：获取图片 URL（Pages API）
 
-对于多图作品（漫画、系列插图等），需要额外调用 `ajax/illust/{illust_id}/pages` 接口获取每一页的图片地址。
+上面那个接口不直接返回图片地址。要拿到图片链接，还得调另一个接口：
 
-```python
-async def fetch_pages(illust_id: str, cookie: str, referer: str) -> list[dict]:
-    headers = {
-        "user-agent": "...",
-        "referer": referer,
-        "cookie": cookie.strip(),
-    }
-    async with httpx.AsyncClient(headers=headers) as client:
-        resp = await client.get(
-            f"https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh"
-        )
-        data = resp.json()
-
-    if data.get("error"):
-        raise RuntimeError(f"Pages API 返回错误: {data.get('message')}")
-
-    return data["body"]
+```
+GET https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh
 ```
 
-返回的 `body` 是一个数组，每个元素对应一页：
+```python
+async def fetch_pages(illust_id: str, cookie: str) -> list[dict]:
+    """获取 Pixiv 作品的每页图片 URL。"""
+    headers = {
+        "user-agent": "Mozilla/5.0 ...",
+        "referer": f"https://www.pixiv.net/artworks/{illust_id}",
+        "cookie": cookie.strip(),
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh")
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("error"):
+            raise RuntimeError(f"API 错误: {data.get('message')}")
+        return data["body"]
+```
+
+返回的 `body` 是一个数组，有几个元素就代表有几张图：
 
 ```json
 [
@@ -210,39 +204,46 @@ async def fetch_pages(illust_id: str, cookie: str, referer: str) -> list[dict]:
     },
     "width": 1200,
     "height": 800
-  },
-  { "urls": { ... }, "width": 1200, "height": 900 }
+  }
 ]
 ```
 
-**关键 URL 字段解读：**
+注意这里每个元素包含 **4 种尺寸的图片 URL**：
 
-| 字段 | 说明 | 用途 |
-|------|------|------|
-| `thumb_mini` | 250×250 微缩图 | 预览列表 |
-| `small` | 540×540 小图 | 列表显示 |
-| `regular` | 600×600 中等图 | 默认显示，降级方案 |
-| `original` | **原图**（无尺寸裁剪） | 优先下载目标 |
+| 字段 | 尺寸约 | 用途 |
+| --- | --- | --- |
+| `thumb_mini` | 250×250 | 微缩预览 |
+| `small` | 540×540 | 列表小图 |
+| `regular` | 600×600 | 中等尺寸，降级方案 |
+| `original` | 原图尺寸 | **首选下载目标** |
 
-**两个 API 调用的关系：**
+**两个 API 的关系：**
 
-- `ajax/illust/{id}` — 获取作品元信息一次
-- `ajax/illust/{id}/pages` — 获取所有页的图片 URL 数组
+```
+ajax/illust/{id}       → 作品信息（标题、作者、标签……）
+ajax/illust/{id}/pages → 图片列表（每页的 4 种尺寸 URL）
+```
 
-这两个调用可**复用同一个 HTTP 客户端**，减少连接开销。
+可以**复用同一个 HTTP 客户端**来调这两个接口，节省连接开销：
+
+```python
+async with httpx.AsyncClient(headers=headers) as client:
+    info_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}")
+    pages_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh")
+```
 
 ---
 
-## 四、数据结构设计
+## 第五步：用数据类组织信息
 
-用数据类组织解析结果，使代码清晰可维护：
+到目前为止我们拿到的都是原始字典，用起来容易写错 key。用 `dataclass` 整理一下，后续代码会清晰很多：
 
 ```python
 from dataclasses import dataclass, field
 
 @dataclass
 class PixivPage:
-    """Pixiv 作品的单页图片信息。"""
+    """单页图片信息。"""
     index: int
     original_url: str
     regular_url: str
@@ -252,7 +253,7 @@ class PixivPage:
 
 @dataclass
 class PixivArtwork:
-    """Pixiv 作品完整信息。"""
+    """作品完整信息。"""
     illust_id: str
     title: str
     user_name: str
@@ -265,240 +266,497 @@ class PixivArtwork:
 
     @property
     def is_r18(self) -> bool:
-        """x_restrict: 0 普通，1 R-18，2 R-18G"""
         return self.x_restrict in (1, 2)
 ```
 
-将两个 API 的返回合并为一个 `PixivArtwork` 对象，后续的下载和展示逻辑都基于这个统一的模型操作。
-
----
-
-## 五、图片下载与降级策略
-
-Pixiv 的图片托管在 `i.pximg.net` 域名下，请求时必须携带正确的 `Referer` 头（`https://www.pixiv.net/artworks/{id}`），否则返回 403。
-
-### 下载单张图片
+把前面两步的数据合并到这里：
 
 ```python
-import hashlib
-from pathlib import Path
-import httpx
-
-def cache_path_for_url(url: str, cache_dir: str) -> Path:
-    """用 SHA256 哈希 URL 生成缓存路径，避免文件名冲突。"""
-    suffix = Path(url.split("?", 1)[0]).suffix.lower()
-    if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
-        suffix = ".jpg"
-    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
-    return Path(cache_dir) / f"{digest}{suffix}"
-
-async def download_image(
-    url: str,
-    illust_id: str,
-    cookie: str,
-    cache_dir: str = "/tmp/pixiv_cache",
-    max_bytes: int | None = None,
-) -> Path:
-    """下载单张图片，支持缓存和流式写入。"""
-    path = cache_path_for_url(url, cache_dir)
-
-    # 缓存命中
-    if path.exists() and path.stat().st_size > 0:
-        return path
-
+async def fetch_artwork(illust_id: str, cookie: str) -> PixivArtwork:
+    """获取完整作品信息（元信息 + 图片 URL）。"""
     headers = {
+        "user-agent": "Mozilla/5.0 ...",
         "referer": f"https://www.pixiv.net/artworks/{illust_id}",
         "cookie": cookie.strip(),
     }
 
     async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".part")
+        # 1. 获取元信息
+        info_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}")
+        info_resp.raise_for_status()
+        body = info_resp.json()["body"]
 
-        try:
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
+        # 2. 获取图片 URL
+        pages_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh")
+        pages_resp.raise_for_status()
+        raw_pages = pages_resp.json()["body"]
 
-                # 验证响应是图片
-                if not resp.headers.get("content-type", "").startswith("image/"):
-                    raise RuntimeError("下载到的不是图片")
+    # 3. 解析图片列表
+    pages = []
+    for i, item in enumerate(raw_pages):
+        urls = item.get("urls", {})
+        pages.append(PixivPage(
+            index=i,
+            original_url=urls.get("original", ""),
+            regular_url=urls.get("regular", urls.get("small", "")),
+            thumb_url=urls.get("thumb_mini", urls.get("small", "")),
+            width=int(item.get("width", 0)),
+            height=int(item.get("height", 0)),
+        ))
 
-                # 流式写入
-                written = 0
-                with tmp_path.open("wb") as f:
-                    async for chunk in resp.aiter_bytes():
-                        written += len(chunk)
-                        if max_bytes is not None and written > max_bytes:
-                            raise RuntimeError(f"图片超过大小限制")
-                        f.write(chunk)
+    # 4. 解析标签（可能有英文翻译）
+    tags_raw = body.get("tags", {}).get("tags", [])
+    tags = []
+    for item in tags_raw:
+        tag_name = item.get("tag", "")
+        if not tag_name:
+            continue
+        if tag_name == "R-18":
+            tag_name = "R18"
+        translation = item.get("translation") or {}
+        if translation.get("en"):
+            tag_name = translation["en"]
+        tags.append(tag_name.replace(" ", "_"))
 
-            tmp_path.replace(path)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
-
-    return path
+    return PixivArtwork(
+        illust_id=illust_id,
+        title=body.get("illustTitle", "Untitled"),
+        user_name=body.get("userName", "Unknown"),
+        user_id=body.get("userId", ""),
+        page_count=int(body.get("pageCount", len(pages))),
+        x_restrict=int(body.get("xRestrict", 0)),
+        ai_type=int(body.get("aiType", 0)),
+        tags=tags,
+        pages=pages,
+    )
 ```
 
-### 原图优先，超限降级
+---
 
-这是 Pixiv 下载的核心策略——**优先争取最高质量的图片，但设置安全网**：
+## 第六步：下载第一张图片
+
+图片托管在 `i.pximg.net` 上。下载时有两个关键点：
+
+1. **必须带 `Referer` 头**，否则返回 403
+2. **用流式下载**，一边接收一边写磁盘，避免大图片撑爆内存
+
+```python
+import hashlib
+from pathlib import Path
+
+async def download_image(
+    url: str,
+    illust_id: str,
+    cookie: str,
+    save_dir: str = "./pixiv_downloads",
+) -> Path:
+    """下载单张 Pixiv 图片到本地。"""
+    # 从 URL 推断后缀名
+    suffix = Path(url.split("?")[0]).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        suffix = ".jpg"
+
+    # 用 URL 的 SHA256 哈希做文件名（避免特殊字符导致路径问题）
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    save_path = Path(save_dir) / f"{digest}{suffix}"
+
+    # 缓存命中就不再下载
+    if save_path.exists() and save_path.stat().st_size > 0:
+        return save_path
+
+    # 请求头（referer 是关键！）
+    headers = {
+        "referer": f"https://www.pixiv.net/artworks/{illust_id}",
+        "cookie": cookie.strip(),
+    }
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # 用 .part 临时文件，下载完再重命名，防止中途中断留下残片
+    tmp_path = save_path.with_suffix(save_path.suffix + ".part")
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            with tmp_path.open("wb") as f:
+                async for chunk in resp.aiter_bytes():
+                    f.write(chunk)
+
+    tmp_path.rename(save_path)
+    return save_path
+
+
+# 实战：下载一个作品的第一页原图
+async def main():
+    artwork = await fetch_artwork("12345678", COOKIE)
+    first_page = artwork.pages[0]
+    path = await download_image(first_page.original_url, artwork.illust_id, COOKIE)
+    print(f"下载完成: {path}")
+
+asyncio.run(main())
+```
+
+> **为什么用流式下载？**
+>
+> 假设一张原图 30MB，`resp.content` 一次性读完会让内存占用瞬间飙升。用 `resp.aiter_bytes()` 边收边写，不管多大的文件内存占用都很稳定。
+
+---
+
+## 第七步：原图太大怎么办？—— 降级策略
+
+实操中会发现，部分 Pixiv 原图大得离谱——动辄 30~50MB。对于大多数用途来说，regular 尺寸（600×600 裁剪）完全够用。
+
+所以最佳策略是：**优先尝试原图，如果超过大小限制就自动降级到 regular。**
+
+先给下载函数加上大小限制：
+
+```python
+class DownloadTooLargeError(RuntimeError):
+    """图片超过大小限制。"""
+
+async def download_image_with_limit(
+    url: str,
+    illust_id: str,
+    cookie: str,
+    save_dir: str = "./pixiv_downloads",
+    max_bytes: int | None = None,
+) -> Path:
+    """下载图片，支持大小限制。"""
+    # ...（同上，但在写入时检查大小）
+    headers = {
+        "referer": f"https://www.pixiv.net/artworks/{illust_id}",
+        "cookie": cookie.strip(),
+    }
+    
+    suffix = Path(url.split("?")[0]).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        suffix = ".jpg"
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    save_path = Path(save_dir) / f"{digest}{suffix}"
+    
+    if save_path.exists() and save_path.stat().st_size > 0:
+        return save_path
+
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = save_path.with_suffix(save_path.suffix + ".part")
+
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+
+            # 检查 Content-Length（服务器可能不返回这个头）
+            content_length = resp.headers.get("content-length")
+            if content_length and content_length.isdigit():
+                if max_bytes is not None and int(content_length) > max_bytes:
+                    raise DownloadTooLargeError(f"图片超过大小限制")
+
+            # 流式写入，边写边检查
+            written = 0
+            with tmp_path.open("wb") as f:
+                async for chunk in resp.aiter_bytes():
+                    written += len(chunk)
+                    if max_bytes is not None and written > max_bytes:
+                        tmp_path.unlink(missing_ok=True)
+                        raise DownloadTooLargeError(f"图片超过大小限制")
+                    f.write(chunk)
+
+    tmp_path.rename(save_path)
+    return save_path
+```
+
+然后写一个带降级的下载函数：
 
 ```python
 async def download_with_fallback(
     page: PixivPage,
     illust_id: str,
     cookie: str,
-    cache_dir: str,
+    save_dir: str = "./pixiv_downloads",
     max_file_mb: int = 25,
 ) -> tuple[Path, bool]:
     """
-    下载图片，优先 original，超限则降级到 regular。
+    下载图片，原图优先→超限降级。
     
     Returns:
-        (文件路径, 是否为原图)
+        (文件路径, 是否原图)
     """
-    max_bytes = max(max_file_mb, 1) * 1024 * 1024
+    max_bytes = max_file_mb * 1024 * 1024
 
-    # 第一轮：尝试下载原图
+    # 第一轮：尝试原图
     original_path = None
     try:
-        original_path = await download_image(
-            page.original_url, illust_id, cookie, cache_dir,
-            max_bytes=max_bytes,
+        original_path = await download_image_with_limit(
+            page.original_url, illust_id, cookie, save_dir, max_bytes
         )
-    except RuntimeError as e:
-        # 原图超限或失败，记录日志后尝试 regular
-        pass
+    except DownloadTooLargeError:
+        pass  # 原图超限，准备降级
 
-    if original_path is not None and original_path.stat().st_size <= max_bytes:
-        return original_path, True  # 原图下载成功
+    if original_path and original_path.stat().st_size <= max_bytes:
+        return original_path, True  # 原图下载成功！
 
-    # 第二轮：降级到 regular 尺寸
-    regular_path = await download_image(
-        page.regular_url, illust_id, cookie, cache_dir,
-        max_bytes=max_bytes,
+    # 第二轮：降级到 regular
+    regular_path = await download_image_with_limit(
+        page.regular_url, illust_id, cookie, save_dir, max_bytes
     )
-
     return regular_path, False
-```
 
-**为何需要降级？** Pixiv 的原图（original）可能非常大——部分高分辨率插画单张可达 50MB 以上。对于即时通讯场景或存储受限环境，自动降级到 regular 尺寸（通常 600×600 以内，文件在 1～3MB 左右）是务实的取舍。
 
-### 大小限制检查
-
-检查发生在两个层面：
-
-1. **Content-Length 预检**：如果服务器返回了 `content-length` 头且超限，直接拒绝，避免浪费流量
-2. **流式累计检查**：下载过程中逐 chunk 累加，防止服务器虚报 Content-Length
-
----
-
-## 六、整体流程串联
-
-将以上各步骤串联成一个完整的解析流程：
-
-```python
-async def process_pixiv_artwork(illust_id: str, cookie: str, proxy: str = ""):
-    """
-    完整的 Pixiv 作品处理流程：
-    1. 获取元信息 → 2. 获取图片 URL → 3. 下载图片（原图→降级）
-    """
-    # 步骤 1+2：调用两个 API（复用 HTTP 客户端）
-    # （实现同前文 fetch_artwork_info + fetch_pages）
-
-    # 步骤 3：构建数据模型
-    artwork = PixivArtwork(
-        illust_id=illust_id,
-        title=body.get("illustTitle") or "Untitled",
-        user_name=body.get("userName") or "Unknown",
-        user_id=body.get("userId") or "",
-        page_count=int(body.get("pageCount", 1)),
-        x_restrict=int(body.get("xRestrict", 0)),
-        ai_type=int(body.get("aiType", 0)),
-        tags=tags,
-        pages=[
-            PixivPage(
-                index=i,
-                original_url=item["urls"]["original"],
-                regular_url=item["urls"].get("regular", item["urls"]["original"]),
-                thumb_url=item["urls"].get("thumb_mini", item["urls"]["small"]),
-                width=int(item.get("width", 0)),
-                height=int(item.get("height", 0)),
-            )
-            for i, item in enumerate(pages_data)
-        ],
-    )
-
-    # 步骤 4：下载图片（逐页，原图优先→降级）
+# 试试看
+async def main():
+    artwork = await fetch_artwork("12345678", COOKIE)
     for page in artwork.pages:
-        path, is_original = await download_with_fallback(
-            page, illust_id, cookie, cache_dir="/tmp/pixiv_cache"
-        )
-        print(f"Page {page.index}: {'原图' if is_original else '降级'} → {path}")
+        path, is_original = await download_with_fallback(page, artwork.illust_id, COOKIE)
+        tag = "原图" if is_original else "降级"
+        print(f"第{page.index+1}页 ({tag}): {path}")
+
+asyncio.run(main())
 ```
 
 ---
 
-## 七、Cookie 的获取与维护
+## 第八步：完整的下载脚本
 
-Pixiv Web Ajax API 需要认证 Cookie。最简单的方案是用户在浏览器登录 Pixiv 后，从开发者工具中复制 Cookie 字符串。
-
-**从浏览器获取 Cookie 的步骤：**
-
-1. 在浏览器中登录 `https://www.pixiv.net`
-2. 打开开发者工具（F12）→ Network 标签
-3. 刷新页面，任意选择一个请求
-4. 在 Request Headers 中找到 `Cookie` 字段
-5. 复制完整的 Cookie 字符串
-
-**最小必要字段：** `PHPSESSID` 是 Pixiv 会话的核心 token，仅需这一项即可调用 Ajax 接口。但实际使用中，额外携带 `device_token` 等字段可以提高稳定性。
-
-**注意事项：**
-
-- Cookie 有有效期，过期后 API 会返回 403 或重定向到登录页
-- 短时间内大量请求可能触发 Cloudflare 防护，表现为接口返回 HTML 页面（含 "Just a moment" 字样），而非 JSON
-- 建议搭配代理使用，分散请求频率
-
----
-
-## 八、异常处理要点
-
-Pixiv 解析过程中可能遇到的典型异常及处理方式：
-
-| 异常情况 | 表现 | 处理 |
-|---------|------|------|
-| Cookie 过期/无效 | API 返回 `{"error": true, "message": "..."}` 或 403 | 提示重新配置 Cookie |
-| Cloudflare 防护 | 返回 HTML 页面，含 "Just a moment" | 报告被拦截，建议降低频率或更换 IP |
-| 作品已删除/隐藏 | API 返回 `{"error": true}` | 提示作品不可用 |
-| 图片下载超限 | `DownloadTooLargeError` | 自动降级到 regular 尺寸 |
-| 图片下载 403 | HTTP 403 错误 | 检查 Referer 头是否设置正确 |
-
-**检测 Cloudflare 拦截的实用方法：**
+把上面所有的代码拼在一起，就是一个完整的 Pixiv 下载工具：
 
 ```python
-def ensure_json_response(resp: httpx.Response):
-    """检查响应是否为 JSON，防止被 Cloudflare 拦截。"""
-    content_type = resp.headers.get("content-type", "")
-    if "text/html" in content_type.lower():
-        if "Just a moment" in resp.text:
-            raise RuntimeError("Pixiv 被 Cloudflare 拦截，Cookie 方案暂不可用")
-        raise RuntimeError("Pixiv 返回了 HTML 而非 JSON")
+"""
+Pixiv 作品下载工具
+
+用法：
+    python pixiv_downloader.py "https://www.pixiv.net/artworks/12345678"
+    
+前置条件：
+    设置环境变量 PIXIV_COOKIE（浏览器登录后复制的 Cookie 字符串）
+"""
+
+import asyncio
+import hashlib
+import os
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import httpx
+
+# ===== 配置 =====
+COOKIE = os.environ["PIXIV_COOKIE"]  # 从环境变量读取
+DOWNLOAD_DIR = "./pixiv_downloads"
+MAX_FILE_MB = 25
+
+# ===== 第一步：URL 匹配 =====
+PIXIV_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?pixiv\.net"
+    r"/(?:en/)?"
+    r"(?:artworks|i)/(?P<id>\d{5,12})",
+    re.IGNORECASE,
+)
+
+def extract_illust_id(text: str) -> list[str]:
+    ids, seen = [], set()
+    for m in PIXIV_URL_RE.finditer(text):
+        iid = m.group("id")
+        if iid and iid not in seen:
+            seen.add(iid)
+            ids.append(iid)
+    return ids
+
+# ===== 第五步：数据结构 =====
+@dataclass
+class PixivPage:
+    index: int
+    original_url: str
+    regular_url: str
+    thumb_url: str
+    width: int
+    height: int
+
+@dataclass
+class PixivArtwork:
+    illust_id: str
+    title: str
+    user_name: str
+    user_id: str
+    page_count: int
+    x_restrict: int
+    ai_type: int
+    tags: list[str] = field(default_factory=list)
+    pages: list[PixivPage] = field(default_factory=list)
+
+# ===== 第三、四步：API 调用 =====
+async def fetch_artwork(illust_id: str, cookie: str) -> PixivArtwork:
+    headers = {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "referer": f"https://www.pixiv.net/artworks/{illust_id}",
+        "cookie": cookie.strip(),
+    }
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        info_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}")
+        info_resp.raise_for_status()
+        body = info_resp.json()["body"]
+
+        pages_resp = await client.get(f"https://www.pixiv.net/ajax/illust/{illust_id}/pages?lang=zh")
+        pages_resp.raise_for_status()
+        raw_pages = pages_resp.json()["body"]
+
+    pages = []
+    for i, item in enumerate(raw_pages):
+        urls = item.get("urls", {})
+        pages.append(PixivPage(i, urls.get("original", ""),
+                               urls.get("regular", ""),
+                               urls.get("thumb_mini", ""),
+                               int(item.get("width", 0)),
+                               int(item.get("height", 0))))
+
+    tags = []
+    for item in body.get("tags", {}).get("tags", []):
+        tag = item.get("tag", "")
+        if not tag:
+            continue
+        if item.get("translation", {}).get("en"):
+            tag = item["translation"]["en"]
+        tags.append(tag.replace(" ", "_"))
+
+    return PixivArtwork(illust_id, body.get("illustTitle", "Untitled"),
+                        body.get("userName", "Unknown"), body.get("userId", ""),
+                        int(body.get("pageCount", len(pages))),
+                        int(body.get("xRestrict", 0)),
+                        int(body.get("aiType", 0)), tags, pages)
+
+# ===== 第六、七步：下载 =====
+class DownloadTooLargeError(RuntimeError):
+    pass
+
+async def download_image(url: str, illust_id: str, cookie: str,
+                         save_dir: str, max_bytes: int | None = None) -> Path:
+    suffix = Path(url.split("?")[0]).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        suffix = ".jpg"
+    digest = hashlib.sha256(url.encode()).hexdigest()
+    save_path = Path(save_dir) / f"{digest}{suffix}"
+    if save_path.exists() and save_path.stat().st_size > 0:
+        return save_path
+
+    headers = {"referer": f"https://www.pixiv.net/artworks/{illust_id}", "cookie": cookie.strip()}
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = save_path.with_suffix(suffix + ".part")
+
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            written = 0
+            with tmp_path.open("wb") as f:
+                async for chunk in resp.aiter_bytes():
+                    written += len(chunk)
+                    if max_bytes and written > max_bytes:
+                        tmp_path.unlink(missing_ok=True)
+                        raise DownloadTooLargeError(f"超过大小限制 {max_bytes/1024/1024:.0f}MB")
+                    f.write(chunk)
+    tmp_path.rename(save_path)
+    return save_path
+
+async def download_with_fallback(page: PixivPage, illust_id: str, cookie: str,
+                                 save_dir: str = DOWNLOAD_DIR,
+                                 max_file_mb: int = MAX_FILE_MB) -> tuple[Path, bool]:
+    max_bytes = max(max_file_mb, 1) * 1024 * 1024
     try:
-        return resp.json()
-    except Exception as e:
-        raise RuntimeError(f"JSON 解析失败: {e}") from e
+        path = await download_image(page.original_url, illust_id, cookie, save_dir, max_bytes)
+        return path, True
+    except DownloadTooLargeError:
+        pass
+    path = await download_image(page.regular_url, illust_id, cookie, save_dir, max_bytes)
+    return path, False
+
+# ===== 主函数 =====
+async def main(url: str):
+    ids = extract_illust_id(url)
+    if not ids:
+        print("未找到有效的 Pixiv 作品链接")
+        return
+
+    illust_id = ids[0]
+    print(f"正在获取作品 {illust_id} 的信息……")
+    artwork = await fetch_artwork(illust_id, COOKIE)
+    print(f"标题: {artwork.title}")
+    print(f"作者: {artwork.user_name}")
+    print(f"页数: {artwork.page_count}")
+    if artwork.is_r18:
+        print("⚠ R-18 作品")
+
+    for page in artwork.pages:
+        path, is_original = await download_with_fallback(page, illust_id, COOKIE)
+        tag = "原图" if is_original else "降级"
+        print(f"  第{page.index+1}页 ({tag}): {path.name}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("用法: python pixiv_downloader.py <Pixiv URL>")
+        sys.exit(1)
+    asyncio.run(main(sys.argv[1]))
 ```
+
+---
+
+## 常见问题与异常处理
+
+实际运行中会遇到各种状况，这里列了最常见的几个：
+
+### Cookie 无效
+
+API 返回 `{"error": true, "message": "..."}` 或 HTTP 403。
+
+**原因：** Cookie 过期了。Pixiv 的登录会话有时效，重新登录一遍复制新的 Cookie 就好。
+
+### 返回的不是 JSON，而是 HTML（被 Cloudflare 拦截）
+
+```python
+resp.headers.get("content-type")  # → "text/html"
+```
+
+**原因：** 短时间内请求太多，触发了 Cloudflare 的防护。响应体里通常有 "Just a moment" 字样。
+
+```python
+def ensure_json(resp: httpx.Response) -> dict:
+    if "text/html" in resp.headers.get("content-type", "").lower():
+        if "Just a moment" in resp.text:
+            raise RuntimeError("被 Cloudflare 拦截了，稍后再试或换个 IP")
+        raise RuntimeError("期望 JSON 但收到了 HTML")
+    return resp.json()
+```
+
+**对策：** 降低请求频率、换代理 IP，或者等一段时间再试。
+
+### 图片下载 403
+
+**原因：** 没带 `Referer` 头，或者 Referer 指向了错误的页面。检查下载请求的 `referer` 是否设为了作品页 URL。
+
+### 作品不存在或已删除
+
+API 返回 `{"error": true}`，说明作品 ID 无效、被删除或被作者隐藏了。
 
 ---
 
 ## 总结
 
-Pixiv 作品解析的核心技术路线并不复杂：
+回顾一下从零到一的完整流程：
 
-1. 用**正则**从文本中提取作品 ID
-2. 用 **Web Ajax API**（`/ajax/illust/{id}` 和 `/ajax/illust/{id}/pages`）获取结构化的 JSON 数据
-3. 用 **原图优先、超限降级** 的策略下载图片
-4. 注意 **Cookie 认证**、**Referer 头**、**Cloudflare 防护** 等工程细节
+```
+Pixiv URL  →  提取 illust ID  →  /ajax/illust/{id} 获取元信息
+                                  /ajax/illust/{id}/pages 获取图片 URL
+                                               ↓
+                                  下载（原图优先 → 超限降级 regular）
+                                               ↓
+                                     本地图片文件 ✅
+```
 
-这套方案的优势在于**无需维护 OAuth 流程**，只需要一个浏览器 Cookie 即可工作，实现成本低，适合个人项目和小规模自动化工具。
+整个方案的核心就三个要点：
+
+1. **两个 Ajax 接口**就够了，不需要 OAuth、不需要复杂的认证流程
+2. **Referer 头必须带**，这是 Pixiv CDN 的访问凭证
+3. **原图优先、超限降级**——既要质量又要稳定
+
+掌握了这些，你不仅能下载 Pixiv 的作品，还能基于同样的思路去解析 Bilibili、Twitter 等其他平台的资源——找到网页的内置 API，模拟请求，解析 JSON，下载资源。模式是一样的。
+
+---
+
+Happy coding.
+
