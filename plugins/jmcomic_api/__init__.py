@@ -15,6 +15,7 @@ from nonebot.params import RegexGroup
 
 from core.bot_messages import get_message as msg
 from core.stats_tracker import increment as stats_increment
+from core.temp_media_cleaner import register_temp_media_path
 
 from .config import get_config
 
@@ -195,6 +196,62 @@ async def upload_pdf_if_possible(bot: Bot, event: MessageEvent, pdf_path: Path) 
     raise RuntimeError(f"不支持的事件类型，无法上传 PDF: {type(event).__name__}")
 
 
+async def _upload_with_retry(
+    bot: Bot,
+    event: MessageEvent,
+    pdf_path: Path,
+    *,
+    max_retries: int = 2,
+    retry_delay: float = 3.0,
+    timeout: float = 60.0,
+) -> bool:
+    """
+    上传 PDF，失败时使用简单退避重试。
+
+    - 第 1 次失败后等 retry_delay × 1 秒
+    - 第 2 次失败后等 retry_delay × 2 秒
+    - ...
+    - 全部重试耗尽后抛出最后一次异常
+    """
+    last_exc: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            wait = retry_delay * attempt
+            logger.info(
+                "PDF 上传重试第 %d/%d 次（%.1fs 后）...",
+                attempt, max_retries, wait,
+            )
+            await asyncio.sleep(wait)
+
+        try:
+            if timeout > 0:
+                return await asyncio.wait_for(
+                    upload_pdf_if_possible(bot, event, pdf_path),
+                    timeout=timeout,
+                )
+            return await upload_pdf_if_possible(bot, event, pdf_path)
+        except asyncio.TimeoutError:
+            last_exc = TimeoutError(f"上传超时（{timeout}s）")
+            logger.warning("PDF 上传超时（第 %d 次）", attempt + 1)
+        except Exception as e:
+            last_exc = e
+            logger.warning(
+                "PDF 上传失败（第 %d 次）: %s: %s",
+                attempt + 1, type(e).__name__, e,
+            )
+
+    raise RuntimeError(f"上传已重试 {max_retries} 次仍然失败") from last_exc
+
+
+def _try_cleanup_pdf(pdf_path: Path) -> None:
+    """删除已成功上传的 PDF 文件（静默忽略错误）。"""
+    try:
+        if pdf_path.exists():
+            pdf_path.unlink()
+            logger.info("已清理 PDF: %s", pdf_path.name)
+    except OSError as e:
+        logger.warning("清理 PDF 失败: %s (%s)", pdf_path, e)
 
 
 @plain_jm_download.handle()
@@ -214,22 +271,32 @@ async def _download_and_send_pdf(
     jm_id: str,
     raw: str,
 ) -> None:
-    logger.info(f"收到 JM 下载请求: user={event.user_id}, raw={raw!r}, jm_id={jm_id}")
-
+    logger.info("收到 JM 下载请求: user=%s, raw=%r, jm_id=%s", event.user_id, raw, jm_id)
     await bot.send(event, msg("jmcomic.start", jm_id=jm_id))
 
-    result_message = ""
+    # 读取配置（支持热重载）
+    cfg = get_config()
+    upload_max_retries = int(cfg.get("upload_retry_count", 2))
+    upload_retry_delay = float(cfg.get("upload_retry_delay_seconds", 3.0))
+    upload_timeout = float(cfg.get("upload_timeout_seconds", 60.0))
+    cache_ttl = int(cfg.get("cache_ttl_seconds", 600))
 
+    album_id: str | None = None
+    pdf_path: Path | None = None
+
+    # ════════════════════════════════════════════════════
+    # Phase 1: 下载 + PDF 合成
+    # 受信号量保护，同一时间只允许一个任务，避免打爆磁盘/网络
+    # ════════════════════════════════════════════════════
     async with _download_sem:
         try:
             ensure_temp_dirs()
-
             started_at = time.time()
             option = load_option()
 
-            logger.info(f"开始下载 JM{jm_id}")
-            logger.info(f"漫画下载目录: {DOWNLOAD_DIR.resolve()}")
-            logger.info(f"PDF 输出目录: {PDF_DIR.resolve()}")
+            logger.info("开始下载 JM%s", jm_id)
+            logger.info("漫画下载目录: %s", DOWNLOAD_DIR.resolve())
+            logger.info("PDF 输出目录: %s", PDF_DIR.resolve())
 
             # jmcomic 的 PDF 导出 Feature 是同步下载 API。
             # 在 NoneBot 异步 handler 里用 asyncio.to_thread 包起来，避免阻塞事件循环。
@@ -247,32 +314,42 @@ async def _download_and_send_pdf(
             album_id = str(album.id)
             pdf_path = find_pdf_file(album_id, started_at)
 
-            logger.info(f"下载/转换 PDF 完成: JM{album_id}")
-            logger.info(f"标题: {album.name}")
-            logger.info(f"PDF 文件: {pdf_path.resolve()}")
+            logger.info("下载/转换 PDF 完成: JM%s | 标题: %s", album_id, album.name)
+            logger.info("PDF 文件: %s", pdf_path.resolve())
 
-            upload_ok = False
-            upload_error: Optional[Exception] = None
+            # 注册到全局临时文件清理器，即使上传失败也能按 TTL 自动清理
+            register_temp_media_path(pdf_path, ttl_seconds=cache_ttl)
 
-            try:
-                upload_ok = await upload_pdf_if_possible(bot, event, pdf_path)
-            except Exception as e:
-                upload_error = e
-                logger.exception(f"PDF 上传失败: {pdf_path.resolve()}")
+        except Exception:
+            logger.exception("下载/转换 PDF 失败：JM%s", jm_id)
 
-            if upload_ok:
-                stats_increment(event, "jmcomic_downloads", 1)
-                result_message = msg("jmcomic.done", album_id=album_id)
-            else:
-                result_message = msg("jmcomic.upload_failed")
+    # Phase 1 失败 → 通知用户并结束
+    if pdf_path is None:
+        await bot.send(event, msg("jmcomic.failed"))
+        return
 
-                if upload_error is not None:
-                    logger.error(f"上传错误：{type(upload_error).__name__}: {upload_error}")
+    # ════════════════════════════════════════════════════
+    # Phase 2: 上传 PDF（在信号量外，不阻塞其他下载任务）
+    #          含指数退避重试 + 超时保护
+    # ════════════════════════════════════════════════════
+    upload_ok = False
+    try:
+        upload_ok = await _upload_with_retry(
+            bot, event, pdf_path,
+            max_retries=upload_max_retries,
+            retry_delay=upload_retry_delay,
+            timeout=upload_timeout,
+        )
+    except Exception:
+        logger.exception("PDF 上传最终失败: %s", pdf_path)
 
-        except Exception as e:
-            logger.exception(f"下载/转换 PDF 失败：JM{jm_id}")
-            result_message = msg("jmcomic.failed")
-
-    # 不在 try 里面调用 finish，避免 NoneBot 的 FinishedException 被误判成下载失败。
-    await bot.send(event, result_message)
-    return
+    # ════════════════════════════════════════════════════
+    # Phase 3: 通知结果 + 清理
+    # ════════════════════════════════════════════════════
+    if upload_ok:
+        stats_increment(event, "jmcomic_downloads", 1)
+        _try_cleanup_pdf(pdf_path)  # 成功 → 立即删除 PDF
+        await bot.send(event, msg("jmcomic.done", album_id=album_id))
+    else:
+        # 失败 → 留给 temp_media_cleaner 按 TTL 清理
+        await bot.send(event, msg("jmcomic.upload_failed"))

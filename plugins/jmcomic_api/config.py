@@ -11,6 +11,14 @@ CONFIG_PATH = Path("BotData/plugin_configs/jmcomic_api.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "allow_group": False,
+    # 上传重试：失败后重试次数（不含首次尝试）
+    "upload_retry_count": 2,
+    # 重试间隔基准（秒），每次递增：base * attempt
+    "upload_retry_delay_seconds": 3.0,
+    # 单次上传最大等待时间（0 表示不限）
+    "upload_timeout_seconds": 60.0,
+    # 临时文件缓存 TTL（秒），过期后由 temp_media_cleaner 自动清理
+    "cache_ttl_seconds": 600,
 }
 
 
