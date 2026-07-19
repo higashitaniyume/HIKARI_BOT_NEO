@@ -212,6 +212,7 @@ def _retry_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "count": max(0, int(cfg.get("parse_retry_count", 2))),
         "delay_seconds": max(0.0, float(cfg.get("parse_retry_delay_seconds", 2.0))),
+        "delay_403_base": max(0.0, float(cfg.get("parse_retry_403_delay_base", 3.0))),
     }
 
 
@@ -510,17 +511,20 @@ async def _prepare_links_with_retries(
     retry = _retry_settings(initial_config)
     attempts = retry["count"] + 1
     delay_seconds = retry["delay_seconds"]
+    delay_403_base = retry["delay_403_base"]
     last_result: MediaPrepareAttempt | None = None
 
     for attempt in range(1, attempts + 1):
+        is_403_retry = False
         try:
             result = await _prepare_links_once(bot, event, text, links)
         except Exception as e:
             if attempt >= attempts:
                 raise
+            is_403_retry = True
             logger.warning(
                 "[MediaParser] parse/download attempt failed, retrying in %.1fs -> attempt=%d/%d error=%s",
-                delay_seconds,
+                _pick_retry_delay(delay_seconds, delay_403_base, attempt, is_403_error=True),
                 attempt,
                 retry["count"],
                 e,
@@ -536,18 +540,33 @@ async def _prepare_links_with_retries(
             last_result = result
             if attempt >= attempts:
                 return result
+            is_403_retry = _has_403_failure(result)
             logger.warning(
                 "[MediaParser] parse/download produced retryable result, retrying in %.1fs -> attempt=%d/%d reason=%s",
-                delay_seconds,
+                _pick_retry_delay(delay_seconds, delay_403_base, attempt, is_403_error=is_403_retry),
                 attempt,
                 retry["count"],
                 _prepare_retry_reason(result),
             )
 
-        if delay_seconds > 0:
-            await asyncio.sleep(delay_seconds)
+        current_delay = _pick_retry_delay(delay_seconds, delay_403_base, attempt, is_403_error=is_403_retry)
+        if current_delay > 0:
+            await asyncio.sleep(current_delay)
 
     return last_result
+
+
+def _pick_retry_delay(
+    normal_delay: float,
+    delay_403_base: float,
+    attempt: int,
+    *,
+    is_403_error: bool = False,
+) -> float:
+    """当 403 错误时使用指数递增延时，否则用固定延时。"""
+    if not is_403_error:
+        return normal_delay
+    return delay_403_base * (2 ** (attempt - 1))
 
 
 async def _prepare_links_once(
@@ -636,6 +655,31 @@ def _metadata_has_sendable_media(metadata: dict[str, Any]) -> bool:
     return any(mode in ("local", "direct") for mode in modes)
 
 
+def _has_403_failure(result: MediaPrepareAttempt) -> bool:
+    """Check if any metadata in the result has a 403 Forbidden failure."""
+    for metadata in result.processed:
+        if metadata.get("error") and "403" in str(metadata.get("error")):
+            return True
+        if not metadata.get("_enable_rich_media"):
+            continue
+        status_codes = list(metadata.get("video_status_codes") or [])
+        status_codes.extend(metadata.get("image_status_codes") or [])
+        for code in status_codes:
+            if _is_403_code(code):
+                return True
+        for reason in _metadata_skip_reasons(metadata):
+            if "403" in reason or "Forbidden" in reason:
+                return True
+    return False
+
+
+def _is_403_code(code: Any) -> bool:
+    try:
+        return int(code) == 403
+    except (TypeError, ValueError):
+        return False
+
+
 def _metadata_has_retryable_download_failure(metadata: dict[str, Any]) -> bool:
     media_count = int(metadata.get("video_count", len(metadata.get("video_urls") or [])))
     media_count += int(metadata.get("image_count", len(metadata.get("image_urls") or [])))
@@ -647,8 +691,8 @@ def _metadata_has_retryable_download_failure(metadata: dict[str, Any]) -> bool:
         if _is_retryable_status_code(code):
             return True
 
-    terminal_tokens = ("超过限制", "缓存目录不可用", "403", "Forbidden", "权限")
-    retry_tokens = ("缓存下载失败", "下载媒体失败", "HTTP 404", "timeout", "timed out", "超时")
+    terminal_tokens = ("超过限制", "缓存目录不可用", "权限")
+    retry_tokens = ("缓存下载失败", "下载媒体失败", "HTTP 404", "403", "Forbidden", "timeout", "timed out", "超时")
     for reason in _metadata_skip_reasons(metadata):
         if any(token in reason for token in terminal_tokens):
             continue
@@ -662,7 +706,7 @@ def _is_retryable_status_code(code: Any) -> bool:
         status_code = int(code)
     except (TypeError, ValueError):
         return False
-    return status_code in {404, 408, 409, 425, 429} or status_code >= 500
+    return status_code in {403, 404, 408, 409, 425, 429} or status_code >= 500
 
 
 def _metadata_skip_reasons(metadata: dict[str, Any]) -> list[str]:
