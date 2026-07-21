@@ -84,7 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "search": {
             "enabled": True,
             "base_url": "http://searxng-core:8080",
-            "timeout_seconds": 15,
+            "timeout_seconds": 30,
             "max_results": 5,
             "safesearch": 1,
             "language": "auto",
