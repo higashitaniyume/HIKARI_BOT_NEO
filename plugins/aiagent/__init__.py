@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 import logging
 import re
 import time
@@ -81,9 +82,19 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user
         "不要使用列表、表格、代码块等复杂格式——一句话说清楚。"
     )
 
-    # Part 2: 按会话变化的 memory 上下文（单独放一条 system message，
+    # Part 2: 当前时间 + 按会话变化的 memory 上下文（单独放一条 system message，
     # 不影响 Part 1 的缓存前缀）
+    now = datetime.now()
+    time_notice = (
+        f"【当前时间】{now.strftime('%Y年%m月%d日 %A %H:%M')}\n"
+        f"（今天日期：{now.strftime('%Y-%m-%d')}，"
+        f"星期{('一','二','三','四','五','六','日')[now.weekday()]}）"
+    )
     memory_context = read_memory_context(event, cfg)
+    if memory_context:
+        memory_context = f"{time_notice}\n\n{memory_context}"
+    else:
+        memory_context = time_notice
 
     messages: list[dict[str, str]] = [{"role": "system", "content": stable_prompt}]
     if memory_context:
@@ -159,6 +170,14 @@ async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
     text = normalize_text(text)
     cfg = get_config()
+
+    # 如果当前消息是引用回复，把被引用的消息内容附加到输入中
+    reply = getattr(event, "reply", None)
+    if reply is not None and reply.message:
+        quoted_text = reply.message.extract_plain_text().strip()
+        if quoted_text:
+            text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
+            logger.debug("[AIAgent] 注入引用内容: %.80s", quoted_text)
     if not text:
         return
     if _is_blocked_media_link(text, cfg):
