@@ -23,12 +23,21 @@ _MD_BOLD2_RE = re.compile(r"__([\s\S]*?)__")
 _MD_ITALIC_STAR_RE = re.compile(r"(?<!\w)\*([^*\n]+?)\*(?!\w)")
 _MD_ITALIC_UNDERSCORE_RE = re.compile(r"(?<!\w)_([^_\n]+?)_(?!\w)")
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
-# 清理可能泄漏的原始 tool_call JSON 格式文本
+# 清理可能泄漏的原始 tool_call 格式文本（DeepSeek V4 思考模式会在
+# content 中输出 tool call 的 JSON/标记，需在 strip_markdown 前清除）
 _TOOL_CALL_CLEANUP_RES = [
-    re.compile(r'<function_calls>.*?</function_calls>', re.DOTALL),
-    re.compile(r'<tool_calls>.*?</tool_calls>', re.DOTALL),
-    re.compile(r'{"tool_calls":.*?}\]}', re.DOTALL),
-    re.compile(r"tool_calls.*?(?:web_search|read_persona_resource|read_user_file|write_user_file|mc_wiki_search|stardew_wiki_search|sts2_wiki_search|osu_user_lookup|osu_scores_lookup|osu_beatmap_lookup|osu_ranking_lookup|zhihu_hot_list|steam_deals_list|ai_news_list|rss_latest|api_balance).*?\}", re.DOTALL),
+    re.compile(r"<function_calls>.*?</function_calls>", re.DOTALL),
+    re.compile(r"<tool_calls>.*?</tool_calls>", re.DOTALL),
+    re.compile(r"<thinking>.*?</thinking>", re.DOTALL),
+    re.compile(r'{"tool_calls":.*?\]}', re.DOTALL),
+    # DeepSeek V4 Flash 思考模式: robot-emoji + tool_calls + JSON 数组
+    re.compile(r"\U0001F916tool_calls\s*\[[\s\S]*?\]", re.DOTALL),
+    # 通用: emoji 前缀 + tool/function_call + JSON 内容残余
+    re.compile(
+        r"(?:(?<!\w)(?:tool|function)_calls?(?!\w))"
+        r"[\s\S]{0,200}?(?:name|function|arguments)",
+        re.DOTALL | re.IGNORECASE,
+    ),
     re.compile(r"\[/?function[^\]]*\]", re.IGNORECASE),
     re.compile(r"\[/?tool[^\]]*\]", re.IGNORECASE),
     re.compile(r"Function call(?:s|):\s*\w+\([^)]*\)", re.IGNORECASE),
