@@ -11,7 +11,7 @@ from core.ai_tool_registry import AIToolContext
 from core.bot_messages import get_message as msg
 
 from .tools import available_tools, execute_tool_call
-from .utils import safe_float, safe_int
+from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
 
 logger = logging.getLogger("HikariBot.AIAgent.Client")
 
@@ -371,6 +371,19 @@ async def request_chat_completion(
                 raise
         tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
         content = str(message.get("content") or "").strip()
+        # DeepSeek V4 Flash DSML 降级: 思考模式下 API 可能将工具调用以 DSML
+        # 标签形式嵌入 content 而非标准 tool_calls 字段，需手动解析。
+        if not tool_calls and content:
+            dsml_calls = parse_dsml_tool_calls(content)
+            if dsml_calls:
+                logger.debug(
+                    "[AIAgent] 从 DSML 内容解析到 %d 个工具调用",
+                    len(dsml_calls),
+                )
+                cleaned_content = strip_dsml_tags(content)
+                message["content"] = cleaned_content or ""
+                message["tool_calls"] = dsml_calls
+                tool_calls = dsml_calls
         if not tool_calls:
             if not content:
                 raise RuntimeError("AI Agent 回复为空。")

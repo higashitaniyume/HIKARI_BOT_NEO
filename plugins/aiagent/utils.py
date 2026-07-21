@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
+
+# ── DSML (DeepSeek Markup Language) constants ───────────────────────────
+# Fullwidth vertical bar U+FF5C used in DeepSeek V4 Flash native tool calls
+_FW_VBAR = "｜"
 
 _MD_HEADING_RE = re.compile(r"^#{1,6}\s+")
 _MD_BLOCKQUOTE_RE = re.compile(r"^>\s?")
@@ -26,9 +31,14 @@ _MULTI_BLANK_RE = re.compile(r"\n{3,}")
 # 清理可能泄漏的原始 tool_call 格式文本（DeepSeek V4 思考模式会在
 # content 中输出 tool call 的 JSON/标记，需在 strip_markdown 前清除）
 _TOOL_CALL_CLEANUP_RES = [
+    # DSML: <｜DSML｜tool_calls>...</｜DSML｜tool_calls> and nested tags
+    re.compile(rf"<{_FW_VBAR}DSML{_FW_VBAR}tool_calls>.*?</{_FW_VBAR}DSML{_FW_VBAR}tool_calls>", re.DOTALL),
+    re.compile(rf"<{_FW_VBAR}DSML{_FW_VBAR}invoke[^>]*>.*?</{_FW_VBAR}DSML{_FW_VBAR}invoke>", re.DOTALL),
+    re.compile(rf"<{_FW_VBAR}DSML{_FW_VBAR}parameter[^>]*>.*?</{_FW_VBAR}DSML{_FW_VBAR}parameter>", re.DOTALL),
     re.compile(r"<function_calls>.*?</function_calls>", re.DOTALL),
     re.compile(r"<tool_calls>.*?</tool_calls>", re.DOTALL),
     re.compile(r"<thinking>.*?</thinking>", re.DOTALL),
+    re.compile(r"<think>.*?</think>", re.DOTALL),
     re.compile(r'{"tool_calls":.*?\]}', re.DOTALL),
     # DeepSeek V4 Flash 思考模式: robot-emoji + tool_calls + JSON 数组
     re.compile(r"\U0001F916tool_calls\s*\[[\s\S]*?\]", re.DOTALL),
@@ -137,3 +147,83 @@ def safe_bool(value: Any, default: bool) -> bool:
 def safe_id(value: Any) -> str:
     text = str(value or "").strip()
     return re.sub(r"[^A-Za-z0-9_-]", "_", text)[:80] or "unknown"
+
+
+# ── DSML (DeepSeek Markup Language) Tool Call Parser ──────────────
+
+# Regex patterns for DSML tool call format used by DeepSeek V4 Flash.
+# Fullwidth vertical bar: ｜ (U+FF5C)
+# Format:
+#   <｜DSML｜tool_calls>
+#     <｜DSML｜invoke name="tool_name">
+#       <｜DSML｜parameter name="key" string="true">value</｜DSML｜parameter>
+#     </｜DSML｜invoke>
+#   </｜DSML｜tool_calls>
+_DSML_TOOL_CALLS_RE = re.compile(
+    rf"<{_FW_VBAR}DSML{_FW_VBAR}tool_calls>(.*?)</{_FW_VBAR}DSML{_FW_VBAR}tool_calls>",
+    re.DOTALL,
+)
+_DSML_INVOKE_RE = re.compile(
+    rf'<{_FW_VBAR}DSML{_FW_VBAR}invoke\s+name="([^"]*)">(.*?)</{_FW_VBAR}DSML{_FW_VBAR}invoke>',
+    re.DOTALL,
+)
+_DSML_PARAM_RE = re.compile(
+    rf'<{_FW_VBAR}DSML{_FW_VBAR}parameter\s+name="([^"]*)"\s+string="([^"]*)">(.*?)</{_FW_VBAR}DSML{_FW_VBAR}parameter>',
+    re.DOTALL,
+)
+
+
+def parse_dsml_tool_calls(content: str) -> list[dict]:
+    """Parse DeepSeek V4 Flash DSML tool calls from response content.
+
+    Converts the native DSML (DeepSeek Markup Language) format into
+    standard OpenAI-format tool call dicts so the existing tool execution
+    loop can handle them.
+
+    Returns:
+        List of tool call dicts with keys:
+            id, type, function.{name, arguments}
+        Empty list if no DSML tool calls are found.
+    """
+    tool_calls: list[dict] = []
+    for tc_match in _DSML_TOOL_CALLS_RE.finditer(content):
+        tc_body = tc_match.group(1)
+        for invoke_match in _DSML_INVOKE_RE.finditer(tc_body):
+            tool_name = invoke_match.group(1).strip()
+            invoke_body = invoke_match.group(2)
+
+            arguments: dict[str, Any] = {}
+            for param_match in _DSML_PARAM_RE.finditer(invoke_body):
+                param_name = param_match.group(1).strip()
+                is_string = param_match.group(2).strip() == "true"
+                raw_value = param_match.group(3)
+
+                if is_string:
+                    arguments[param_name] = raw_value
+                else:
+                    try:
+                        arguments[param_name] = json.loads(raw_value)
+                    except json.JSONDecodeError:
+                        arguments[param_name] = raw_value
+
+            tool_calls.append({
+                "id": f"call_dsml_{len(tool_calls)}",
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": json.dumps(arguments, ensure_ascii=False),
+                },
+            })
+
+    return tool_calls
+
+
+def strip_dsml_tags(content: str) -> str:
+    """Remove all DSML tool call markup from content, preserving any
+    surrounding text (e.g. reasoning, partial replies)."""
+    return _DSML_TOOL_CALLS_RE.sub("", content).strip()
+
+
+def has_dsml_tool_calls(content: str) -> bool:
+    """Return True if the content contains DSML tool call tags."""
+    return bool(_DSML_TOOL_CALLS_RE.search(content))
