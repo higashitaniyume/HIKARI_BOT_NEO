@@ -132,9 +132,14 @@ def endpoint(base_url: Any) -> str:
 
 
 def _assistant_tool_message(message: dict[str, Any]) -> dict[str, Any]:
+    # DeepSeek V4 思考模式下 tool_calls 消息的 content 可能为 null，
+    # 但后续请求要求 content 不可为空。转为空字符串以兼容。
+    content = message.get("content")
+    if content is None:
+        content = ""
     result: dict[str, Any] = {
         "role": "assistant",
-        "content": message.get("content"),
+        "content": content,
         "tool_calls": message.get("tool_calls"),
     }
     # DeepSeek V4 思考模式下返回 reasoning_content，必须在多轮工具

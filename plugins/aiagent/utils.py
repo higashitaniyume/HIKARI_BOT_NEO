@@ -23,6 +23,16 @@ _MD_BOLD2_RE = re.compile(r"__([\s\S]*?)__")
 _MD_ITALIC_STAR_RE = re.compile(r"(?<!\w)\*([^*\n]+?)\*(?!\w)")
 _MD_ITALIC_UNDERSCORE_RE = re.compile(r"(?<!\w)_([^_\n]+?)_(?!\w)")
 _MULTI_BLANK_RE = re.compile(r"\n{3,}")
+# 清理可能泄漏的原始 tool_call JSON 格式文本
+_TOOL_CALL_CLEANUP_RES = [
+    re.compile(r'<function_calls>.*?</function_calls>', re.DOTALL),
+    re.compile(r'<tool_calls>.*?</tool_calls>', re.DOTALL),
+    re.compile(r'{"tool_calls":.*?}\]}', re.DOTALL),
+    re.compile(r"tool_calls.*?(?:web_search|read_persona_resource|read_user_file|write_user_file|mc_wiki_search|stardew_wiki_search|sts2_wiki_search|osu_user_lookup|osu_scores_lookup|osu_beatmap_lookup|osu_ranking_lookup|zhihu_hot_list|steam_deals_list|ai_news_list|rss_latest|api_balance).*?\}", re.DOTALL),
+    re.compile(r"\[/?function[^\]]*\]", re.IGNORECASE),
+    re.compile(r"\[/?tool[^\]]*\]", re.IGNORECASE),
+    re.compile(r"Function call(?:s|):\s*\w+\([^)]*\)", re.IGNORECASE),
+]
 
 
 def strip_markdown(text: str) -> str:
@@ -31,6 +41,10 @@ def strip_markdown(text: str) -> str:
     Handles: headings, bold, italic, strikethrough, inline code, fenced code
     blocks, links, images, lists, blockquotes, and horizontal rules.
     """
+    # 0. Clean up raw tool_call 格式文本（可能在思考模式下泄漏）
+    for pattern in _TOOL_CALL_CLEANUP_RES:
+        text = pattern.sub("", text)
+
     # 1. Fenced code blocks — must come first to avoid matching inside fences
     text = _MD_FENCE_RE.sub(r"\1", text)
     text = _MD_FENCE_TILDE_RE.sub(r"\1", text)
