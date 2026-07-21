@@ -132,11 +132,16 @@ def endpoint(base_url: Any) -> str:
 
 
 def _assistant_tool_message(message: dict[str, Any]) -> dict[str, Any]:
-    return {
+    result: dict[str, Any] = {
         "role": "assistant",
         "content": message.get("content"),
         "tool_calls": message.get("tool_calls"),
     }
+    # DeepSeek V4 思考模式下返回 reasoning_content，必须在多轮工具
+    # 调用中保留，否则后续请求会出错。
+    if "reasoning_content" in message:
+        result["reasoning_content"] = message["reasoning_content"]
+    return result
 
 
 def _tool_names(tools: list[dict[str, Any]]) -> set[str]:
@@ -262,7 +267,7 @@ async def _prefetch_wiki_priority_tools(
     request_messages.append(
         {
             "role": "assistant",
-            "content": None,
+            "content": "",
             "tool_calls": calls,
         }
     )
@@ -286,11 +291,30 @@ async def post_chat_completion(
         "messages": messages,
         "temperature": safe_float(model_cfg.get("temperature"), 0.7, minimum=0.0, maximum=2.0),
         "top_p": safe_float(model_cfg.get("top_p"), 1.0, minimum=0.0, maximum=1.0),
-        "max_tokens": safe_int(model_cfg.get("max_tokens"), 1024, minimum=1, maximum=32000),
+        "max_tokens": safe_int(model_cfg.get("max_tokens"), 8192, minimum=1, maximum=131072),
     }
+    tool_choice: str | None = model_cfg.get("tool_choice")
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        # tool_choice 默认为 None（不传），以兼容 DeepSeek V4 思考模式。
+        # 用户可在 config 中设为 "auto" / "none" / "required"。
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+
+    # DeepSeek V4 思考模式注入（thinking 配置段）
+    thinking_cfg = cfg.get("thinking") if isinstance(cfg.get("thinking"), dict) else {}
+    if thinking_cfg.get("enabled", True):
+        payload["thinking"] = {"type": "enabled"}
+        effort = thinking_cfg.get("reasoning_effort", "high")
+        if effort in ("high", "max"):
+            payload["reasoning_effort"] = effort
+        if tool_choice is not None:
+            logger.warning(
+                "[AIAgent] 思考模式下 tool_choice 会被 API 忽略，"
+                "建议在 config 中设置 \"tool_choice\": null"
+            )
+    else:
+        payload["thinking"] = {"type": "disabled"}
     extra_body = model_cfg.get("extra_body")
     if isinstance(extra_body, dict):
         payload.update(extra_body)

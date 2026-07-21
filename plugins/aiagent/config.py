@@ -21,12 +21,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "base_url": "https://api.deepseek.com/v1",
         "api_key": "",
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
         "temperature": 0.7,
         "top_p": 1.0,
-        "max_tokens": 1024,
-        "timeout_seconds": 60,
+        "max_tokens": 8192,
+        "timeout_seconds": 120,
         "proxy": "",
+        # null（不传 tool_choice）以兼容 DeepSeek V4 思考模式。
+        # 可设为 "auto" / "none" / "required"。
+        "tool_choice": None,
+    },
+    "thinking": {
+        "enabled": True,
+        "reasoning_effort": "high",
     },
     "persona": {
         "skill_path": "BotData/agent_personas/default",

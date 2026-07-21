@@ -65,16 +65,15 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
 
 def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user_text: str) -> list[dict[str, str]]:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
-    system_prompt = load_persona_prompt(cfg)
-    memory_context = read_memory_context(event, cfg)
-    if memory_context:
-        system_prompt = f"{system_prompt}\n\n{memory_context}"
+
+    # Part 1: 稳定的 system prompt（persona + 固定指令）
+    # 所有请求/所有用户都一样 → 触发 DeepSeek 自动前缀缓存，节省 50x 成本
+    stable_prompt = load_persona_prompt(cfg)
     extra = str(chat_cfg.get("system_prompt_extra") or "").strip()
     if extra:
-        system_prompt = f"{system_prompt}\n\n额外要求：\n{extra}"
-    # 简短回复指令：每条回复控制在 50 字左右，超出自动走合并转发
-    system_prompt = (
-        f"{system_prompt}\n\n"
+        stable_prompt = f"{stable_prompt}\n\n额外要求：\n{extra}"
+    stable_prompt = (
+        f"{stable_prompt}\n\n"
         "【回复长度要求】\n"
         "每次回复控制在 50 字以内，尽量简短明了。\n"
         "如果需要详细说明（如代码、配置、长解释），只给一句简短结论即可，"
@@ -82,8 +81,18 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user
         "不要使用列表、表格、代码块等复杂格式——一句话说清楚。"
     )
 
+    # Part 2: 按会话变化的 memory 上下文（单独放一条 system message，
+    # 不影响 Part 1 的缓存前缀）
+    memory_context = read_memory_context(event, cfg)
+
+    messages: list[dict[str, str]] = [{"role": "system", "content": stable_prompt}]
+    if memory_context:
+        messages.append({"role": "system", "content": memory_context})
+
     history = get_history(session, chat_cfg.get("max_history_messages"))
-    return [{"role": "system", "content": system_prompt}, *history, {"role": "user", "content": user_text}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_text})
+    return messages
 
 
 def _url_host(raw_url: str) -> str:
