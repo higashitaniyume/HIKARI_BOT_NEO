@@ -159,6 +159,45 @@ async function loadAstrbotFromPath() {
   }
 }
 
+async function uploadAstrbotZip() {
+  const fileInput = $("#astrbotUploadZip");
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) {
+    showToast("请选择要上传的 zip 文件。", true);
+    return;
+  }
+  const name = $("#astrbotUploadName").value.trim() || null;
+
+  const btn = $("#astrbotUploadBtn");
+  btn.disabled = true;
+  setAstrbotStatus("上传中...", false, "astrbotUploadStatus");
+
+  try {
+    const formData = new FormData();
+    formData.append("plugin_archive", file);
+    if (name) {
+      formData.append("plugin_name", name);
+    }
+
+    const res = await fetch("/api/astrbot/upload-zip", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await readJsonResponse(res, "上传插件失败");
+    setAstrbotStatus("✅ " + (data.message || "插件已加载。"), false, "astrbotUploadStatus");
+    showToast(data.message || "插件已加载。");
+    fileInput.value = "";
+    $("#astrbotUploadName").value = "";
+    await fetchAstrbotPlugins();
+    await openAstrbotPlugin(data.name);
+  } catch (err) {
+    setAstrbotStatus("❌ " + err.message, true, "astrbotUploadStatus");
+    showToast(err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function rebuildAstrbotEnv() {
   if (!confirm("确定要重建 AstrBot 插件公共虚拟环境吗？这可能需要几分钟。")) return;
 
@@ -406,6 +445,9 @@ function initAstrbot() {
   );
   $("#astrbotLoadFromPathBtn").addEventListener("click", () =>
     loadAstrbotFromPath().catch((err) => showToast(err.message, true))
+  );
+  $("#astrbotUploadBtn").addEventListener("click", () =>
+    uploadAstrbotZip().catch((err) => showToast(err.message, true))
   );
   $("#astrbotRebuildEnvBtn").addEventListener("click", () =>
     rebuildAstrbotEnv().catch((err) => showToast(err.message, true))

@@ -50,8 +50,22 @@
         <hr class="ops-divider">
         <details class="ops-details">
           <summary>加载新插件</summary>
+
+          <!-- 方式一：上传 zip -->
           <div class="ops-form-row" style="margin-top:0.75rem">
-            <label for="astrbotLoadPath">插件路径或 Zip 文件路径：</label>
+            <label>上传插件压缩包：</label>
+            <input type="file" id="astrbotUploadZip" accept=".zip,.7z">
+            <label for="astrbotUploadName">插件名（可选，留空自动识别）：</label>
+            <input type="text" id="astrbotUploadName" placeholder="留空自动识别">
+            <button type="button" id="astrbotUploadBtn" class="primary" style="margin-top:0.5rem">上传并加载</button>
+            <span id="astrbotUploadStatus" class="ops-status"></span>
+          </div>
+
+          <div class="ops-divider-text">或</div>
+
+          <!-- 方式二：输入路径 -->
+          <div class="ops-form-row">
+            <label for="astrbotLoadPath">服务器本地路径：</label>
             <input type="text" id="astrbotLoadPath" placeholder="例如: BotData/plugins/my_plugin.zip">
             <label for="astrbotLoadName">插件名（可选，留空自动识别）：</label>
             <input type="text" id="astrbotLoadName" placeholder="留空自动识别">

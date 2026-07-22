@@ -761,6 +761,37 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "发现插件失败，请检查服务日志。"}, 500)
             return
 
+        if path == "/api/astrbot/upload-zip":
+            try:
+                fields, files = self._parse_multipart_form()
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+                return
+
+            file_infos = files.get("plugin_archive", [])
+            if not file_infos:
+                self._send_json({"error": "请选择要上传的 zip 文件。"}, 400)
+                return
+
+            archive_info = file_infos[0]
+            archive_content = archive_info.get("content", b"")
+            filename = archive_info.get("filename", "plugin.zip")
+            plugin_name = fields.get("plugin_name", "").strip() or None
+
+            if not archive_content:
+                self._send_json({"error": "上传内容为空。"}, 400)
+                return
+
+            try:
+                result = astrbot_ops.upload_and_load_plugin(archive_content, filename, plugin_name)
+                self._send_json(result)
+            except ValueError as e:
+                self._send_json({"error": str(e)}, 400)
+            except Exception as e:
+                logger.exception("上传AstrBot插件失败: %s", e)
+                self._send_json({"error": "上传插件失败，请检查服务日志。"}, 500)
+            return
+
         if path == "/api/voice-keywords":
             try:
                 data = self._read_json_body()

@@ -208,6 +208,50 @@ def load_plugin_from_path(plugin_path: str, plugin_name: str | None = None) -> d
     return get_plugin_detail(name)
 
 
+def upload_and_load_plugin(
+    archive_content: bytes,
+    filename: str,
+    plugin_name: str | None = None,
+) -> dict[str, Any]:
+    """Save an uploaded plugin zip to disk, extract it, and load it."""
+    import zipfile
+    import tempfile
+    from plugins.astrbot_compat.manager import extract_plugin_zip
+    from plugins.astrbot_compat.loader import load_plugin as _load, set_loaded_plugin
+
+    # Validate it's a real zip before writing
+    import io as _io
+    try:
+        with zipfile.ZipFile(_io.BytesIO(archive_content)) as _zf:
+            if _zf.testzip() is not None:
+                raise ValueError("上传的 zip 文件已损坏。")
+    except (zipfile.BadZipFile, EOFError):
+        raise ValueError("上传的文件不是有效的 zip 压缩包。")
+
+    # Determine plugin name
+    name = plugin_name or Path(filename).stem
+
+    # Write zip to a temp file
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    try:
+        tmp.write(archive_content)
+        tmp.close()
+        zip_path = Path(tmp.name)
+
+        # Extract
+        logger.info("Processing uploaded zip: name=[%s] file=%s size=%d", name, filename, len(archive_content))
+        plugin_dir = extract_plugin_zip(zip_path, name)
+
+        # Load
+        handle = _load(plugin_dir, plugin_name=name)
+        set_loaded_plugin(name, handle)
+        result = get_plugin_detail(name)
+        result["message"] = "插件已上传并加载。"
+        return result
+    finally:
+        Path(tmp.name).unlink(missing_ok=True)
+
+
 def rebuild_plugin_env() -> dict[str, Any]:
     """Rebuild the shared plugin venv."""
     from plugins.astrbot_compat.venv_manager import PluginVenvManager
