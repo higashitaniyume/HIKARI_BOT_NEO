@@ -18,7 +18,8 @@ logger = logging.getLogger("AstrBotCompat.Web")
 def list_plugins() -> list[dict[str, Any]]:
     """Return list of all known astrbot plugins (loaded + on-disk)."""
     from plugins.astrbot_compat.constants import PLUGINS_DIR
-    from plugins.astrbot_compat.loader import get_loaded_plugins, discover_plugins as scan_disk
+    from plugins.astrbot_compat.loader import get_loaded_plugins
+    from plugins.astrbot_compat.manager import discover_plugins as scan_disk
 
     started_at = time.monotonic()
     loaded = get_loaded_plugins()
