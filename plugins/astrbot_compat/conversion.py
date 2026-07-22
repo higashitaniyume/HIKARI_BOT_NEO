@@ -40,7 +40,9 @@ logger = logging.getLogger("AstrBotCompat.Conversion")
 _MAX_INLINE_IMAGE_BYTES = 512_000  # 500 KB — well under the 1 MB WS limit
 
 # Shared temp directory (accessible by both bot and NapCat in Docker).
-_TEMP_DIR = Path("runtime/shared/astrbot_temp")
+# Docker mounts ./runtime/shared → /app/sharedFolder on both containers,
+# so "sharedFolder/" resolves to the shared volume on each side.
+_TEMP_DIR = Path("sharedFolder/astrbot_temp")
 _TEMP_DIR_EXPIRY_SECONDS = 900  # 15 min — files cleaned on best-effort basis
 
 
