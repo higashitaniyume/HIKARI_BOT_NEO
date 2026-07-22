@@ -21,20 +21,24 @@
     7. yield event.plain_result(...) → 桥接为 bot.send()
 
 支持的 API (v1):
-    - Star 基类 + Context (LLM/DB 等方法 stub)
-    - @filter.command(name, alias)
-    - @filter.regex(pattern)
+    - Star 基类 + PluginKVStoreMixin (KV 存储)
+    - Context (LLM 生成/tool_loop 桥接到 bot 内置 AI Agent)
+    - @filter.command(name, alias, 参数自动解析)
+    - @filter.regex(pattern, 匹配组注入)
+    - @filter.command_group, @filter.permission, @filter.event_message_type
     - event.plain_result(), image_result(), chain_result()
-    - 消息组件: Plain, Image, At, Reply, Record, Video ...
+    - 消息组件: Plain, Image, At, Reply, Record, Video, Share, Json ...
     - AstrBotConfig (字典式 JSON 配置)
     - _conf_schema.json → config.json
+    - metadata.yaml 解析 (name/version/author/tags/repo)
     - requirements.txt → 公共 venv 自动装依赖
+    - text_to_image() / html_render() → 委托 core.rendering
 
 不支持的 (v1):
-    - Context.llm_generate / tool_loop_agent / get_db
     - @register_platform_adapter
     - Plugin Pages (WebUI)
-    - text_to_image / html_render
+    - Context.get_db() (键值/向量存储)
+    - 沙箱隔离
 """
 
 from __future__ import annotations
