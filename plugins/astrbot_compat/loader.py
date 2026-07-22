@@ -550,7 +550,10 @@ def _register_one_command(
     from core.command_router import command as register_command
 
     cmd_name = cmd_meta["name"]
+    # Add /cmd_name as an alias so /command works (command_router doesn't strip /)
     alias_list = list(cmd_meta["alias"])
+    if f"/{cmd_name}" not in alias_list:
+        alias_list.append(f"/{cmd_name}")
     param_info = cmd_meta.get("params", [])
     perm = cmd_meta.get("permission", "all")
     evt_type = cmd_meta.get("event_type", "all")
@@ -562,20 +565,21 @@ def _register_one_command(
         text = ctx.text
         bot = ctx.bot
 
+        # Strip leading / from text for matching
+        clean_text = text.lstrip("/") if text.startswith("/") else text
+
         # Parse arguments if param_info is available
         if param_info:
-            # Extract raw args (text after command name)
             cmd_prefix = ctx.command if ctx.command else (cmd_name + " ")
-            args_str = text
+            args_str = clean_text
             if args_str.lower().startswith(cmd_prefix.lower()):
                 args_str = args_str[len(cmd_prefix):].strip()
             parsed = parse_command_args(args_str, param_info)
         else:
             parsed = {}
 
-        astr_event = _make_astr_event(bot, event, text)
+        astr_event = _make_astr_event(bot, event, clean_text)
 
-        # Inject parsed args as **kwargs if not already in the method call
         if parsed:
             await _run_generator(instance, method, astr_event, bot, event, **parsed)
         else:
