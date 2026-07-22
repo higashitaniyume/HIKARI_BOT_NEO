@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from astrbot.api.AstrBotConfig import AstrBotConfig
 
@@ -48,6 +48,16 @@ class PluginKVStoreMixin:
     def clear(self) -> None:
         """Clear all stored data."""
         self._kv_save({})
+
+    # Async wrappers used by AstrBot plugins (e.g. get_kv_data/put_kv_data)
+
+    async def get_kv_data(self, key: str, default: Any = None) -> Any:
+        """Async version of get(). AstrBot plugins call this for config."""
+        return self.get(key, default)
+
+    async def put_kv_data(self, key: str, value: Any) -> None:
+        """Async version of set(). AstrBot plugins call this for config."""
+        self.set(key, value)
 
     def _kv_ensure_path(self) -> Path:
         if self._kv_path is None:
@@ -176,6 +186,32 @@ def get_registered_star_classes() -> dict[str, type]:
 def clear_star_registration(module_name: str) -> None:
     """Remove a module's star from the registry (used on reload)."""
     _star_classes.pop(module_name, None)
+
+
+def register(plugin_name: str, author: str = "", desc: str = "", version: str = "") -> Callable[[type], type]:
+    """AstrBot ``@register()`` decorator — sets metadata on a Star subclass.
+
+    Usage::
+
+        @register("my_plugin", "author", "description", "1.0.0")
+        class MyPlugin(Star):
+            ...
+    """
+    def decorator(cls: type) -> type:
+        if not hasattr(cls, "name") or not cls.name:
+            cls.name = plugin_name
+        if not hasattr(cls, "author") or not cls.author:
+            cls.author = author
+        if not hasattr(cls, "version") or not cls.version:
+            cls.version = version
+        logger.debug(
+            "Plugin registered via @register: name=%s author=%s version=%s",
+            plugin_name,
+            author,
+            version,
+        )
+        return cls
+    return decorator
 
 
 # ======================================================================
