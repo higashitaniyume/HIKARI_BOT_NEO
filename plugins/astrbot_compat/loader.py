@@ -670,14 +670,14 @@ async def _run_generator(
                     if result.is_stopped():
                         break
                 elif isinstance(result, str):
-                    await bot.send(event, result)
+                    await _safe_send(bot, event, result)
         else:
             # Regular coroutine that may return something
             result = await gen
             if isinstance(result, MessageEventResult):
                 await _send_result(bot, event, result)
             elif isinstance(result, str):
-                await bot.send(event, result)
+                await _safe_send(bot, event, result)
     except StopAsyncIteration:
         pass
     except Exception as e:
@@ -687,6 +687,34 @@ async def _run_generator(
             method.__name__ if hasattr(method, "__name__") else "?",
             e,
         )
+
+
+_MAX_ONEBOT_MSG_BYTES = 900_000  # stay under WebSocket 1 MB limit
+
+
+async def _safe_send(bot: Bot, event: MessageEvent, message: Any) -> None:
+    """Send a message, gracefully handling oversized payloads."""
+    try:
+        await bot.send(event, message)
+    except Exception as e:
+        err_str = str(e)
+        # Catch WebSocket message-too-big errors and similar
+        if "too big" in err_str or "exceeds limit" in err_str or "1009" in err_str:
+            logger.warning(
+                "Message too large to send (%s) — notifying user instead",
+                err_str[:120],
+            )
+            try:
+                await bot.send(
+                    event,
+                    "⚠️ 插件返回的消息过大（超过 1 MB），"
+                    "NapCat WebSocket 无法传输。请联系管理员。",
+                )
+            except Exception:
+                pass
+        else:
+            # Re-raise errors we don't know how to handle
+            raise
 
 
 async def _send_result(
@@ -700,7 +728,7 @@ async def _send_result(
 
     ob_msg = convert_chain_to_onebot(result)
     if ob_msg:
-        await bot.send(event, ob_msg)
+        await _safe_send(bot, event, ob_msg)
 
 
 # ---------------------------------------------------------------------------
