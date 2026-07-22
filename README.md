@@ -60,18 +60,27 @@ HIKARI BOT NEO 是一个功能丰富的 QQ 机器人，通过 NapCat 的 OneBot 
   - [5.26 JMComic PDF 下载](#526-jmcomic-pdf-下载)
   - [5.27 帮助与关于](#527-帮助与关于)
   - [5.28 错误通知](#528-错误通知)
-- [六、核心模块](#六核心模块)
+- [六、AstrBot 插件兼容层](#六astrbot-插件兼容层)
+  - [6.1 概述](#61-概述)
+  - [6.2 支持的 AstrBot API](#62-支持的-astrbot-api)
+  - [6.3 架构](#63-架构)
+  - [6.4 加载插件](#64-加载插件)
+  - [6.5 依赖管理](#65-依赖管理)
+  - [6.6 配置](#66-配置)
+  - [6.7 Web 管理](#67-web-管理)
+  - [6.8 限制](#68-限制)
+- [七、核心模块](#七核心模块)
   - [消息处理流程](#消息处理流程)
   - [模块清单](#模块清单)
-- [七、可热改资源](#七可热改资源)
+- [八、可热改资源](#八可热改资源)
   - [生成图片字体](#生成图片字体)
   - [机器人固定回复](#机器人固定回复)
-- [八、NapCat 文件目录](#八napcat-文件目录)
-- [九、项目结构](#九项目结构)
-- [十、常见问题](#十常见问题)
-- [十一、开发说明](#十一开发说明)
-- [十二、许可证与致谢](#十二许可证与致谢)
-- [十三、用户协议与隐私政策](#十三用户协议与隐私政策)
+- [九、NapCat 文件目录](#九napcat-文件目录)
+- [十、项目结构](#十项目结构)
+- [十一、常见问题](#十一常见问题)
+- [十二、开发说明](#十二开发说明)
+- [十三、许可证与致谢](#十三许可证与致谢)
+- [十四、用户协议与隐私政策](#十四用户协议与隐私政策)
 
 ---
 
@@ -86,11 +95,16 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 
   priority=0, block=False → core/command_router.py
     - 显式命令注册 @command() 装饰器
+    - AstrBot 插件 @filter.command 也注册在这里
     - 匹配成功标记已处理，未匹配则继续
 
   priority=1, block=False → core/message_pipeline.py
     - URL 自动解析处理器注册 register_handler()
     - 实现 URLHandler 协议 (match + handle)
+
+  priority=2, block=False → astrbot_compat matcher (按需创建)
+    - AstrBot 插件的 @filter.regex / @filter.on_message
+    - 由 plugins/astrbot_compat/ 在首次加载插件时注册
 
   其余插件 (on_message, priority=...)
     - AI Agent 作为最低优先级兜底
@@ -154,6 +168,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | 帮助信息 | `帮助` | [5.27](#527-帮助与关于) |
 | 关于信息 | `关于` | [5.27](#527-帮助与关于) |
 | 错误通知 | 自动 | [5.28](#528-错误通知) |
+| AstrBot 插件兼容 | 上传 / `astrbot load` / Web 面板 | [六](#六astrbot-插件兼容层) |
 
 ---
 
@@ -737,6 +752,7 @@ Python 托管的 Web 管理后台，默认监听 `0.0.0.0:54213`。
 - **AI Agent 配置：** 配置 API 地址、模型参数、Key、人格 skill 路径和聊天限制
 - **权限管理：** 管理各插件的 QQ/群黑白名单和启用状态
 - **推送管理：** 管理定时推送任务、消息源参数、目标群号/私聊，支持立即推送测试
+- **AstrBot 插件：** 管理 AstrBot 兼容插件的加载、卸载、配置编辑（自动表单）
 - **配置编辑：** 在线编辑 `BotData/plugin_configs/*.json`，保存前校验 JSON
 - **日志查看：** 查看 `BotData/logs/*.log` 尾部内容
 
@@ -1141,7 +1157,190 @@ jm 123456
 
 ---
 
-## 六、核心模块
+## 六、AstrBot 插件兼容层
+
+**插件目录：** [`plugins/astrbot_compat/`](plugins/astrbot_compat/)
+
+HIKARI BOT NEO 提供了一层 AstrBot 插件兼容适配器，让社区开发的 AstrBot 插件可以直接在机器人上运行。适配器通过 Shim（胶水层）模拟 AstrBot 的核心 API，将插件注册的命令、正则表达式和消息处理器桥接到机器人的 `command_router` 和 NoneBot 事件系统。
+
+### 6.1 概述
+
+```text
+AstrBot 插件 (main.py)
+  ↓ 调用 AstrBot API
+Shim 层 (astrbot.api.*)
+  ↓ 转为内部调用
+兼容层 (plugins/astrbot_compat/)
+  ├─ Loader  — 动态导入插件、扫描 Star 子类、注册处理器
+  ├─ Manager — /astrbot 命令管理、生命周期
+  ├─ Config  — _conf_schema.json → 配置持久化
+  └─ Venv    — 公共虚拟环境隔离依赖
+  ↓ 注册到
+command_router / NoneBot matcher
+```
+
+插件上传到 `UserData/astrbot_plugins/` 后被自动发现，或通过 `/astrbot load` 命令 / Web 面板手动加载。
+
+### 6.2 支持的 AstrBot API
+
+| API | 支持情况 | 备注 |
+|-----|----------|------|
+| `Star` 基类 + `PluginKVStoreMixin` | ✅ | 文件 JSON 持久化 KV 存储 |
+| `@register(name, author, desc, version)` | ✅ | 设置插件元数据 |
+| `@filter.command(name, alias)` | ✅ | 含参数自动解析（int/float/bool/GreedyStr） |
+| `@filter.regex(pattern)` | ✅ | 匹配组注入 handler **kwargs |
+| `@filter.on_message()` | ✅ | 所有消息处理器 |
+| `@filter.command_group()` | ✅ | 子命令分组 |
+| `@filter.permission()` / `@filter.event_message_type()` | ✅ | 作用域和权限过滤 |
+| `AstrMessageEvent` | ✅ | 包装 OneBot V11 MessageEvent |
+| `event.plain_result()` / `image_result()` / `chain_result()` | ✅ | 回复构建 |
+| `MessageChain` / `MessageEventResult` | ✅ | 链式构建 + 传播控制 |
+| 消息组件（Plain, Image, At, Reply, Share, Record, Video 等） | ✅ | 自动转为 OneBot MessageSegment |
+| `AstrBotConfig` | ✅ | 字典式 JSON 配置 + 自动写盘 |
+| `text_to_image()` / `html_render()` | ✅ | 委托 `core.rendering` |
+| `Context.get_config()` | ✅ | 返回当前插件配置 |
+| `Context.send_message()` | ✅ | 按 session 发送消息 |
+| `Context.llm_generate()` / `tool_loop_agent()` | ✅ | 桥接到内置 AI Agent |
+| `Context.get_all_stars()` / `get_registered_star()` | ✅ | 插件信息查询 |
+| `initialize()` / `terminate()` 生命周期 | ✅ | 加载 / 卸载时自动调用 |
+| `metadata.yaml` | ✅ | name/version/author/tags/repo 元数据 |
+| `_conf_schema.json` | ✅ | 自动生成默认配置 + Web 表单 |
+| `requirements.txt` | ✅ | 自动安装到公共 venv |
+| `Context.llm.*`（具体 LLM 调用） | ✅ | 复用 bot 的 AI Agent 配置 |
+| `Context.get_db()` | ❌ | 无对应键值/向量存储抽象 |
+| `@register_platform_adapter` | ❌ | 工作量过大（相当于半个 bot） |
+| Plugin Pages (WebUI) | ❌ | 需要完整 Web 框架 + JS bridge |
+| 沙箱隔离 | ❌ | v1 暂不支持 |
+
+### 6.3 架构
+
+插件的消息处理流程在 NoneBot 优先级中的位置：
+
+```text
+Message from QQ → NapCat → OneBot V11 WS → NoneBot
+
+  priority=0, block=False → core/command_router.py
+    ├── 原生命令 (@command())
+    └── AstrBot 命令 (@filter.command) — 由 Loader 注册进来
+
+  priority=1, block=False → core/message_pipeline.py
+    └── URL 自动解析 (register_handler)
+
+  priority=2, block=False → astrbot_compat matcher
+    ├── @filter.regex 匹配 → dispatch_regex_command()
+    └── @filter.on_message → dispatch_on_message()
+
+  更低优先级 → 其他插件（sticker_trigger, voice_trigger, aiagent...）
+```
+
+命令执行流程：
+
+```text
+用户发送 /trending
+  ↓
+command_router 匹配 trending 命令
+  ↓
+Loader 的 _wrapped_handler 桥接
+  ↓
+_create_astr_event() → 包装为 AstrMessageEvent
+  ↓
+_run_generator() → 消费 async generator
+  ↓
+每 yield 一个 MessageEventResult
+  ↓
+_send_result() → convert_chain_to_onebot()
+  → MessageSegment 发送
+```
+
+### 6.4 加载插件
+
+**方式一：上传压缩包（Web 面板）**
+
+在 Bot 后台的"加载新插件"区域，选择 `.zip` 文件并上传。上传后自动解压、安装依赖并加载。
+
+**方式二：服务器路径（命令）**
+
+```text
+/astrbot load /path/to/plugin.zip
+/astrbot load /path/to/plugin_dir
+/astrbot load BotData/uploads/my_plugin.zip  my-plugin-name
+```
+
+**方式三：自动发现**
+
+重启机器人时，`UserData/astrbot_plugins/` 下有 `main.py` 的目录会被自动加载。
+
+**管理命令（仅超级管理员私聊）：**
+
+| 命令 | 效果 |
+|------|------|
+| `/astrbot list` | 列出已加载的插件 |
+| `/astrbot load <路径> [插件名]` | 从目录或 zip 加载 |
+| `/astrbot remove <插件名>` | 卸载插件 |
+| `/astrbot reload <插件名>` | 重新加载插件 |
+| `/astrbot info <插件名>` | 查看插件详情和配置 |
+| `/astrbot rebuild-env` | 重建公共虚拟环境 |
+
+### 6.5 依赖管理
+
+每个插件目录下的 `requirements.txt` 会在加载时被读取。依赖安装到独立的公共虚拟环境（`UserData/astrbot_plugins/.venv/`），与机器人主环境隔离，避免污染 `uv.lock`。
+
+```text
+UserData/astrbot_plugins/
+├── .venv/                  ← 公共插件 venv
+│   └── Lib/site-packages/  ← 依赖安装到这里
+├── plugin_A/
+│   ├── main.py
+│   └── requirements.txt
+└── plugin_B/
+    ├── main.py
+    └── requirements.txt
+```
+
+**重建环境：** 移除插件后，残留依赖通过 `/astrbot rebuild-env` 命令一键重建（所有插件依赖从零安装）。
+
+### 6.6 配置
+
+插件通过 `_conf_schema.json` 声明配置结构和默认值。加载后配置保存到 `UserData/astrbot_plugins/<name>/config.json`。
+
+```json
+{
+  "api_key": { "description": "API 密钥", "type": "string" },
+  "max_results": { "description": "最大结果数", "type": "int", "default": 10 },
+  "debug": { "description": "调试模式", "type": "bool", "default": false }
+}
+```
+
+在 Web 面板中，这些配置项会自动渲染为表单（文本/数字/开关/JSON 编辑器），保存后立即生效。
+
+### 6.7 Web 管理
+
+Bot 后台（`:54213`）左侧增加「AstrBot」导航。功能包括：
+
+- **插件列表** — 显示所有已加载和发现的插件，含状态（✅ 已加载 / ⏹️ 未加载）
+- **插件详情** — 点击后显示作者、版本、描述、仓库地址、注册命令、依赖
+- **配置表单** — 按 `_conf_schema.json` 自动生成（支持 string/int/float/bool/list/object）
+- **操作按钮** — 加载、重载、卸载
+- **上传插件** — 直接上传 zip 压缩包
+- **路径加载** — 输入服务器本地路径
+- **环境管理** — 一键重建公共虚拟环境
+
+### 6.8 限制
+
+| 限制 | 说明 |
+|------|------|
+| `Context.get_db()` | 无对应存储抽象，始终抛 NotImplementedError |
+| 平台适配器 | `@register_platform_adapter` 未实现（工作量过大） |
+| 插件 WebUI | Plugin Pages 未实现（需要独立 Web 框架） |
+| 沙箱隔离 | 插件代码与机器人进程相同权限，加载前请确认来源可信 |
+| 超大消息 | 渲染图片超过 ~900 KB 时自动保存到 `sharedFolder/astrbot_temp/` 后引用 |
+| LLM 工具注册 | `Context.register_llm_tool()` 仅做日志记录，不影响内置 AI Agent 的工具集 |
+
+插件加载后可通过 `/astrbot list` 确认状态，`/astrbot info <名>` 查看详细信息。若加载失败，检查 Bot 日志中 `AstrBotCompat.*` 的报错。
+
+---
+
+## 七、核心模块
 
 核心模块位于 [`core/`](core/) 目录，提供机器人底层能力。
 
@@ -1185,7 +1384,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 
 ---
 
-## 七、可热改资源
+## 八、可热改资源
 
 **目录：** `BotData/resources/`
 
@@ -1218,7 +1417,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 
 ---
 
-## 八、NapCat 文件目录
+## 九、NapCat 文件目录
 
 机器人会把图片、视频、贴纸、PDF 等临时文件放到 `/tmp/hikari_bot`。NapCat 必须能读取这个目录，否则会出现"解析成功但发送失败"。
 
@@ -1235,7 +1434,7 @@ services:
 
 ---
 
-## 九、项目结构
+## 十、项目结构
 
 ```text
 HIKARI_BOT_NEO/
@@ -1288,6 +1487,7 @@ HIKARI_BOT_NEO/
 │   ├── mention_reaction/               #   空 @ 表情回应
 │   ├── poke_back/                      #   戳一戳回戳
 │   ├── media_transcoder/               #   媒体转码服务
+│   ├── astrbot_compat/                 #   AstrBot 插件兼容层
 │   └── sticker_web/                    #   旧后台兼容占位
 │
 ├── third_party/                        # 上游 vendored 代码
@@ -1304,6 +1504,7 @@ HIKARI_BOT_NEO/
 │   └── agent_personas/                 #   AI 人格 skill
 │
 ├── UserData/                           # 用户数据（选择性忽略 git）
+│   ├── astrbot_plugins/                #   AstrBot 兼容插件
 │   ├── stats/                          #   会话统计
 │   ├── aiagent_memory/                 #   AI 持久化记忆
 │   └── osu_bindings.json              #   osu! 绑定数据
@@ -1331,7 +1532,7 @@ HIKARI_BOT_NEO/
 
 ---
 
-## 十、常见问题
+## 十一、常见问题
 
 | 症状 | 常见原因 | 处理方式 |
 |------|----------|----------|
@@ -1348,7 +1549,7 @@ HIKARI_BOT_NEO/
 
 ---
 
-## 十一、开发说明
+## 十二、开发说明
 
 - **插件目录：** 由 `pyproject.toml` 中的 `plugin_dirs = ["plugins"]` 配置。
 - **自动解析：** `core.message_pipeline` 注册全局管道，插件通过 `register_handler()` 接入。
@@ -1381,7 +1582,7 @@ node --check plugins/bot_admin/static/<file>.js
 
 ---
 
-## 十二、许可证与致谢
+## 十三、许可证与致谢
 
 ### 许可证
 
@@ -1402,6 +1603,6 @@ node --check plugins/bot_admin/static/<file>.js
 
 ---
 
-## 十三、用户协议与隐私政策
+## 十四、用户协议与隐私政策
 
 仓库提供了面向自部署场景的 [用户协议模板](USER_AGREEMENT.md) 和 [隐私政策模板](PRIVACY_POLICY.md)。实际部署前，请将服务运营者、联系方式、数据保存期限和第三方服务配置补充为你的真实情况。

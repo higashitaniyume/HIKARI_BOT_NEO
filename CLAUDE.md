@@ -73,6 +73,10 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
     - Implements URLHandler protocol (match + handle)
     - Skips if command_router already handled the event
 
+  priority=2, block=False → plugins/astrbot_compat/loader.py
+    - AstrBot plugin @filter.regex / @filter.on_message dispatch
+    - Created lazily when the first astrbot plugin with such handlers is loaded
+
   All other plugins (on_message, priority=...)
     - AI Agent is lowest-priority fallback
     - `plugins/aiagent` — only responds when no other plugin handled the message
@@ -131,6 +135,7 @@ Each capability is a self-contained NoneBot plugin under `plugins/<name>/`:
 | [`mention_reaction`](plugins/mention_reaction) | Emoji reaction when bare `@bot` is sent |
 | [`poke_back`](plugins/poke_back) | Auto-poke-back on notification |
 | [`media_transcoder`](plugins/media_transcoder) | Cross-plugin GIF conversion service (video/WebP/TGS → GIF) |
+| [`astrbot_compat`](plugins/astrbot_compat) | AstrBot plugin compatibility layer — run community astrbot plugins, with web admin panel for management |
 
 ### Vendored Code
 
