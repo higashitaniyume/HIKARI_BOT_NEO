@@ -1,0 +1,72 @@
+    <section class="view-panel" data-view="astrbot" hidden>
+      <section class="panel config-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>AstrBot 插件</h2>
+            <p>管理 AstrBot 兼容插件的加载、卸载、配置。</p>
+          </div>
+          <button type="button" id="astrbotRefreshBtn" class="ghost">刷新</button>
+        </div>
+
+        <div class="ops-layout">
+          <!-- 左侧：插件列表 -->
+          <aside class="ops-list" id="astrbotPluginList">加载中...</aside>
+
+          <!-- 右侧：插件详情 + 配置 -->
+          <section class="ops-detail" id="astrbotDetailPanel" hidden>
+            <div class="ops-detail-head">
+              <div>
+                <h3 id="astrbotDetailTitle">选择一个插件</h3>
+                <p id="astrbotDetailMeta" class="ops-detail-meta">暂无信息</p>
+              </div>
+              <div class="ops-detail-actions" id="astrbotDetailActions" hidden>
+                <button type="button" id="astrbotLoadBtn" class="ghost" hidden>加载</button>
+                <button type="button" id="astrbotReloadBtn" class="ghost">重载</button>
+                <button type="button" id="astrbotRemoveBtn" class="ghost danger">卸载</button>
+              </div>
+            </div>
+
+            <!-- 配置表单 -->
+            <div id="astrbotConfigForm" hidden>
+              <hr class="ops-divider">
+              <h4>插件配置</h4>
+              <div id="astrbotConfigFields"></div>
+              <div class="ops-form-actions">
+                <button type="button" id="astrbotConfigSaveBtn" class="primary">保存配置</button>
+                <span id="astrbotConfigStatus" class="ops-status"></span>
+              </div>
+            </div>
+
+            <!-- Requirements -->
+            <div id="astrbotRequirements" hidden>
+              <hr class="ops-divider">
+              <h4>依赖</h4>
+              <pre id="astrbotRequirementsContent" class="code-block"></pre>
+            </div>
+          </section>
+        </div>
+
+        <!-- 加载新插件 -->
+        <hr class="ops-divider">
+        <details class="ops-details">
+          <summary>加载新插件</summary>
+          <div class="ops-form-row" style="margin-top:0.75rem">
+            <label for="astrbotLoadPath">插件路径或 Zip 文件路径：</label>
+            <input type="text" id="astrbotLoadPath" placeholder="例如: BotData/plugins/my_plugin.zip">
+            <label for="astrbotLoadName">插件名（可选，留空自动识别）：</label>
+            <input type="text" id="astrbotLoadName" placeholder="留空自动识别">
+            <button type="button" id="astrbotLoadFromPathBtn" class="primary" style="margin-top:0.5rem">加载</button>
+            <span id="astrbotLoadStatus" class="ops-status"></span>
+          </div>
+        </details>
+
+        <!-- 环境管理 -->
+        <details class="ops-details">
+          <summary>环境管理</summary>
+          <div class="ops-form-row" style="margin-top:0.75rem">
+            <button type="button" id="astrbotRebuildEnvBtn" class="ghost">重建公共虚拟环境</button>
+            <span id="astrbotEnvStatus" class="ops-status"></span>
+          </div>
+        </details>
+      </section>
+    </section>

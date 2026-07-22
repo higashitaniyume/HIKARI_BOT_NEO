@@ -1,0 +1,5 @@
+{
+  "auto_load": true,
+  "auto_load_dir": "UserData/astrbot_plugins",
+  "shim_priority": 2
+}
