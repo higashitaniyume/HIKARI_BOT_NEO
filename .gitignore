@@ -81,6 +81,9 @@ version.json
 # Docker runtime data
 astrbot/
 napcat/
+
+# ... but track the astrbot shim used by the compat layer
+!plugins/astrbot_compat/shim/astrbot/
 sharedFolder/
 !sharedFolder/
 !sharedFolder/.gitkeep
