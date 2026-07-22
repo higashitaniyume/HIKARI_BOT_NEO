@@ -16,7 +16,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, AsyncGenerator
 
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, MessageSegment
+from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from astrbot.api.star import Context, Star, clear_star_registration, get_registered_star_classes
 from astrbot.api.AstrBotConfig import AstrBotConfig
@@ -29,18 +29,12 @@ from astrbot.api.event.filter import (
     get_event_type_meta,
     parse_command_args,
 )
-from astrbot.api.message_components import (
-    BaseMessageComponent,
-    Image,
-    Json as JsonComp,
-    Node as NodeComp,
-    Plain,
-    Record,
-    Reply as ReplyComp,
-    Share as ShareComp,
-    Video,
+from astrbot.core.message.message_event_result import MessageEventResult
+
+from plugins.astrbot_compat.conversion import (
+    _component_to_segment,
+    convert_chain_to_onebot,
 )
-from astrbot.core.message.message_event_result import MessageChain, MessageEventResult
 
 from core.command_router import CommandSpec, _commands
 from core.lifecycle_logging import describe_event
@@ -436,79 +430,7 @@ async def dispatch_on_message(
     return handled
 
 
-# ---------------------------------------------------------------------------
-# Conversion utilities
-# ---------------------------------------------------------------------------
-
-def convert_chain_to_onebot(chain: MessageChain) -> str | list[MessageSegment]:
-    """Convert a ``MessageChain`` to a OneBot-compatible message object."""
-    segments: list[MessageSegment] = []
-
-    for comp in chain.chain:
-        seg = _component_to_segment(comp)
-        if seg is not None:
-            segments.append(seg)
-
-    if not segments:
-        return ""
-
-    if len(segments) == 1 and segments[0].type == "text":
-        return segments[0].data.get("text", "")
-
-    return segments
-
-
-def _component_to_segment(comp: BaseMessageComponent) -> MessageSegment | None:
-    if isinstance(comp, Plain):
-        return MessageSegment.text(comp.text)
-    if isinstance(comp, Image):
-        if comp.url:
-            return MessageSegment.image(comp.url)
-        if comp.file:
-            return MessageSegment.image(comp.file)
-        if comp.path:
-            return MessageSegment.image(comp.path)
-        return None
-    if isinstance(comp, Record):
-        url = comp.url or comp.file or comp.path
-        if url:
-            return MessageSegment.record(url)
-        return None
-    if isinstance(comp, Video):
-        url = comp.url or comp.file
-        if url:
-            return MessageSegment.video(url)
-        return None
-    if isinstance(comp, ReplyComp):
-        # Reply content can't be directly sent as a standalone segment;
-        # fall back to text description
-        text = f"[回复 {comp.id}]"
-        if comp.message_str:
-            text += f" {comp.message_str}"
-        elif comp.sender_nickname:
-            text += f" ({comp.sender_nickname})"
-        return MessageSegment.text(text)
-    if isinstance(comp, ShareComp):
-        text = f"🔗 {comp.title}: {comp.url}"
-        return MessageSegment.text(text)
-    if isinstance(comp, JsonComp) and comp.data:
-        import json
-        try:
-            return MessageSegment.json(json.dumps(comp.data, ensure_ascii=False))
-        except (TypeError, ValueError):
-            return MessageSegment.text(str(comp.data))
-    if isinstance(comp, NodeComp):
-        # Node forwarding is too complex for v1 shim; fall back to text
-        texts = []
-        for child in (comp.content or []):
-            seg = _component_to_segment(child)
-            if seg and seg.type == "text":
-                texts.append(seg.data.get("text", ""))
-        return MessageSegment.text("[转发消息] " + " | ".join(texts)) if texts else None
-    if hasattr(comp, "text") and comp.text:
-        return MessageSegment.text(str(comp.text))
-    return None
-
+# Conversion utilities are in conversion.py — imported at top of file.
 
 # ---------------------------------------------------------------------------
 # Internal helpers
