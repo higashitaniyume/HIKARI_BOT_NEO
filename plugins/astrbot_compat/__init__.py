@@ -77,6 +77,7 @@ async def _on_startup() -> None:
     """
     from plugins.astrbot_compat.manager import ensure_plugin_dirs, auto_load_plugins
     from plugins.astrbot_compat.venv_manager import PluginVenvManager
+    from plugins.astrbot_compat.conversion import clean_stale_temp_files
 
     config = load_plugin_config("astrbot_compat", DEFAULT_CONFIG)
     auto_load = config.get("auto_load", True)
@@ -88,6 +89,7 @@ async def _on_startup() -> None:
 
     # Ensure plugin storage directory exists
     ensure_plugin_dirs()
+    clean_stale_temp_files()
     logger.debug("Plugin storage directory ready: %s", PLUGINS_DIR)
 
     # Ensure shared venv for plugin dependencies
