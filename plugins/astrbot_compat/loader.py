@@ -442,8 +442,8 @@ def _resolve_shim_path(shim_path: Path | None) -> Path:
     return Path(__file__).resolve().parent / "shim"
 
 
-def _add_to_sys_path(p: Path) -> None:
-    s = str(p.resolve())
+def _add_to_sys_path(p: Path | str) -> None:
+    s = str(Path(p).resolve())
     if s not in sys.path:
         sys.path.insert(0, s)
 
