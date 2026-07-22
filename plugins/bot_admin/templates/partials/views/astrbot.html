@@ -1,9 +1,98 @@
+<style>
+.astrbot-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.astrbot-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.astrbot-meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.astrbot-meta-value {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astrbot-actions {
+  display: grid;
+  gap: 16px;
+  margin-top: 4px;
+}
+.astrbot-action-section {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.astrbot-action-section h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.astrbot-action-section-narrow {
+  padding: 12px 16px;
+}
+.astrbot-action-section-narrow h4 {
+  margin-bottom: 8px;
+}
+.astrbot-upload-row {
+  display: grid;
+  gap: 12px;
+}
+.astrbot-upload-method {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.astrbot-method-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 7px;
+  line-height: 1.4;
+}
+.astrbot-method-badge.muted {
+  background: var(--muted);
+}
+.astrbot-file-input {
+  max-width: 260px;
+  font-size: 13px;
+}
+.astrbot-inline-input {
+  max-width: 240px;
+}
+.astrbot-env-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+</style>
     <section class="view-panel" data-view="astrbot" hidden>
       <section class="panel config-panel">
         <div class="panel-heading">
           <div>
             <h2>AstrBot 插件</h2>
-            <p>管理 AstrBot 兼容插件的加载、卸载、配置。</p>
+            <p>加载、卸载、配置 AstrBot 兼容插件。</p>
           </div>
           <button type="button" id="astrbotRefreshBtn" class="ghost">刷新</button>
         </div>
@@ -12,12 +101,12 @@
           <!-- 左侧：插件列表 -->
           <aside class="ops-list" id="astrbotPluginList">加载中...</aside>
 
-          <!-- 右侧：插件详情 + 配置 -->
+          <!-- 右侧：详情面板 -->
           <section class="ops-detail" id="astrbotDetailPanel" hidden>
             <div class="ops-detail-head">
               <div>
                 <h3 id="astrbotDetailTitle">选择一个插件</h3>
-                <p id="astrbotDetailMeta" class="ops-detail-meta">暂无信息</p>
+                <p id="astrbotDetailMeta">暂无信息</p>
               </div>
               <div class="ops-detail-actions" id="astrbotDetailActions" hidden>
                 <button type="button" id="astrbotLoadBtn" class="ghost" hidden>加载</button>
@@ -26,61 +115,81 @@
               </div>
             </div>
 
+            <!-- 插件信息卡片 -->
+            <div id="astrbotInfoCard" hidden>
+              <div class="astrbot-meta-grid">
+                <div class="astrbot-meta-item">
+                  <span class="astrbot-meta-label">作者</span>
+                  <span class="astrbot-meta-value" id="astrbotInfoAuthor">—</span>
+                </div>
+                <div class="astrbot-meta-item">
+                  <span class="astrbot-meta-label">版本</span>
+                  <span class="astrbot-meta-value" id="astrbotInfoVersion">—</span>
+                </div>
+                <div class="astrbot-meta-item">
+                  <span class="astrbot-meta-label">描述</span>
+                  <span class="astrbot-meta-value" id="astrbotInfoDescription">—</span>
+                </div>
+                <div class="astrbot-meta-item">
+                  <span class="astrbot-meta-label">仓库</span>
+                  <span class="astrbot-meta-value" id="astrbotInfoRepo">—</span>
+                </div>
+              </div>
+            </div>
+
             <!-- 配置表单 -->
             <div id="astrbotConfigForm" hidden>
               <hr class="ops-divider">
-              <h4>插件配置</h4>
+              <h4 style="margin-bottom:6px">插件配置</h4>
               <div id="astrbotConfigFields"></div>
-              <div class="ops-form-actions">
+              <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
                 <button type="button" id="astrbotConfigSaveBtn" class="primary">保存配置</button>
                 <span id="astrbotConfigStatus" class="ops-status"></span>
               </div>
             </div>
 
-            <!-- Requirements -->
+            <!-- 依赖 -->
             <div id="astrbotRequirements" hidden>
               <hr class="ops-divider">
-              <h4>依赖</h4>
+              <h4 style="margin-bottom:6px">依赖</h4>
               <pre id="astrbotRequirementsContent" class="code-block"></pre>
             </div>
           </section>
         </div>
 
-        <!-- 加载新插件 -->
         <hr class="ops-divider">
-        <details class="ops-details">
-          <summary>加载新插件</summary>
 
-          <!-- 方式一：上传 zip -->
-          <div class="ops-form-row" style="margin-top:0.75rem">
-            <label>上传插件压缩包：</label>
-            <input type="file" id="astrbotUploadZip" accept=".zip,.7z">
-            <label for="astrbotUploadName">插件名（可选，留空自动识别）：</label>
-            <input type="text" id="astrbotUploadName" placeholder="留空自动识别">
-            <button type="button" id="astrbotUploadBtn" class="primary" style="margin-top:0.5rem">上传并加载</button>
-            <span id="astrbotUploadStatus" class="ops-status"></span>
+        <!-- 底部操作区 -->
+        <div class="astrbot-actions">
+          <div class="astrbot-action-section">
+            <h4>加载新插件</h4>
+
+            <div class="astrbot-upload-row">
+              <div class="astrbot-upload-method">
+                <span class="astrbot-method-badge">上传</span>
+                <input type="file" id="astrbotUploadZip" accept=".zip,.7z" class="astrbot-file-input">
+                <input type="text" id="astrbotUploadName" placeholder="插件名（留空自动识别）" class="astrbot-inline-input">
+                <button type="button" id="astrbotUploadBtn" class="primary">上传并加载</button>
+                <span id="astrbotUploadStatus" class="ops-status"></span>
+              </div>
+
+              <div class="astrbot-upload-method">
+                <span class="astrbot-method-badge muted">路径</span>
+                <input type="text" id="astrbotLoadPath" placeholder="服务器路径或 zip 路径" class="astrbot-inline-input">
+                <input type="text" id="astrbotLoadName" placeholder="插件名（留空自动识别）" class="astrbot-inline-input">
+                <button type="button" id="astrbotLoadFromPathBtn" class="ghost">加载</button>
+                <span id="astrbotLoadStatus" class="ops-status"></span>
+              </div>
+            </div>
           </div>
 
-          <div class="ops-divider-text">或</div>
-
-          <!-- 方式二：输入路径 -->
-          <div class="ops-form-row">
-            <label for="astrbotLoadPath">服务器本地路径：</label>
-            <input type="text" id="astrbotLoadPath" placeholder="例如: BotData/plugins/my_plugin.zip">
-            <label for="astrbotLoadName">插件名（可选，留空自动识别）：</label>
-            <input type="text" id="astrbotLoadName" placeholder="留空自动识别">
-            <button type="button" id="astrbotLoadFromPathBtn" class="primary" style="margin-top:0.5rem">加载</button>
-            <span id="astrbotLoadStatus" class="ops-status"></span>
+          <div class="astrbot-action-section astrbot-action-section-narrow">
+            <h4>环境</h4>
+            <div class="astrbot-env-row">
+              <button type="button" id="astrbotRebuildEnvBtn" class="ghost">重建公共虚拟环境</button>
+              <span id="astrbotEnvStatus" class="ops-status"></span>
+            </div>
           </div>
-        </details>
-
-        <!-- 环境管理 -->
-        <details class="ops-details">
-          <summary>环境管理</summary>
-          <div class="ops-form-row" style="margin-top:0.75rem">
-            <button type="button" id="astrbotRebuildEnvBtn" class="ghost">重建公共虚拟环境</button>
-            <span id="astrbotEnvStatus" class="ops-status"></span>
-          </div>
-        </details>
+        </div>
       </section>
     </section>

@@ -269,6 +269,7 @@ function renderAstrbotDetail(data) {
   const meta = $("#astrbotDetailMeta");
   const actions = $("#astrbotDetailActions");
   const loadBtn = $("#astrbotLoadBtn");
+  const infoCard = $("#astrbotInfoCard");
   const configForm = $("#astrbotConfigForm");
   const configFields = $("#astrbotConfigFields");
   const reqSection = $("#astrbotRequirements");
@@ -282,25 +283,31 @@ function renderAstrbotDetail(data) {
   panel.hidden = false;
 
   if (!data) {
-    // No detail yet — just show name
     title.textContent = astrbotState.selectedName;
     meta.textContent = "加载中...";
     actions.hidden = true;
+    infoCard.hidden = true;
     configForm.hidden = true;
     reqSection.hidden = true;
     return;
   }
 
   const isLoaded = data.status === "loaded";
+  const loadedLabel = isLoaded ? "✅ 已加载" : "⏹️ 未加载";
   title.textContent = data.display_name || data.name;
-  const metaParts = [isLoaded ? "已加载" : "发现但未加载"];
+  const metaParts = [loadedLabel];
+  if (data.version) metaParts.push("v" + data.version);
   if (data.commands && data.commands.length) {
-    metaParts.push("命令: " + data.commands.map((c) => "/" + c).join(", "));
+    metaParts.push(data.commands.map((c) => "/" + c).join(" "));
   }
-  if (data.author) {
-    metaParts.push("作者: " + data.author);
-  }
-  meta.textContent = metaParts.join(" / ");
+  meta.textContent = metaParts.join("  ·  ");
+
+  // Info card
+  infoCard.hidden = false;
+  $("#astrbotInfoAuthor").textContent = data.author || "—";
+  $("#astrbotInfoVersion").textContent = data.version || "—";
+  $("#astrbotInfoDescription").textContent = data.description || "—";
+  $("#astrbotInfoRepo").textContent = data.repo || "—";
 
   // Action buttons
   actions.hidden = false;
@@ -346,6 +353,7 @@ function renderAstrbotDetail(data) {
 function renderAstrbotConfigForm(schema, currentConfig) {
   const container = $("#astrbotConfigFields");
   container.replaceChildren();
+  container.className = "settings-form";
 
   for (const [key, def] of Object.entries(schema)) {
     if (typeof def !== "object" || def === null) continue;
@@ -353,34 +361,30 @@ function renderAstrbotConfigForm(schema, currentConfig) {
     const description = def.description || key;
     const currentValue = currentConfig[key] !== undefined ? currentConfig[key] : def.default;
 
-    const row = document.createElement("div");
-    row.className = "ops-form-row";
-
     const label = document.createElement("label");
-    label.htmlFor = "cfg_" + key;
-    label.textContent = description;
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = description;
+    label.append(labelSpan);
 
     let input;
 
     if (type === "bool") {
-      // Checkbox
+      // Checkbox wrapped in a checkbox-field
       const wrap = document.createElement("div");
-      wrap.className = "ops-form-check-wrap";
-
+      wrap.className = "checkbox-field";
       input = document.createElement("input");
       input.type = "checkbox";
       input.id = "cfg_" + key;
       input.checked = currentValue === true;
       input.dataset.configKey = key;
       input.dataset.configType = type;
-
-      const labelInline = document.createElement("label");
-      labelInline.htmlFor = "cfg_" + key;
-      labelInline.className = "ops-form-check-label";
+      const labelInline = document.createElement("span");
       labelInline.textContent = key;
-
       wrap.append(input, labelInline);
-      row.append(label, wrap);
+      label.append(wrap);
+      // Override grid span for checkbox
+      label.style.gridColumn = "1 / -1";
     } else if (type === "int" || type === "float") {
       input = document.createElement("input");
       input.type = "number";
@@ -388,10 +392,8 @@ function renderAstrbotConfigForm(schema, currentConfig) {
       input.value = currentValue ?? 0;
       input.dataset.configKey = key;
       input.dataset.configType = type;
-      if (type === "float") {
-        input.step = "any";
-      }
-      row.append(label, input);
+      if (type === "float") input.step = "any";
+      label.append(input);
     } else if (type === "list" || type === "object") {
       input = document.createElement("textarea");
       input.id = "cfg_" + key;
@@ -400,22 +402,19 @@ function renderAstrbotConfigForm(schema, currentConfig) {
       input.value = JSON.stringify(currentValue, null, 2) || "[]";
       input.dataset.configKey = key;
       input.dataset.configType = type;
-      row.append(label, input);
+      label.append(input);
+      label.style.gridColumn = "1 / -1";
     } else {
-      // string, text, file, etc.
       input = document.createElement("input");
       input.type = "text";
       input.id = "cfg_" + key;
       input.value = currentValue ?? "";
       input.dataset.configKey = key;
       input.dataset.configType = type;
-      if (type === "text") {
-        input.className = "ops-form-wide";
-      }
-      row.append(label, input);
+      label.append(input);
     }
 
-    container.appendChild(row);
+    container.appendChild(label);
   }
 }
 
