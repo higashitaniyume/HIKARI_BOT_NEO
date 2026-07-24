@@ -705,7 +705,8 @@ class BilibiliParser(BaseVideoParser):
                 ) as r:
                     expanded_url = str(r.url)
                     return expanded_url
-            except Exception:
+            except Exception as e:
+                logger.warning(f"[{self.name}] expand_b23: 展开b23短链失败 {url}, 错误: {e}")
                 return url
         return url
 
