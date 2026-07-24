@@ -1209,7 +1209,7 @@ command_router / NoneBot matcher
 | `Context.llm.*`（具体 LLM 调用） | ✅ | 复用 bot 的 AI Agent 配置 |
 | `Context.get_db()` | ❌ | 无对应键值/向量存储抽象 |
 | `@register_platform_adapter` | ❌ | 工作量过大（相当于半个 bot） |
-| Plugin Pages (WebUI) | ❌ | 需要完整 Web 框架 + JS bridge |
+| Plugin Pages (WebUI) | ⚠️ | 基础支持（通过 werkzeug.routing 动态路由），JS bridge 待完善 |
 | 沙箱隔离 | ❌ | v1 暂不支持 |
 
 ### 6.3 架构
@@ -1331,7 +1331,7 @@ Bot 后台（`:54213`）左侧增加「AstrBot」导航。功能包括：
 |------|------|
 | `Context.get_db()` | 无对应存储抽象，始终抛 NotImplementedError |
 | 平台适配器 | `@register_platform_adapter` 未实现（工作量过大） |
-| 插件 WebUI | Plugin Pages 未实现（需要独立 Web 框架） |
+| 插件 WebUI | Plugin Pages 基础支持（`register_web_api()` 接入 bot_admin 路由），JS bridge 待完善 |
 | 沙箱隔离 | 插件代码与机器人进程相同权限，加载前请确认来源可信 |
 | 超大消息 | 渲染图片超过 ~900 KB 时自动保存到 `sharedFolder/astrbot_temp/` 后引用 |
 | LLM 工具注册 | `Context.register_llm_tool()` 仅做日志记录，不影响内置 AI Agent 的工具集 |

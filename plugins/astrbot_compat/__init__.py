@@ -36,7 +36,7 @@
 
 不支持的 (v1):
     - @register_platform_adapter
-    - Plugin Pages (WebUI)
+    - Plugin Pages (WebUI) — 基础支持（register_web_api 接入 bot_admin 路由）
     - Context.get_db() (键值/向量存储)
     - 沙箱隔离
 """
