@@ -36,7 +36,12 @@ def _first_url(groups: list[list[str]], index: int) -> str:
     return strip_media_prefixes(group[0])
 
 
-def build_metadata_text(metadata: dict[str, Any], *, max_desc_chars: int) -> str:
+def build_metadata_text(
+    metadata: dict[str, Any],
+    *,
+    max_desc_chars: int,
+    simplified_platforms: list[str] | None = None,
+) -> str:
     """Build a compact text summary for one parsed link."""
     if metadata.get("error"):
         logger.info(
@@ -47,12 +52,27 @@ def build_metadata_text(metadata: dict[str, Any], *, max_desc_chars: int) -> str
         )
         return ""
 
+    platform = metadata.get("platform") or metadata.get("parser_name") or "unknown"
+    simplified = platform in (simplified_platforms or [])
+
+    if simplified:
+        # Simplified mode: only author + body text, no header/media info
+        lines: list[str] = []
+        if metadata.get("author"):
+            lines.append(msg("media_parser.info_author", author=_truncate(str(metadata["author"]), 80)))
+        desc = metadata.get("desc")
+        if desc:
+            if lines:
+                lines.append("")
+            lines.append(_truncate(str(desc), max_desc_chars))
+        return "\n".join(lines)
+
     video_count = int(metadata.get("_original_video_count", len(metadata.get("video_urls") or [])))
     image_count = int(metadata.get("_original_image_count", len(metadata.get("image_urls") or [])))
     lines = [
         msg(
             "media_parser.info_header",
-            platform=metadata.get("platform") or metadata.get("parser_name") or "unknown",
+            platform=platform,
         )
     ]
     if metadata.get("title"):
@@ -147,11 +167,16 @@ async def send_metadata_result(
     send_strategy = config.get("send_strategy") or {}
     max_send = max(1, int(config.get("max_send", 8)))
     max_desc_chars = max(0, int(text_cfg.get("max_desc_chars", 600)))
+    simplified_platforms = message_cfg.get("simplified_output") or []
 
     text_enabled = bool(metadata.get("_enable_text_metadata", True))
     rich_enabled = bool(metadata.get("_enable_rich_media", True))
 
-    text = build_metadata_text(metadata, max_desc_chars=max_desc_chars) if text_enabled else ""
+    text = (
+        build_metadata_text(metadata, max_desc_chars=max_desc_chars, simplified_platforms=simplified_platforms)
+        if text_enabled else
+        ""
+    )
     media_messages = build_media_messages(metadata, max_send=max_send) if rich_enabled else []
 
     prefer_forward = bool(send_strategy.get("prefer_forward_message", True))

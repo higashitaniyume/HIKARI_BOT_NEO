@@ -45,6 +45,7 @@
       "quote_user_message": false,
       "max_desc_chars": 600
     },
+    "simplified_output": [],
     "opening": {
       "enable": false,
       "content": "媒体解析中..."

@@ -170,6 +170,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
             "quote_user_message": False,
             "max_desc_chars": 600,
         },
+        "simplified_output": [],
         "opening": {
             "enable": False,
             "content": "媒体解析中...",
