@@ -30,6 +30,7 @@ const state = {
   queues: {},
   systemProbe: null,
   systemProbeError: "",
+  systemProbeInterval: null,
   versionInfo: null,
   versionError: "",
   editingTtsVoiceName: "",
@@ -97,15 +98,25 @@ function setView(view) {
   if (target === "aiagent_memory") {
     fetchMemoryFiles().catch((err) => showToast(err.message, true));
   }
-  // Start/stop activity polling when switching to/from overview.
+  // Start/stop activity polling and system probe polling when switching to/from overview.
   if (target === "overview") {
     if (!state.activitiesInterval) {
       fetchActivities();
       state.activitiesInterval = setInterval(fetchActivities, 3000);
     }
-  } else if (state.activitiesInterval) {
-    clearInterval(state.activitiesInterval);
-    state.activitiesInterval = null;
+    if (!state.systemProbeInterval) {
+      fetchSystemProbe();
+      state.systemProbeInterval = setInterval(fetchSystemProbe, 1000);
+    }
+  } else {
+    if (state.activitiesInterval) {
+      clearInterval(state.activitiesInterval);
+      state.activitiesInterval = null;
+    }
+    if (state.systemProbeInterval) {
+      clearInterval(state.systemProbeInterval);
+      state.systemProbeInterval = null;
+    }
   }
 }
 
