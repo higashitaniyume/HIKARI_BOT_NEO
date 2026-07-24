@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -21,6 +22,9 @@ from plugins import voice_library
 from plugins.push_framework import submit_manual_push
 from plugins.tg_sticker_parser.tg_api import extract_sticker_set_names
 
+from . import astrbot_ops
+from .activities import activity_state
+from .aiagent_memory import _read_memory_file, aiagent_memory_state, trigger_summarize
 from .archives import _archive_download_name, _create_pack_archive
 from .auth import _auth_enabled, _auth_password, _make_session_token, _session_ttl_seconds, _valid_session_token
 from .constants import _COOKIE_NAME, _MAX_LOG_TAIL_BYTES, _STATIC_ROOT, MAX_UPLOAD_FILES, MAX_VOICE_UPLOAD_FILES
@@ -50,15 +54,13 @@ from .stickers import (
     _split_keywords,
     _voice_state,
 )
-from .uploads import _get_upload_job, _new_upload_job, _process_tg_sticker_link, _process_upload_files, _process_voice_uploads, _update_upload_job
 from .system_probe import system_probe_state
-from .activities import activity_state
-from .aiagent_memory import aiagent_memory_state, _read_memory_file, trigger_summarize
+from .uploads import _get_upload_job, _new_upload_job, _process_tg_sticker_link, _process_upload_files, _process_voice_uploads, _update_upload_job
 from .utils import _safe_pack_name, _safe_voice_name
-from . import astrbot_ops
 
 logger = logging.getLogger("HikariBot.BotAdmin")
 _API_TOKEN_HEADERS = ("X-Admin-Token", "X-Hikari-Admin-Token", "Token")
+
 
 class BotAdminHandler(BaseHTTPRequestHandler):
     server_version = "HikariBotAdmin/1.0"
@@ -282,683 +284,603 @@ class BotAdminHandler(BaseHTTPRequestHandler):
             raise ValueError("请求格式错误：需要 JSON 对象。")
         return data
 
+    # =========================================================================
+    # HTTP method entry points (delegate to routing.py)
+    # =========================================================================
+
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.end_headers()
 
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path.startswith("/static/"):
-            self._send_static(parsed.path)
-            return
-        if parsed.path == "/login":
-            if self._is_authenticated():
-                self._redirect("/")
-            else:
-                self._send_login()
-            return
-        if parsed.path == "/logout":
-            expired = f"{_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
-            self._redirect("/login", expired)
-            return
-        if parsed.path == "/api/state":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_pack_state())
-            return
-        if parsed.path == "/api/system-probe":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(system_probe_state())
-            return
-        if parsed.path == "/api/activities":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(activity_state())
-            return
-        if parsed.path == "/api/version":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(runtime_info_state())
-            return
-        if parsed.path.startswith("/api/packs/") and parsed.path.endswith("/download"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            pack_name = parsed.path.removeprefix("/api/packs/").removesuffix("/download").strip("/")
-            self._send_pack_archive(unquote(pack_name))
-            return
-        if parsed.path.startswith("/api/packs/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                pack_name = parsed.path.removeprefix("/api/packs/").strip("/")
-                self._send_json(_pack_detail_state(unquote(pack_name)))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 404)
-            except Exception as e:
-                logger.exception("读取贴纸包详情失败: %s", e)
-                self._send_json({"error": "读取贴纸包详情失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/inbox":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_inbox_state())
-            return
-        if parsed.path == "/api/voice-state":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_voice_state())
-            return
-        if parsed.path == "/api/tts-config":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_tts_config_state())
-            return
-        if parsed.path == "/api/aiagent-config":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_aiagent_config_state())
-            return
-        if parsed.path == "/api/aiagent-memory":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            params = parse_qs(parsed.query)
-            file_param = params.get("file", [None])[0]
-            if file_param:
-                self._send_json(_read_memory_file(file_param))
-            else:
-                self._send_json(aiagent_memory_state())
-            return
-        if parsed.path == "/api/push-config":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                self._send_json(_push_config_state())
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("读取推送配置失败: %s", e)
-                self._send_json({"error": "读取推送配置失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/rss-config":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                self._send_json(_rss_config_state())
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("读取 RSS 订阅配置失败: %s", e)
-                self._send_json({"error": "读取 RSS 订阅配置失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/access-rules":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                self._send_json(_access_rules_state())
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("读取权限规则失败: %s", e)
-                self._send_json({"error": "读取权限规则失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/configs":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_list_plugin_configs())
-            return
-        if parsed.path.startswith("/api/configs/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                name = parsed.path.removeprefix("/api/configs/").strip("/")
-                self._send_json(_read_plugin_config(name))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("读取插件配置失败: %s", e)
-                self._send_json({"error": "读取插件配置失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/logs":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            self._send_json(_list_logs())
-            return
-        if parsed.path.startswith("/api/logs/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                name = parsed.path.removeprefix("/api/logs/").strip("/")
-                params = parse_qs(parsed.query)
-                max_bytes = params.get("max_bytes", [_MAX_LOG_TAIL_BYTES])[0]
-                self._send_json(_read_log_tail(name, max_bytes))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("读取日志失败: %s", e)
-                self._send_json({"error": "读取日志失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path == "/api/astrbot/plugins":
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                self._send_json(astrbot_ops.list_plugins())
-            except Exception as e:
-                logger.exception("读取AstrBot插件列表失败: %s", e)
-                self._send_json({"error": "读取插件列表失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path.startswith("/api/astrbot/plugins/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            try:
-                name = parsed.path.removeprefix("/api/astrbot/plugins/").strip("/")
-                self._send_json(astrbot_ops.get_plugin_detail(name))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 404)
-            except Exception as e:
-                logger.exception("读取AstrBot插件详情失败: %s", e)
-                self._send_json({"error": "读取插件详情失败，请检查服务日志。"}, 500)
-            return
-        if parsed.path.startswith("/api/inbox/") and parsed.path.endswith("/image"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            item_id = parsed.path.removeprefix("/api/inbox/").removesuffix("/image").strip("/")
-            self._send_inbox_item(item_id)
-            return
-        if parsed.path.startswith("/api/voices/") and parsed.path.endswith("/file"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            voice_id = parsed.path.removeprefix("/api/voices/").removesuffix("/file").strip("/")
-            self._send_voice_file(voice_id)
-            return
-        if parsed.path.startswith("/api/stickers/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            sticker_id = parsed.path.removeprefix("/api/stickers/").strip("/")
-            self._send_sticker(sticker_id)
-            return
-        if parsed.path.startswith("/api/uploads/"):
-            if not self._is_authenticated():
-                self._unauthorized_json()
-                return
-            job_id = parsed.path.removeprefix("/api/uploads/").strip("/")
-            job = _get_upload_job(job_id)
-            if job is None:
-                self._send_json({"error": "上传任务不存在。"}, 404)
-                return
-            self._send_json(job)
-            return
-        if parsed.path not in {"/", "/index.html"}:
-            self._send_html(_html_page("页面不存在。"), 404)
-            return
-        if not self._is_authenticated():
-            self._send_login()
-            return
-        message = parse_qs(parsed.query).get("msg", [""])[0]
-        self._send_html(_html_page(message))
+        from .routing import dispatch
+        dispatch(self, "GET", self.path)
 
     def do_POST(self) -> None:
-        path = urlparse(self.path).path
-        if path == "/login":
-            try:
-                fields = self._read_form_body()
-            except ValueError as e:
-                self._send_login(str(e), 400)
+        from .routing import dispatch
+        dispatch(self, "POST", self.path)
+
+    def do_DELETE(self) -> None:
+        from .routing import dispatch
+        dispatch(self, "DELETE", self.path)
+
+    # =========================================================================
+    # Route handlers — each corresponds to one endpoint in routing.ROUTE_DEFS
+    # =========================================================================
+
+    # ---- public (auth=False) ------------------------------------------------
+
+    def _handle_static(self, relative: str) -> None:
+        """Serve a static file. ``relative`` is the part after /static/."""
+        rel = unquote(relative).replace("\\", "/")
+        if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+            self._send_html(_html_page("静态资源不存在。"), 404)
+            return
+        path = _STATIC_ROOT / rel
+        if not path.is_file():
+            self._send_html(_html_page("静态资源不存在。"), 404)
+            return
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        if path.suffix == ".js":
+            content_type = "text/javascript"
+        elif path.suffix == ".css":
+            content_type = "text/css"
+        self.send_response(200)
+        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self._write_body(body)
+
+    def _handle_login_page(self) -> None:
+        if self._is_authenticated():
+            self._redirect("/")
+        else:
+            self._send_login()
+
+    def _handle_login_action(self) -> None:
+        try:
+            fields = self._read_form_body()
+        except ValueError as e:
+            self._send_login(str(e), 400)
+            return
+        password = fields.get("password", "")
+        if _auth_enabled() and hmac.compare_digest(password, _auth_password()):
+            max_age = _session_ttl_seconds()
+            cookie = f"{_COOKIE_NAME}={_make_session_token()}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax"
+            self._redirect("/", cookie)
+            return
+        if not _auth_enabled():
+            self._redirect("/")
+            return
+        self._send_login("密码不正确。", 401)
+
+    def _handle_logout(self) -> None:
+        expired = f"{_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+        self._redirect("/login", expired)
+
+    # ---- index ---------------------------------------------------------------
+
+    def _handle_index(self) -> None:
+        message = self._query_params.get("msg", [""])[0]
+        self._send_html(_html_page(message))
+
+    # ---- GET API exact paths ------------------------------------------------
+
+    def _handle_api_state(self) -> None:
+        self._send_json(_pack_state())
+
+    def _handle_system_probe(self) -> None:
+        self._send_json(system_probe_state())
+
+    def _handle_activities(self) -> None:
+        self._send_json(activity_state())
+
+    def _handle_version(self) -> None:
+        self._send_json(runtime_info_state())
+
+    def _handle_api_inbox(self) -> None:
+        self._send_json(_inbox_state())
+
+    def _handle_voice_state(self) -> None:
+        self._send_json(_voice_state())
+
+    def _handle_tts_config_get(self) -> None:
+        self._send_json(_tts_config_state())
+
+    def _handle_aiagent_config_get(self) -> None:
+        self._send_json(_aiagent_config_state())
+
+    def _handle_aiagent_memory(self) -> None:
+        file_param = self._query_params.get("file", [None])[0]
+        if file_param:
+            self._send_json(_read_memory_file(file_param))
+        else:
+            self._send_json(aiagent_memory_state())
+
+    def _handle_push_config_get(self) -> None:
+        try:
+            self._send_json(_push_config_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取推送配置失败: %s", e)
+            self._send_json({"error": "读取推送配置失败，请检查服务日志。"}, 500)
+
+    def _handle_rss_config_get(self) -> None:
+        try:
+            self._send_json(_rss_config_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取 RSS 订阅配置失败: %s", e)
+            self._send_json({"error": "读取 RSS 订阅配置失败，请检查服务日志。"}, 500)
+
+    def _handle_access_rules_get(self) -> None:
+        try:
+            self._send_json(_access_rules_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取权限规则失败: %s", e)
+            self._send_json({"error": "读取权限规则失败，请检查服务日志。"}, 500)
+
+    def _handle_configs_list(self) -> None:
+        self._send_json(_list_plugin_configs())
+
+    def _handle_logs_list(self) -> None:
+        self._send_json(_list_logs())
+
+    def _handle_astrbot_plugins(self) -> None:
+        try:
+            self._send_json(astrbot_ops.list_plugins())
+        except Exception as e:
+            logger.exception("读取AstrBot插件列表失败: %s", e)
+            self._send_json({"error": "读取插件列表失败，请检查服务日志。"}, 500)
+
+    # ---- GET API path parameters --------------------------------------------
+
+    def _handle_pack_download(self, name: str) -> None:
+        self._send_pack_archive(unquote(name))
+
+    def _handle_pack_detail(self, name: str) -> None:
+        try:
+            self._send_json(_pack_detail_state(unquote(name)))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 404)
+        except Exception as e:
+            logger.exception("读取贴纸包详情失败: %s", e)
+            self._send_json({"error": "读取贴纸包详情失败，请检查服务日志。"}, 500)
+
+    def _handle_configs_detail(self, name: str) -> None:
+        try:
+            self._send_json(_read_plugin_config(name))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取插件配置失败: %s", e)
+            self._send_json({"error": "读取插件配置失败，请检查服务日志。"}, 500)
+
+    def _handle_logs_detail(self, name: str) -> None:
+        try:
+            max_bytes = self._query_params.get("max_bytes", [_MAX_LOG_TAIL_BYTES])[0]
+            self._send_json(_read_log_tail(name, max_bytes))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取日志失败: %s", e)
+            self._send_json({"error": "读取日志失败，请检查服务日志。"}, 500)
+
+    def _handle_astrbot_plugin_detail(self, name: str) -> None:
+        try:
+            self._send_json(astrbot_ops.get_plugin_detail(name))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 404)
+        except Exception as e:
+            logger.exception("读取AstrBot插件详情失败: %s", e)
+            self._send_json({"error": "读取插件详情失败，请检查服务日志。"}, 500)
+
+    def _handle_sticker(self, sticker_id: str) -> None:
+        self._send_sticker(sticker_id)
+
+    def _handle_upload_status(self, job_id: str) -> None:
+        job = _get_upload_job(job_id)
+        if job is None:
+            self._send_json({"error": "上传任务不存在。"}, 404)
+            return
+        self._send_json(job)
+
+    def _handle_inbox_image(self, item_id: str) -> None:
+        self._send_inbox_item(item_id)
+
+    def _handle_voice_file(self, voice_id: str) -> None:
+        self._send_voice_file(voice_id)
+
+    # ---- POST API exact paths -----------------------------------------------
+
+    def _handle_configs_save(self, name: str) -> None:
+        try:
+            data = self._read_json_body()
+            content = str(data.get("content", ""))
+            result = _write_plugin_config(name, content)
+            self._send_json({"config": result, "message": "配置已保存。"})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存插件配置失败: %s", e)
+            self._send_json({"error": "保存插件配置失败，请检查服务日志。"}, 500)
+
+    def _handle_tts_config_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            _update_tts_config(data)
+            payload = _tts_config_state()
+            payload["message"] = "TTS 设置已保存。"
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存 TTS 设置失败: %s", e)
+            self._send_json({"error": "保存 TTS 设置失败，请检查服务日志。"}, 500)
+
+    def _handle_aiagent_config_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            _update_aiagent_config(data)
+            payload = _aiagent_config_state()
+            payload["message"] = "AI Agent 设置已保存。"
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存 AI Agent 设置失败: %s", e)
+            self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
+
+    def _handle_aiagent_memory_summarize(self) -> None:
+        try:
+            data = self._read_json_body()
+            file_param = str(data.get("file", "")).strip()
+            if not file_param:
+                self._send_json({"error": "file 参数不能为空。"}, 400)
                 return
-            password = fields.get("password", "")
-            if _auth_enabled() and hmac.compare_digest(password, _auth_password()):
-                max_age = _session_ttl_seconds()
-                cookie = f"{_COOKIE_NAME}={_make_session_token()}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Lax"
-                self._redirect("/", cookie)
+            result = asyncio.run(trigger_summarize(file_param))
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("触发记忆总结失败: %s", e)
+            self._send_json({"error": "触发记忆总结失败，请检查服务日志。"}, 500)
+
+    def _handle_push_config_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            self._send_json(_write_push_config(data))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存推送配置失败: %s", e)
+            self._send_json({"error": "保存推送配置失败，请检查服务日志。"}, 500)
+
+    def _handle_rss_config_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            self._send_json(_write_rss_config(data))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存 RSS 订阅配置失败: %s", e)
+            self._send_json({"error": "保存 RSS 订阅配置失败，请检查服务日志。"}, 500)
+
+    def _handle_push_run(self) -> None:
+        try:
+            data = self._read_json_body()
+            job_id = _parse_str(data.get("job_id"), max_length=80)
+            if not job_id:
+                raise ValueError("推送任务 ID 不能为空。")
+            timeout_seconds = _parse_float(
+                data.get("timeout_seconds", 300),
+                300.0,
+                minimum=1.0,
+                maximum=1800.0,
+            )
+            result = submit_manual_push(job_id, timeout_seconds=timeout_seconds)
+            if result is None:
+                self._send_json({"error": f"没有找到推送任务：{job_id}"}, 404)
                 return
-            if not _auth_enabled():
-                self._redirect("/")
-                return
-            self._send_login("密码不正确。", 401)
-            return
+            self._send_json({
+                "result": _push_run_payload(result),
+                "message": "推送任务已执行。",
+            })
+        except TimeoutError as e:
+            self._send_json({"error": str(e)}, 504)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except RuntimeError as e:
+            self._send_json({"error": str(e)}, 409)
+        except Exception as e:
+            logger.exception("手动触发推送失败: %s", e)
+            self._send_json({"error": "手动触发推送失败，请检查服务日志。"}, 500)
 
-        if not self._is_authenticated():
-            if path.startswith("/api/"):
-                self._unauthorized_json()
-            else:
-                self._send_login("请先登录。", 401)
-            return
-        if path.startswith("/api/configs/"):
-            try:
-                data = self._read_json_body()
-                name = path.removeprefix("/api/configs/").strip("/")
-                content = str(data.get("content", ""))
-                result = _write_plugin_config(name, content)
-                self._send_json({"config": result, "message": "配置已保存。"})
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存插件配置失败: %s", e)
-                self._send_json({"error": "保存插件配置失败，请检查服务日志。"}, 500)
-            return
+    def _handle_access_rules_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            self._send_json(_write_access_rules(data))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存权限规则失败: %s", e)
+            self._send_json({"error": "保存权限规则失败，请检查服务日志。"}, 500)
 
-        if path == "/api/tts-config":
-            try:
-                data = self._read_json_body()
-                _update_tts_config(data)
-                payload = _tts_config_state()
-                payload["message"] = "TTS 设置已保存。"
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存 TTS 设置失败: %s", e)
-                self._send_json({"error": "保存 TTS 设置失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_save_config(self) -> None:
+        try:
+            data = self._read_json_body()
+            name = str(data.get("name", "")).strip()
+            config = data.get("config", {})
+            if not name:
+                raise ValueError("插件名不能为空。")
+            result = astrbot_ops.save_plugin_config(name, config)
+            result["message"] = "配置已保存。"
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存AstrBot插件配置失败: %s", e)
+            self._send_json({"error": "保存配置失败，请检查服务日志。"}, 500)
 
-        if path == "/api/aiagent-config":
-            try:
-                data = self._read_json_body()
-                _update_aiagent_config(data)
-                payload = _aiagent_config_state()
-                payload["message"] = "AI Agent 设置已保存。"
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存 AI Agent 设置失败: %s", e)
-                self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_reload(self) -> None:
+        try:
+            data = self._read_json_body()
+            name = str(data.get("name", "")).strip()
+            if not name:
+                raise ValueError("插件名不能为空。")
+            result = astrbot_ops.reload_plugin(name)
+            result["message"] = "插件已重新加载。"
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("重载AstrBot插件失败: %s", e)
+            self._send_json({"error": "重载插件失败，请检查服务日志。"}, 500)
 
-        if path == "/api/aiagent-memory/summarize":
-            try:
-                data = self._read_json_body()
-                file_param = str(data.get("file", "")).strip()
-                if not file_param:
-                    self._send_json({"error": "file 参数不能为空。"}, 400)
-                    return
-                import asyncio
-                result = asyncio.run(trigger_summarize(file_param))
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("触发记忆总结失败: %s", e)
-                self._send_json({"error": "触发记忆总结失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_remove(self) -> None:
+        try:
+            data = self._read_json_body()
+            name = str(data.get("name", "")).strip()
+            if not name:
+                raise ValueError("插件名不能为空。")
+            result = astrbot_ops.remove_plugin(name)
+            result["message"] = "插件已卸载。"
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("卸载AstrBot插件失败: %s", e)
+            self._send_json({"error": "卸载插件失败，请检查服务日志。"}, 500)
 
-        if path == "/api/push-config":
-            try:
-                data = self._read_json_body()
-                self._send_json(_write_push_config(data))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存推送配置失败: %s", e)
-                self._send_json({"error": "保存推送配置失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_load(self) -> None:
+        try:
+            data = self._read_json_body()
+            plugin_path = str(data.get("path", "")).strip()
+            plugin_name = str(data.get("name", "")).strip() or None
+            if not plugin_path:
+                raise ValueError("插件路径不能为空。")
+            result = astrbot_ops.load_plugin_from_path(plugin_path, plugin_name)
+            result["message"] = "插件已加载。"
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("加载AstrBot插件失败: %s", e)
+            self._send_json({"error": "加载插件失败，请检查服务日志。"}, 500)
 
-        if path == "/api/rss-config":
-            try:
-                data = self._read_json_body()
-                self._send_json(_write_rss_config(data))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存 RSS 订阅配置失败: %s", e)
-                self._send_json({"error": "保存 RSS 订阅配置失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_rebuild_env(self) -> None:
+        try:
+            result = astrbot_ops.rebuild_plugin_env()
+            result["message"] = "公共虚拟环境已重建。"
+            self._send_json(result)
+        except Exception as e:
+            logger.exception("重建AstrBot虚拟环境失败: %s", e)
+            self._send_json({"error": "重建虚拟环境失败，请检查服务日志。"}, 500)
 
-        if path == "/api/push-run":
-            try:
-                data = self._read_json_body()
-                job_id = _parse_str(data.get("job_id"), max_length=80)
-                if not job_id:
-                    raise ValueError("推送任务 ID 不能为空。")
-                timeout_seconds = _parse_float(
-                    data.get("timeout_seconds", 300),
-                    300.0,
-                    minimum=1.0,
-                    maximum=1800.0,
-                )
-                result = submit_manual_push(job_id, timeout_seconds=timeout_seconds)
-                if result is None:
-                    self._send_json({"error": f"没有找到推送任务：{job_id}"}, 404)
-                    return
-                self._send_json(
-                    {
-                        "result": _push_run_payload(result),
-                        "message": "推送任务已执行。",
-                    }
-                )
-            except TimeoutError as e:
-                self._send_json({"error": str(e)}, 504)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except RuntimeError as e:
-                self._send_json({"error": str(e)}, 409)
-            except Exception as e:
-                logger.exception("手动触发推送失败: %s", e)
-                self._send_json({"error": "手动触发推送失败，请检查服务日志。"}, 500)
-            return
+    def _handle_astrbot_discover(self) -> None:
+        try:
+            from plugins.astrbot_compat.manager import discover_plugins
+            dirs = discover_plugins()
+            self._send_json({
+                "plugins": [str(d) for d in dirs],
+                "count": len(dirs),
+            })
+        except Exception as e:
+            logger.exception("发现AstrBot插件失败: %s", e)
+            self._send_json({"error": "发现插件失败，请检查服务日志。"}, 500)
 
-        if path == "/api/access-rules":
-            try:
-                data = self._read_json_body()
-                self._send_json(_write_access_rules(data))
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存权限规则失败: %s", e)
-                self._send_json({"error": "保存权限规则失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/plugins/save-config":
-            try:
-                data = self._read_json_body()
-                name = str(data.get("name", "")).strip()
-                config = data.get("config", {})
-                if not name:
-                    raise ValueError("插件名不能为空。")
-                result = astrbot_ops.save_plugin_config(name, config)
-                result["message"] = "配置已保存。"
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("保存AstrBot插件配置失败: %s", e)
-                self._send_json({"error": "保存配置失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/plugins/reload":
-            try:
-                data = self._read_json_body()
-                name = str(data.get("name", "")).strip()
-                if not name:
-                    raise ValueError("插件名不能为空。")
-                result = astrbot_ops.reload_plugin(name)
-                result["message"] = "插件已重新加载。"
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("重载AstrBot插件失败: %s", e)
-                self._send_json({"error": "重载插件失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/plugins/remove":
-            try:
-                data = self._read_json_body()
-                name = str(data.get("name", "")).strip()
-                if not name:
-                    raise ValueError("插件名不能为空。")
-                result = astrbot_ops.remove_plugin(name)
-                result["message"] = "插件已卸载。"
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("卸载AstrBot插件失败: %s", e)
-                self._send_json({"error": "卸载插件失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/load":
-            try:
-                data = self._read_json_body()
-                plugin_path = str(data.get("path", "")).strip()
-                plugin_name = str(data.get("name", "")).strip() or None
-                if not plugin_path:
-                    raise ValueError("插件路径不能为空。")
-                result = astrbot_ops.load_plugin_from_path(plugin_path, plugin_name)
-                result["message"] = "插件已加载。"
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("加载AstrBot插件失败: %s", e)
-                self._send_json({"error": "加载插件失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/rebuild-env":
-            try:
-                result = astrbot_ops.rebuild_plugin_env()
-                result["message"] = "公共虚拟环境已重建。"
-                self._send_json(result)
-            except Exception as e:
-                logger.exception("重建AstrBot虚拟环境失败: %s", e)
-                self._send_json({"error": "重建虚拟环境失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/discover":
-            try:
-                from plugins.astrbot_compat.manager import discover_plugins
-                dirs = discover_plugins()
-                self._send_json({
-                    "plugins": [str(d) for d in dirs],
-                    "count": len(dirs),
-                })
-            except Exception as e:
-                logger.exception("发现AstrBot插件失败: %s", e)
-                self._send_json({"error": "发现插件失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/astrbot/upload-zip":
-            try:
-                fields, files = self._parse_multipart_form()
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-                return
-
-            file_infos = files.get("plugin_archive", [])
-            if not file_infos:
-                self._send_json({"error": "请选择要上传的 zip 文件。"}, 400)
-                return
-
-            archive_info = file_infos[0]
-            archive_content = archive_info.get("content", b"")
-            filename = archive_info.get("filename", "plugin.zip")
-            plugin_name = fields.get("plugin_name", "").strip() or None
-
-            if not archive_content:
-                self._send_json({"error": "上传内容为空。"}, 400)
-                return
-
-            try:
-                result = astrbot_ops.upload_and_load_plugin(archive_content, filename, plugin_name)
-                self._send_json(result)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("上传AstrBot插件失败: %s", e)
-                self._send_json({"error": "上传插件失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/voice-keywords":
-            try:
-                data = self._read_json_body()
-                voice_id = Path(str(data.get("voice", ""))).name
-                keyword = str(data.get("keyword", "")).strip()
-                if not voice_id or not voice_library.split_keywords(keyword):
-                    raise ValueError("语音和关键词都不能为空。")
-                voice_library.add_keywords(voice_id, keyword)
-                self._send_json(_voice_state())
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("新增语音关键词失败: %s", e)
-                self._send_json({"error": "新增语音关键词失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/voices":
-            try:
-                fields, files = self._parse_multipart_form()
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-                return
-
-            display_name = _safe_voice_name(fields.get("voice_name", ""))
-            keyword = fields.get("voice_keyword", "").strip()
-            file_infos = [file_info for file_info in files.get("voice_file", []) if file_info.get("filename")]
-            if not file_infos:
-                self._send_json({"error": "请选择要上传的语音文件。"}, 400)
-                return
-            if len(file_infos) > MAX_VOICE_UPLOAD_FILES:
-                self._send_json({"error": f"一次最多上传 {MAX_VOICE_UPLOAD_FILES} 个语音文件。"}, 400)
-                return
-
-            result = _process_voice_uploads(display_name, keyword, file_infos)
-            status = 400 if result["status"] == "failed" else 200
-            self._send_json(result, status)
-            return
-
-        if path == "/api/keywords":
-            try:
-                data = self._read_json_body()
-                pack_name = _safe_pack_name(str(data.get("pack", "")))
-                keyword = str(data.get("keyword", "")).strip()
-                if not pack_name or not _split_keywords(keyword):
-                    raise ValueError("贴纸包和关键词都不能为空。")
-                _add_trigger_keyword(pack_name, keyword)
-                self._send_json(_pack_state())
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("新增贴纸关键词失败: %s", e)
-                self._send_json({"error": "新增贴纸关键词失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/pack-stickers/delete":
-            try:
-                data = self._read_json_body()
-                pack_name = _safe_pack_name(str(data.get("pack", "")))
-                sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
-                result = sticker_library.remove_stickers_from_pack(pack_name, sticker_ids)
-                payload = _pack_state()
-                payload["result"] = result
-                payload["pack_detail"] = sticker_library.get_pack_detail(pack_name)
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("删除贴纸失败: %s", e)
-                self._send_json({"error": "删除贴纸失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/pack-stickers/move":
-            try:
-                data = self._read_json_body()
-                source_pack = _safe_pack_name(str(data.get("source_pack", "")))
-                target_pack = _safe_pack_name(str(data.get("target_pack", "")))
-                sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
-                result = sticker_library.move_stickers_between_packs(source_pack, target_pack, sticker_ids)
-                payload = _pack_state()
-                payload["result"] = result
-                payload["pack_detail"] = sticker_library.get_pack_detail(source_pack)
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("移动贴纸失败: %s", e)
-                self._send_json({"error": "移动贴纸失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/tg-stickers":
-            try:
-                data = self._read_json_body()
-                link = str(data.get("url", "")).strip()
-                set_names = extract_sticker_set_names(link)
-                if not set_names:
-                    raise ValueError("请输入有效的 Telegram 贴纸包链接。")
-
-                pack_name = _safe_pack_name(str(data.get("pack", "")))
-                target_pack = pack_name or set_names[0]
-                keyword = str(data.get("keyword", "")).strip()
-                refresh = bool(data.get("refresh", False))
-                job = _new_upload_job(target_pack, 0)
-                _update_upload_job(
-                    job["id"],
-                    status="queued",
-                    current=set_names[0],
-                    message=f"已创建 Telegram 导入任务：{set_names[0]}",
-                )
-                thread = threading.Thread(
-                    target=_process_tg_sticker_link,
-                    args=(link, target_pack, keyword, refresh, job["id"]),
-                    name=f"StickerTgImport-{job['id'][:8]}",
-                    daemon=True,
-                )
-                thread.start()
-                self._send_json(_get_upload_job(job["id"]) or job, 202)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("创建 Telegram 贴纸导入任务失败: %s", e)
-                self._send_json({"error": "创建 Telegram 贴纸导入任务失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/inbox/assign":
-            try:
-                data = self._read_json_body()
-                item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
-                pack_name = _safe_pack_name(str(data.get("pack", "")))
-                keyword = str(data.get("keyword", "")).strip()
-                if not item_ids:
-                    raise ValueError("请选择要整理的表情。")
-                if not pack_name:
-                    raise ValueError("请选择或输入目标贴纸包。")
-                result = sticker_inbox.assign_items(item_ids, pack_name, keyword)
-                self._send_json({"result": result, "inbox": _inbox_state(), "state": _pack_state()})
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("整理收集箱贴纸失败: %s", e)
-                self._send_json({"error": "整理收集箱贴纸失败，请检查服务日志。"}, 500)
-            return
-
-        if path == "/api/inbox/delete":
-            try:
-                data = self._read_json_body()
-                item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
-                if not item_ids:
-                    raise ValueError("请选择要删除的表情。")
-                removed = sticker_inbox.delete_items(item_ids)
-                self._send_json({"removed": removed, "inbox": _inbox_state()})
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("删除收集箱贴纸失败: %s", e)
-                self._send_json({"error": "删除收集箱贴纸失败，请检查服务日志。"}, 500)
-            return
-
-        if path not in {"/upload", "/api/uploads"}:
-            self._send_html(_html_page("页面不存在。"), 404)
-            return
-
+    def _handle_astrbot_upload_zip(self) -> None:
         try:
             fields, files = self._parse_multipart_form()
         except ValueError as e:
-            if path == "/api/uploads":
-                self._send_json({"error": str(e)}, 400)
-                return
+            self._send_json({"error": str(e)}, 400)
+            return
+
+        file_infos = files.get("plugin_archive", [])
+        if not file_infos:
+            self._send_json({"error": "请选择要上传的 zip 文件。"}, 400)
+            return
+
+        archive_info = file_infos[0]
+        archive_content = archive_info.get("content", b"")
+        filename = archive_info.get("filename", "plugin.zip")
+        plugin_name = fields.get("plugin_name", "").strip() or None
+
+        if not archive_content:
+            self._send_json({"error": "上传内容为空。"}, 400)
+            return
+
+        try:
+            result = astrbot_ops.upload_and_load_plugin(archive_content, filename, plugin_name)
+            self._send_json(result)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("上传AstrBot插件失败: %s", e)
+            self._send_json({"error": "上传插件失败，请检查服务日志。"}, 500)
+
+    def _handle_voice_keywords_add(self) -> None:
+        try:
+            data = self._read_json_body()
+            voice_id = Path(str(data.get("voice", ""))).name
+            keyword = str(data.get("keyword", "")).strip()
+            if not voice_id or not voice_library.split_keywords(keyword):
+                raise ValueError("语音和关键词都不能为空。")
+            voice_library.add_keywords(voice_id, keyword)
+            self._send_json(_voice_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("新增语音关键词失败: %s", e)
+            self._send_json({"error": "新增语音关键词失败，请检查服务日志。"}, 500)
+
+    def _handle_voices_upload(self) -> None:
+        try:
+            fields, files = self._parse_multipart_form()
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+            return
+
+        display_name = _safe_voice_name(fields.get("voice_name", ""))
+        keyword = fields.get("voice_keyword", "").strip()
+        file_infos = [file_info for file_info in files.get("voice_file", []) if file_info.get("filename")]
+        if not file_infos:
+            self._send_json({"error": "请选择要上传的语音文件。"}, 400)
+            return
+        if len(file_infos) > MAX_VOICE_UPLOAD_FILES:
+            self._send_json({"error": f"一次最多上传 {MAX_VOICE_UPLOAD_FILES} 个语音文件。"}, 400)
+            return
+
+        result = _process_voice_uploads(display_name, keyword, file_infos)
+        status = 400 if result["status"] == "failed" else 200
+        self._send_json(result, status)
+
+    def _handle_keywords_add(self) -> None:
+        try:
+            data = self._read_json_body()
+            pack_name = _safe_pack_name(str(data.get("pack", "")))
+            keyword = str(data.get("keyword", "")).strip()
+            if not pack_name or not _split_keywords(keyword):
+                raise ValueError("贴纸包和关键词都不能为空。")
+            _add_trigger_keyword(pack_name, keyword)
+            self._send_json(_pack_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("新增贴纸关键词失败: %s", e)
+            self._send_json({"error": "新增贴纸关键词失败，请检查服务日志。"}, 500)
+
+    def _handle_pack_stickers_delete(self) -> None:
+        try:
+            data = self._read_json_body()
+            pack_name = _safe_pack_name(str(data.get("pack", "")))
+            sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
+            result = sticker_library.remove_stickers_from_pack(pack_name, sticker_ids)
+            payload = _pack_state()
+            payload["result"] = result
+            payload["pack_detail"] = sticker_library.get_pack_detail(pack_name)
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("删除贴纸失败: %s", e)
+            self._send_json({"error": "删除贴纸失败，请检查服务日志。"}, 500)
+
+    def _handle_pack_stickers_move(self) -> None:
+        try:
+            data = self._read_json_body()
+            source_pack = _safe_pack_name(str(data.get("source_pack", "")))
+            target_pack = _safe_pack_name(str(data.get("target_pack", "")))
+            sticker_ids = [str(sticker_id) for sticker_id in data.get("stickers") or [] if str(sticker_id).strip()]
+            result = sticker_library.move_stickers_between_packs(source_pack, target_pack, sticker_ids)
+            payload = _pack_state()
+            payload["result"] = result
+            payload["pack_detail"] = sticker_library.get_pack_detail(source_pack)
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("移动贴纸失败: %s", e)
+            self._send_json({"error": "移动贴纸失败，请检查服务日志。"}, 500)
+
+    def _handle_tg_stickers(self) -> None:
+        try:
+            data = self._read_json_body()
+            link = str(data.get("url", "")).strip()
+            set_names = extract_sticker_set_names(link)
+            if not set_names:
+                raise ValueError("请输入有效的 Telegram 贴纸包链接。")
+
+            pack_name = _safe_pack_name(str(data.get("pack", "")))
+            target_pack = pack_name or set_names[0]
+            keyword = str(data.get("keyword", "")).strip()
+            refresh = bool(data.get("refresh", False))
+            job = _new_upload_job(target_pack, 0)
+            _update_upload_job(
+                job["id"],
+                status="queued",
+                current=set_names[0],
+                message=f"已创建 Telegram 导入任务：{set_names[0]}",
+            )
+            thread = threading.Thread(
+                target=_process_tg_sticker_link,
+                args=(link, target_pack, keyword, refresh, job["id"]),
+                name=f"StickerTgImport-{job['id'][:8]}",
+                daemon=True,
+            )
+            thread.start()
+            self._send_json(_get_upload_job(job["id"]) or job, 202)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("创建 Telegram 贴纸导入任务失败: %s", e)
+            self._send_json({"error": "创建 Telegram 贴纸导入任务失败，请检查服务日志。"}, 500)
+
+    def _handle_inbox_assign(self) -> None:
+        try:
+            data = self._read_json_body()
+            item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
+            pack_name = _safe_pack_name(str(data.get("pack", "")))
+            keyword = str(data.get("keyword", "")).strip()
+            if not item_ids:
+                raise ValueError("请选择要整理的表情。")
+            if not pack_name:
+                raise ValueError("请选择或输入目标贴纸包。")
+            result = sticker_inbox.assign_items(item_ids, pack_name, keyword)
+            self._send_json({"result": result, "inbox": _inbox_state(), "state": _pack_state()})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("整理收集箱贴纸失败: %s", e)
+            self._send_json({"error": "整理收集箱贴纸失败，请检查服务日志。"}, 500)
+
+    def _handle_inbox_delete(self) -> None:
+        try:
+            data = self._read_json_body()
+            item_ids = [str(item_id) for item_id in data.get("ids") or [] if str(item_id).strip()]
+            if not item_ids:
+                raise ValueError("请选择要删除的表情。")
+            removed = sticker_inbox.delete_items(item_ids)
+            self._send_json({"removed": removed, "inbox": _inbox_state()})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("删除收集箱贴纸失败: %s", e)
+            self._send_json({"error": "删除收集箱贴纸失败，请检查服务日志。"}, 500)
+
+    # ---- POST multipart upload (end-of-chain) -------------------------------
+
+    def _handle_upload_html(self) -> None:
+        """HTML form upload (synchronous)."""
+        try:
+            fields, files = self._parse_multipart_form()
+        except ValueError as e:
             self._send_html(_html_page(str(e)), 400)
             return
 
@@ -968,115 +890,119 @@ class BotAdminHandler(BaseHTTPRequestHandler):
         pack_name = existing_pack or new_pack
 
         if not pack_name:
-            if path == "/api/uploads":
-                self._send_json({"error": "请先选择已有贴纸包，或输入新贴纸包名称。"}, 400)
-                return
             self._send_html(_html_page("请先选择已有贴纸包，或输入新贴纸包名称。"), 400)
             return
 
         file_infos = [file_info for file_info in files.get("file", []) if file_info.get("filename")]
         if not file_infos:
-            if path == "/api/uploads":
-                self._send_json({"error": "请选择要上传的文件。"}, 400)
-                return
             self._send_html(_html_page("请选择要上传的文件。"), 400)
             return
 
         if len(file_infos) > MAX_UPLOAD_FILES:
-            if path == "/api/uploads":
-                self._send_json({"error": f"一次最多上传 {MAX_UPLOAD_FILES} 个文件。"}, 400)
-                return
             self._send_html(_html_page(f"一次最多上传 {MAX_UPLOAD_FILES} 个文件。"), 400)
-            return
-
-        if path == "/api/uploads":
-            job = _new_upload_job(pack_name, len(file_infos))
-            thread = threading.Thread(
-                target=_process_upload_files,
-                args=(pack_name, keyword, file_infos, job["id"]),
-                name=f"StickerUpload-{job['id'][:8]}",
-                daemon=True,
-            )
-            thread.start()
-            self._send_json(job, 202)
             return
 
         result = _process_upload_files(pack_name, keyword, file_infos)
         status = 400 if result["status"] == "failed" else 200
         self._send_html(_html_page(result["message"]), status)
 
-    def do_DELETE(self) -> None:
-        parsed = urlparse(self.path)
-        if not self._is_authenticated():
-            self._unauthorized_json()
-            return
-        params = parse_qs(parsed.query)
-
-        if parsed.path == "/api/packs":
-            pack_name = _safe_pack_name(params.get("pack", [""])[0])
-            if not pack_name:
-                self._send_json({"error": "贴纸包不能为空。"}, 400)
-                return
-
-            try:
-                result = sticker_library.delete_pack(pack_name)
-                payload = _pack_state()
-                payload["result"] = result
-                if not result.get("deleted"):
-                    payload["error"] = "没有找到这个贴纸包。"
-                    self._send_json(payload, 404)
-                    return
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("删除贴纸包失败: %s", e)
-                self._send_json({"error": "删除贴纸包失败，请检查服务日志。"}, 500)
+    def _handle_api_uploads(self) -> None:
+        """JSON API upload (async background job)."""
+        try:
+            fields, files = self._parse_multipart_form()
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
             return
 
-        if parsed.path == "/api/voices":
-            voice_id = Path(params.get("voice", [""])[0]).name
-            if not voice_id:
-                self._send_json({"error": "语音不能为空。"}, 400)
-                return
+        existing_pack = _safe_pack_name(fields.get("existing_pack", ""))
+        new_pack = _safe_pack_name(fields.get("new_pack", ""))
+        keyword = fields.get("keyword", "").strip()
+        pack_name = existing_pack or new_pack
 
-            try:
-                result = voice_library.delete_voice(voice_id)
-                payload = _voice_state()
-                payload["result"] = result
-                if not result.get("deleted"):
-                    payload["error"] = "没有找到这个语音。"
-                    self._send_json(payload, 404)
-                    return
-                self._send_json(payload)
-            except ValueError as e:
-                self._send_json({"error": str(e)}, 400)
-            except Exception as e:
-                logger.exception("删除语音失败: %s", e)
-                self._send_json({"error": "删除语音失败，请检查服务日志。"}, 500)
+        if not pack_name:
+            self._send_json({"error": "请先选择已有贴纸包，或输入新贴纸包名称。"}, 400)
             return
 
-        if parsed.path == "/api/voice-keywords":
-            voice_id = Path(params.get("voice", [""])[0]).name
-            keyword = params.get("keyword", [""])[0].strip()
-            if not voice_id or not keyword:
-                self._send_json({"error": "语音和关键词都不能为空。"}, 400)
-                return
+        file_infos = [file_info for file_info in files.get("file", []) if file_info.get("filename")]
+        if not file_infos:
+            self._send_json({"error": "请选择要上传的文件。"}, 400)
+            return
 
-            removed = voice_library.remove_keyword(voice_id, keyword)
-            status = 200 if removed else 404
+        if len(file_infos) > MAX_UPLOAD_FILES:
+            self._send_json({"error": f"一次最多上传 {MAX_UPLOAD_FILES} 个文件。"}, 400)
+            return
+
+        job = _new_upload_job(pack_name, len(file_infos))
+        thread = threading.Thread(
+            target=_process_upload_files,
+            args=(pack_name, keyword, file_infos, job["id"]),
+            name=f"StickerUpload-{job['id'][:8]}",
+            daemon=True,
+        )
+        thread.start()
+        self._send_json(job, 202)
+
+    # ---- DELETE -------------------------------------------------------------
+
+    def _handle_packs_delete(self) -> None:
+        pack_name = _safe_pack_name(self._query_params.get("pack", [""])[0])
+        if not pack_name:
+            self._send_json({"error": "贴纸包不能为空。"}, 400)
+            return
+
+        try:
+            result = sticker_library.delete_pack(pack_name)
+            payload = _pack_state()
+            payload["result"] = result
+            if not result.get("deleted"):
+                payload["error"] = "没有找到这个贴纸包。"
+                self._send_json(payload, 404)
+                return
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("删除贴纸包失败: %s", e)
+            self._send_json({"error": "删除贴纸包失败，请检查服务日志。"}, 500)
+
+    def _handle_voices_delete(self) -> None:
+        voice_id = Path(self._query_params.get("voice", [""])[0]).name
+        if not voice_id:
+            self._send_json({"error": "语音不能为空。"}, 400)
+            return
+
+        try:
+            result = voice_library.delete_voice(voice_id)
             payload = _voice_state()
-            if not removed:
-                payload["error"] = "没有找到这个关键词关联。"
-            self._send_json(payload, status)
+            payload["result"] = result
+            if not result.get("deleted"):
+                payload["error"] = "没有找到这个语音。"
+                self._send_json(payload, 404)
+                return
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("删除语音失败: %s", e)
+            self._send_json({"error": "删除语音失败，请检查服务日志。"}, 500)
+
+    def _handle_voice_keywords_delete(self) -> None:
+        voice_id = Path(self._query_params.get("voice", [""])[0]).name
+        keyword = self._query_params.get("keyword", [""])[0].strip()
+        if not voice_id or not keyword:
+            self._send_json({"error": "语音和关键词都不能为空。"}, 400)
             return
 
-        if parsed.path != "/api/keywords":
-            self._send_json({"error": "页面不存在。"}, 404)
-            return
+        removed = voice_library.remove_keyword(voice_id, keyword)
+        status = 200 if removed else 404
+        payload = _voice_state()
+        if not removed:
+            payload["error"] = "没有找到这个关键词关联。"
+        self._send_json(payload, status)
 
-        pack_name = _safe_pack_name(params.get("pack", [""])[0])
-        keyword = params.get("keyword", [""])[0].strip()
+    def _handle_keywords_delete(self) -> None:
+        pack_name = _safe_pack_name(self._query_params.get("pack", [""])[0])
+        keyword = self._query_params.get("keyword", [""])[0].strip()
         if not pack_name or not keyword:
             self._send_json({"error": "贴纸包和关键词都不能为空。"}, 400)
             return
@@ -1087,6 +1013,41 @@ class BotAdminHandler(BaseHTTPRequestHandler):
         if not removed:
             payload["error"] = "没有找到这个关键词关联。"
         self._send_json(payload, status)
+
+    # ---- plugin pages (dynamic, catch-all) ----------------------------------
+
+    def _handle_plugin_page(self, plugin_name: str, rest: str) -> None:
+        """Dispatch a request to a registered AstrBot plugin web page."""
+        from .routing import lookup_plugin_page
+
+        page = lookup_plugin_page(plugin_name, rest)
+        if page is None:
+            self._send_json({"error": f"插件页面不存在: /plugin/{plugin_name}/{rest}"}, 404)
+            return
+
+        # Check that the method is allowed
+        if self.command not in page["methods"]:
+            self._send_json({
+                "error": f"方法 {self.command} 不允许，支持: {', '.join(page['methods'])}",
+            }, 405)
+            return
+
+        # Forward to plugin handler
+        handler = page["handler"]
+        try:
+            handler(self)
+        except Exception as e:
+            logger.exception("插件页面处理失败 [%s/%s]: %s", plugin_name, rest, e)
+            self._send_json({"error": "插件页面处理失败。"}, 500)
+
+    def _handle_plugin_pages_list(self) -> None:
+        """Return the list of registered plugin pages for the admin sidebar."""
+        from .routing import get_plugin_pages
+        self._send_json(get_plugin_pages())
+
+    # =========================================================================
+    # Multipart form parser
+    # =========================================================================
 
     def _parse_multipart_form(self) -> tuple[dict[str, str], dict[str, list[dict[str, Any]]]]:
         content_type = self.headers.get("Content-Type", "")
@@ -1135,4 +1096,3 @@ class BotAdminHandler(BaseHTTPRequestHandler):
                 fields[name] = payload.decode(charset, errors="replace")
 
         return fields, files
-

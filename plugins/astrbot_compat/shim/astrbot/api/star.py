@@ -535,12 +535,22 @@ class Context:
     # --- Web API (stub) ---
 
     def register_web_api(self, route: str, view_handler: Any, methods: list[str], desc: str) -> None:
-        logger.warning(
-            "register_web_api is not supported in compat shim "
-            "(plugin=%s, route=%s)",
-            self._plugin_name,
-            route,
-        )
+        try:
+            from plugins.bot_admin.routing import register_plugin_page
+            register_plugin_page(self._plugin_name, route, view_handler, methods, desc)
+            logger.info(
+                "Plugin page registered via compat shim: plugin=%s route=%s methods=%s",
+                self._plugin_name,
+                route,
+                methods,
+            )
+        except ImportError:
+            logger.warning(
+                "register_web_api: bot_admin routing module not available "
+                "(plugin=%s, route=%s)",
+                self._plugin_name,
+                route,
+            )
 
     # --- Deprecated stubs ---
 

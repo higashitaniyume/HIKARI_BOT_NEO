@@ -37,7 +37,9 @@ const state = {
   memoryFiles: [],
   selectedMemoryPath: "",
   memoryFileContent: "",
+  pluginPages: {},
 };
+let _pluginPagesLoaded = false;
 const MAX_UPLOAD_FILES = 99;
 const MAX_VOICE_UPLOAD_FILES = 20;
 const RECENT_PACKS_KEY = "hikariStickerRecentPacks";
@@ -126,6 +128,33 @@ function setSidebarCollapsed(collapsed) {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
   } catch {
     // 侧栏状态不影响后台的核心功能。
+  }
+}
+
+function renderPluginPagesNav() {
+  const container = $("#plugin-pages-nav");
+  if (!container) return;
+  container.replaceChildren();
+
+  const pages = state.pluginPages || {};
+  const names = Object.keys(pages).sort();
+  if (!names.length) return;
+
+  for (const name of names) {
+    const pluginPages = pages[name] || [];
+    for (const page of pluginPages) {
+      const a = document.createElement("a");
+      a.href = page.full_path;
+      a.className = "nav-item plugin-page-item";
+      a.title = page.desc || name + page.route;
+      a.target = "_blank";  // open plugin pages in new tab by default
+
+      const label = document.createElement("span");
+      label.className = "nav-label";
+      label.textContent = (page.desc || name + page.route).substring(0, 12);
+      a.appendChild(label);
+      container.appendChild(a);
+    }
   }
 }
 

@@ -607,3 +607,14 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return (bytes / Math.pow(1024, i)).toFixed(1) + " " + units[i];
 }
+
+async function fetchPluginPages() {
+  try {
+    const res = await fetch("/api/astrbot/plugin-pages", { cache: "no-store" });
+    const data = await readJsonResponse(res, "读取插件页面列表失败");
+    state.pluginPages = data || {};
+  } catch (err) {
+    state.pluginPages = {};
+  }
+  renderPluginPagesNav();
+}

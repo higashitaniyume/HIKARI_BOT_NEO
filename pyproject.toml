@@ -18,6 +18,7 @@ dependencies = [
     "cairosvg>=2.9.0",
     "yt-dlp[default]>=2026.6.9",
     "deno>=2.9.0",
+    "werkzeug>=3.0",
 ]
 
 [tool.nonebot]

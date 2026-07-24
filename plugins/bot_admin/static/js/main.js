@@ -68,3 +68,4 @@ $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 initNavigation();
 initSidebar();
 fetchState().catch((err) => showToast(err.message, true));
+fetchPluginPages();
