@@ -28,7 +28,7 @@ def create_runtime(config: dict[str, Any]) -> MediaParserRuntime:
         cache_dir=config_manager.download.cache_dir,
         cache_dir_available=config_manager.download.cache_dir_available,
         max_concurrent_downloads=config_manager.download.max_concurrent_downloads,
-        video_cover_only=config_manager.message.video_cover_only,
+        video_cover_only=config_manager.message.media_display.video_cover_only,
     )
     return MediaParserRuntime(
         config=config,
