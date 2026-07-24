@@ -155,7 +155,7 @@ def _get_runtime() -> MediaParserRuntime | None:
         logger.warning("[MediaParser] runtime init skipped: %s", e)
         _runtime_cache = None
         return None
-    if not runtime.config_manager.message.has_any_output():
+    if not runtime.config_manager.parser_output.has_any_output():
         _runtime_cache = None
         return None
 
@@ -328,7 +328,7 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
 
 
 def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
-    text_enabled, rich_enabled = runtime.config_manager.message.output_for_metadata(metadata)
+    text_enabled, rich_enabled = runtime.config_manager.parser_output.output_for_metadata(metadata)
     metadata["_enable_text_metadata"] = text_enabled
     metadata["_enable_rich_media"] = rich_enabled
     if metadata.get("error"):
