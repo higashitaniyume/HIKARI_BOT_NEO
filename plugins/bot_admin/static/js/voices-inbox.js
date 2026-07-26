@@ -674,5 +674,8 @@ function renderAiAgentConfig() {
     select.append(option(personaItem.path, label));
   }
   select.value = (state.aiagentPersonas || []).some((item) => item.path === personaPath) ? personaPath : "";
+
+  const tools = cfg.tools || {};
+  $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
   renderAiAgentTools(false);
 }

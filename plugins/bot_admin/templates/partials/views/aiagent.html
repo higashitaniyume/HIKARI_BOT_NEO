@@ -122,6 +122,11 @@
                     <option value="allowlist">只启用勾选项</option>
                   </select>
                 </label>
+                <label>
+                  <span>最大 Tool 轮次</span>
+                  <input id="aiagentMaxToolRounds" type="number" min="0" max="50" step="1">
+                  <small>单次对话中 AI 调用工具的最大轮次（0=禁用工具调用）</small>
+                </label>
               </div>
             </div>
             <div id="aiagentToolList" class="aiagent-tool-list" aria-live="polite"></div>

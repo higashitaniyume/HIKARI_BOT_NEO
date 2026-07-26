@@ -264,6 +264,7 @@ function buildAiAgentPayload() {
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
     },
     tools: {
+      max_tool_rounds: Number($("#aiagentMaxToolRounds").value),
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
   };

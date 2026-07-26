@@ -64,6 +64,16 @@ def _parse_ai_tool_names(value: Any) -> list[str]:
     return names
 
 
+def _validate_tool_choice(value: Any) -> str | None:
+    """Validate tool_choice: null (None), 'auto', 'none', or 'required'."""
+    if value is None or isinstance(value, str) and value.strip().lower() in {"", "null"}:
+        return None
+    choice = str(value).strip().lower()
+    if choice in ("auto", "none", "required"):
+        return choice
+    return None
+
+
 def _aiagent_plugin_tools_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
     plugin_tools = tools_cfg.get("plugin_tools") if isinstance(tools_cfg.get("plugin_tools"), dict) else {}
@@ -227,6 +237,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
+    current_thinking = current.get("thinking") if isinstance(current.get("thinking"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
@@ -235,6 +246,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    input_thinking = data.get("thinking") if isinstance(data.get("thinking"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
@@ -263,6 +275,11 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
             "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 1024)), 1024, minimum=1, maximum=32000),
             "timeout_seconds": _parse_int(input_model.get("timeout_seconds", current_model.get("timeout_seconds", 60)), 60, minimum=5, maximum=600),
             "proxy": _parse_str(input_model.get("proxy", current_model.get("proxy", "")), max_length=512),
+            "tool_choice": _validate_tool_choice(input_model.get("tool_choice", current_model.get("tool_choice", None))),
+        },
+        "thinking": {
+            "enabled": _parse_bool(input_thinking.get("enabled", current_thinking.get("enabled", True))),
+            "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
         },
         "persona": {
             "skill_path": _parse_str(input_persona.get("skill_path", current_persona.get("skill_path", "BotData/agent_personas/default")), max_length=512),
@@ -279,6 +296,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
             "max_reply_chars": _parse_int(input_chat.get("max_reply_chars", current_chat.get("max_reply_chars", 3500)), 3500, minimum=100, maximum=12000),
             "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
+            "short_reply_chars": _parse_int(input_chat.get("short_reply_chars", current_chat.get("short_reply_chars", 200)), 200, minimum=50, maximum=5000),
             "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
             "blocked_url_domains": current_chat.get("blocked_url_domains", []),
         },
@@ -309,7 +327,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
                 "enabled_names": _parse_ai_tool_names(input_plugin_tools.get("enabled_names", current_plugin_tools.get("enabled_names", []))),
                 "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
             },
-            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 2)), 2, minimum=0, maximum=5),
+            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
