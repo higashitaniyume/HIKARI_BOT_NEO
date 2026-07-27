@@ -118,7 +118,7 @@ interface NeoParseResponse {
 async function parseMediaViaNeo(text: string): Promise<NeoParseResponse | null> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 300_000); // 5 min
+    const timeout = setTimeout(() => controller.abort(), 30 * 60 * 1000); // 30 min（与 NEO 侧 operation_timeout_seconds 对齐）
 
     const response = await fetch(NEO_API_URL, {
       method: 'POST',
