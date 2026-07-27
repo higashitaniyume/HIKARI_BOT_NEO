@@ -6,7 +6,8 @@
     "intents": ["GROUP_AND_C2C_EVENT"],
     "logLevel": "info",
     "removeAt": true,
-    "maxRetry": 10
+    "maxRetry": 10,
+    "timeout": 120000
   },
   "ai": {
     "provider": "deepseek",

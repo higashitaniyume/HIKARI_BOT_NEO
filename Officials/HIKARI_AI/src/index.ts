@@ -280,6 +280,7 @@ async function main(): Promise<void> {
     logLevel: (qqConfig.logLevel ?? 'info') as any,
     removeAt: qqConfig.removeAt ?? true,
     maxRetry: qqConfig.maxRetry ?? 10,
+    timeout: qqConfig.timeout ?? 120_000,  // HTTP 超时（默认 120s，媒体上传需要）
   });
 
   // ── 群聊消息（@机器人） ─────────────────────────────────
