@@ -127,9 +127,9 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "api_timeout": 120,
     "max_links_per_message": 20,
-    "parse_retry_count": 2,
-    "parse_retry_delay_seconds": 2.0,
-    "parse_retry_403_delay_base": 3.0,
+    "parse_retry_count": 4,
+    "parse_retry_delay_seconds": 3.0,
+    "parse_retry_403_delay_base": 5.0,
     "parse_queue": {
         "enabled": True,
         "max_size": 100,

@@ -420,7 +420,29 @@ async def _send_processed_item(item: MediaSendQueueItem) -> None:
         total_sent += await send_metadata_result(item.bot, item.event, metadata, item.config)
         await asyncio.sleep(0.8)
 
-    if total_sent == 0 and not any(metadata.get("_enable_text_metadata") for metadata in item.processed):
+    if total_sent > 0:
+        stats_increment(item.event, "media_parser_parsed", len(item.processed))
+        return
+
+    # All attempts failed — check if we have error metadata to report
+    errors = [
+        m for m in item.processed
+        if m.get("error") and m.get("_enable_text_metadata")
+    ]
+    if errors:
+        err = errors[0]
+        platform = err.get("platform") or err.get("parser_name") or "unknown"
+        raw_reason = str(err.get("error", ""))
+        # Translate known transient errors to user-friendly message
+        if any(p in raw_reason for p in ("-404", "啥都木有", "view error")):
+            reason = "抖音内容暂时不可访问，可能是链接失效或触发了平台限流，请稍后重试"
+        else:
+            reason = f"解析失败：{raw_reason[:120]}"
+        await item.bot.send(
+            item.event,
+            Message(msg("media_parser.metadata_error", platform=platform, reason=reason, url=err.get("source_url", ""))),
+        )
+    elif not any(m.get("_enable_text_metadata") for m in item.processed):
         await item.bot.send(item.event, Message(msg("media_parser.no_media")))
     stats_increment(item.event, "media_parser_parsed", len(item.processed))
 
@@ -540,7 +562,7 @@ async def _prepare_links_with_retries(
             last_result = result
             if attempt >= attempts:
                 return result
-            is_403_retry = _has_403_failure(result)
+            is_403_retry = _has_403_failure(result) or _has_douyin_transient_error(result)
             logger.warning(
                 "[MediaParser] parse/download produced retryable result, retrying in %.1fs -> attempt=%d/%d reason=%s",
                 _pick_retry_delay(delay_seconds, delay_403_base, attempt, is_403_error=is_403_retry),
@@ -563,10 +585,24 @@ def _pick_retry_delay(
     *,
     is_403_error: bool = False,
 ) -> float:
-    """当 403 错误时使用指数递增延时，否则用固定延时。"""
+    """当 403 或服务端瞬时错误时使用指数递增延时，否则用固定延时。"""
     if not is_403_error:
         return normal_delay
     return delay_403_base * (2 ** (attempt - 1))
+
+
+_DOUYIN_TRANSIENT_PATTERNS = (
+    "-404",
+    "啥都木有",
+    "view error",
+    "内容暂时无法",
+)
+
+
+def _has_douyin_transient_error(result: MediaPrepareAttempt) -> bool:
+    """判断是否抖音服务端瞬时错误（触发更长的退避重试）。"""
+    reason = _prepare_retry_reason(result)
+    return any(pattern in reason for pattern in _DOUYIN_TRANSIENT_PATTERNS)
 
 
 async def _prepare_links_once(
