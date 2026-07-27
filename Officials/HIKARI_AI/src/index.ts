@@ -237,12 +237,19 @@ ${item.source_url}`);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error(`${tag}   └─ ⚠️  发送 ${file.type} 失败: ${errMsg}`);
-        if (file.type === 'video' && item.source_url) {
+
+        // API 限制（文件过大 413 / 超时等），用文本+原文链接兑底
+        if (item.source_url) {
           const textParts = [`[${item.platform}]`];
           if (item.title) textParts.push(item.title);
           if (item.author) textParts.push(`— ${item.author}`);
-          textParts.push(`
-视频发送失败，点击查看原文: ${item.source_url}`);
+          if (errMsg.includes('413') || errMsg.includes('Too Large') || errMsg.includes('过大')) {
+            textParts.push(`
+文件过大(${fmtBytes(file.size)})无法直接发送，请点击原文查看: ${item.source_url}`);
+          } else {
+            textParts.push(`
+${item.source_url}`);
+          }
           sentTexts.push(textParts.join(' '));
         }
       }
