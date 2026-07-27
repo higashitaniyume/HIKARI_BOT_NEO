@@ -227,18 +227,6 @@ ${item.source_url}`);
 
     for (const file of item.files) {
       try {
-        if (file.type === 'video' && file.size > 8 * 1024 * 1024) {
-          console.log(`${tag}   └─ ⏭️  视频过大 (${fmtBytes(file.size)})，改用文本发送`);
-          const textParts = [`[${item.platform}]`];
-          if (item.title) textParts.push(item.title);
-          if (item.author) textParts.push(`— ${item.author}`);
-          if (item.source_url) textParts.push(`
-原文: ${item.source_url}`);
-          textParts.push('视频过大无法直接发送，请点击原文查看');
-          sentTexts.push(textParts.join(' '));
-          continue;
-        }
-
         if (file.type === 'video') {
           await event.reply(segment.video(file.path));
         } else {
