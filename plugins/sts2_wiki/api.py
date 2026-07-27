@@ -1,15 +1,29 @@
 from __future__ import annotations
 
-import html
 import re
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
 import httpx
 
 from .models import Sts2WikiCandidate, Sts2WikiResult
+from .spire import (
+    _compact_key,
+    _endpoint_label,
+    _search_categories,
+    _spire_candidate,
+    _spire_summary,
+)
+from .utils import (
+    _clean_wikitext,
+    _coerce_mw_text,
+    _extract_intro_from_html,
+    _first_paragraph,
+    _normalize_text,
+    _strip_html,
+    _truncate,
+)
 
 
 class Sts2WikiError(RuntimeError):
@@ -25,42 +39,6 @@ class _PageContent:
     title: str
     extract: str
     url: str
-
-
-class _IntroTextParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self._skip_depth = 0
-        self._paragraph_depth = 0
-        self._current: list[str] = []
-        self.paragraphs: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag in {"script", "style", "table", "nav"}:
-            self._skip_depth += 1
-            return
-        if self._skip_depth:
-            return
-        if tag == "p":
-            self._paragraph_depth += 1
-            self._current = []
-
-    def handle_endtag(self, tag: str) -> None:
-        if self._skip_depth:
-            if tag in {"script", "style", "table", "nav"}:
-                self._skip_depth = max(0, self._skip_depth - 1)
-            return
-        if tag == "p" and self._paragraph_depth:
-            text = _normalize_text("".join(self._current))
-            if text:
-                self.paragraphs.append(text)
-            self._paragraph_depth -= 1
-            self._current = []
-
-    def handle_data(self, data: str) -> None:
-        if self._skip_depth or not self._paragraph_depth:
-            return
-        self._current.append(data)
 
 
 class Sts2WikiClient:
@@ -320,17 +298,6 @@ class Sts2WikiClient:
         return url
 
 
-@dataclass(slots=True)
-class _SpireCandidate:
-    endpoint: str
-    item_id: str
-    name: str
-    summary: str
-    extract: str
-    exact_name: bool
-    score: int
-
-
 def _query_pages(data: dict[str, Any]) -> list[dict[str, Any]]:
     query = data.get("query") if isinstance(data.get("query"), dict) else {}
     pages = query.get("pages") if isinstance(query, dict) else None
@@ -339,255 +306,3 @@ def _query_pages(data: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(pages, dict):
         return [page for page in pages.values() if isinstance(page, dict)]
     return []
-
-
-_DEFAULT_SEARCH_CATEGORIES = (
-    "cards",
-    "characters",
-    "relics",
-    "potions",
-    "powers",
-    "keywords",
-    "monsters",
-    "events",
-)
-
-_ENDPOINT_LABELS = {
-    "cards": "卡牌",
-    "characters": "角色",
-    "relics": "遗物",
-    "potions": "药水",
-    "powers": "能力效果",
-    "keywords": "关键词",
-    "monsters": "怪物",
-    "events": "事件",
-    "encounters": "遭遇",
-    "acts": "章节",
-    "ascensions": "进阶",
-    "orbs": "充能球",
-    "afflictions": "苦痛",
-    "modifiers": "修正",
-    "achievements": "成就",
-}
-
-_CHARACTER_LABELS = {
-    "ironclad": "铁甲战士",
-    "silent": "静默猎手",
-    "defect": "故障机器人",
-    "regent": "储君",
-    "necrobinder": "亡灵契约师",
-    "shared": "通用",
-    "colorless": "无色",
-    "token": "衍生",
-}
-
-
-def _search_categories(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        return _DEFAULT_SEARCH_CATEGORIES
-    categories = [str(item).strip() for item in value if str(item).strip()]
-    return tuple(categories) or _DEFAULT_SEARCH_CATEGORIES
-
-
-def _endpoint_label(endpoint: str) -> str:
-    return _ENDPOINT_LABELS.get(endpoint, endpoint)
-
-
-def _spire_candidate(endpoint: str, item: dict[str, Any], query_key: str, index: int) -> _SpireCandidate | None:
-    item_id = str(item.get("id") or "").strip()
-    name = str(item.get("name") or "").strip()
-    if not item_id or not name:
-        return None
-
-    fields = _spire_text_fields(item)
-    haystack = _compact_key(" ".join([name, *fields]))
-    name_key = _compact_key(name)
-    exact_name = bool(query_key and name_key == query_key)
-    if query_key and query_key not in haystack:
-        return None
-
-    summary = _spire_summary(endpoint, item)
-    extract = _spire_extract(endpoint, item)
-    score = _spire_score(endpoint, name_key, haystack, query_key, index)
-    return _SpireCandidate(
-        endpoint=endpoint,
-        item_id=item_id,
-        name=name,
-        summary=summary,
-        extract=extract,
-        exact_name=exact_name,
-        score=score,
-    )
-
-
-def _spire_text_fields(item: dict[str, Any]) -> list[str]:
-    fields: list[str] = []
-    for key in ("description", "flavor", "type", "rarity", "pool", "color"):
-        value = item.get(key)
-        if isinstance(value, str):
-            fields.append(value)
-    tags = item.get("tags")
-    if isinstance(tags, list):
-        fields.extend(str(tag) for tag in tags)
-    return fields
-
-
-def _spire_score(endpoint: str, name_key: str, haystack: str, query_key: str, index: int) -> int:
-    endpoint_rank = list(_DEFAULT_SEARCH_CATEGORIES).index(endpoint) if endpoint in _DEFAULT_SEARCH_CATEGORIES else 99
-    score = 1000 - endpoint_rank * 20 - index
-    if query_key and name_key == query_key:
-        score += 10000
-    elif query_key and name_key.startswith(query_key):
-        score += 3000
-    elif query_key and query_key in name_key:
-        score += 1500
-    elif query_key and query_key in haystack:
-        score += 100
-    return score
-
-
-def _spire_summary(endpoint: str, item: dict[str, Any]) -> str:
-    parts = [_endpoint_label(endpoint)]
-    if endpoint == "cards":
-        parts.extend(
-            part
-            for part in (
-                _character_label(item.get("color")),
-                _safe_text(item.get("type")),
-                _safe_text(item.get("rarity")),
-                _cost_label(item),
-            )
-            if part
-        )
-    elif endpoint in {"relics", "potions"}:
-        parts.extend(part for part in (_character_label(item.get("pool")), _safe_text(item.get("rarity"))) if part)
-    elif endpoint == "characters":
-        parts.extend(
-            part
-            for part in (
-                f"生命 {item.get('starting_hp')}" if item.get("starting_hp") is not None else "",
-                f"初始金币 {item.get('starting_gold')}" if item.get("starting_gold") is not None else "",
-                f"能量 {item.get('max_energy')}" if item.get("max_energy") is not None else "",
-            )
-            if part
-        )
-    elif endpoint == "monsters":
-        parts.append(_safe_text(item.get("type")))
-    return " · ".join(part for part in parts if part)
-
-
-def _spire_extract(endpoint: str, item: dict[str, Any]) -> str:
-    lines = [_spire_summary(endpoint, item)]
-    description = _strip_spire_markup(_safe_text(item.get("description")))
-    if description:
-        lines.append(description)
-
-    if endpoint == "cards":
-        upgrade = _strip_spire_markup(_safe_text(item.get("upgrade_description")))
-        if upgrade and upgrade != description:
-            lines.append(f"升级：{upgrade}")
-    flavor = _strip_spire_markup(_safe_text(item.get("flavor")))
-    if flavor:
-        lines.append(f"描述：{flavor}")
-    return "\n".join(line for line in lines if line)
-
-
-def _safe_text(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
-def _character_label(value: Any) -> str:
-    key = str(value or "").strip().casefold()
-    return _CHARACTER_LABELS.get(key, str(value).strip() if value else "")
-
-
-def _cost_label(item: dict[str, Any]) -> str:
-    if item.get("is_x_cost"):
-        return "费用 X"
-    if item.get("is_x_star_cost"):
-        return "星能 X"
-    star_cost = item.get("star_cost")
-    if star_cost is not None:
-        return f"星能 {star_cost}"
-    cost = item.get("cost")
-    if cost is None:
-        return ""
-    return f"费用 {cost}"
-
-
-def _strip_spire_markup(value: str) -> str:
-    text = value
-    text = re.sub(r"\[energy:(\d+)\]", r"\1费", text)
-    text = re.sub(r"\[star:(\d+)\]", r"\1星", text)
-    text = re.sub(r"\[/?[a-z]+(?:[:=][^\]]+)?\]", "", text, flags=re.IGNORECASE)
-    text = html.unescape(text)
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
-def _compact_key(value: str) -> str:
-    return re.sub(r"\s+", "", value.strip().casefold())
-
-
-def _coerce_mw_text(value: Any) -> str:
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        raw = value.get("*")
-        return raw if isinstance(raw, str) else ""
-    return ""
-
-
-def _extract_intro_from_html(value: str) -> str:
-    if not value:
-        return ""
-    parser = _IntroTextParser()
-    parser.feed(value)
-    return "\n\n".join(parser.paragraphs).strip()
-
-
-def _strip_html(value: str) -> str:
-    return re.sub(r"<[^>]+>", " ", value)
-
-
-def _clean_wikitext(value: str) -> str:
-    text = value.strip()
-    if not text:
-        return ""
-    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
-    for _ in range(6):
-        updated = re.sub(r"\{\{[^{}]*\}\}", " ", text, flags=re.DOTALL)
-        if updated == text:
-            break
-        text = updated
-    text = re.sub(r"'''?", "", text)
-    text = re.sub(r"\[\[(?:[^|\]]+\|)?([^\]]+)\]\]", r"\1", text)
-    text = re.sub(r"\[https?://[^\s\]]+\s+([^\]]+)\]", r"\1", text)
-    text = re.sub(r"={2,}[^=\n]+={2,}.*", "", text, flags=re.DOTALL)
-    return _normalize_text(text)
-
-
-def _normalize_text(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    text = html.unescape(value)
-    text = re.sub(r"\[\s*\d+\s*\]", "", text)
-    paragraphs = re.split(r"(?:\r?\n){2,}", text)
-    lines: list[str] = []
-    for paragraph in paragraphs:
-        line = re.sub(r"\s+", " ", paragraph).strip()
-        if line:
-            lines.append(line)
-    return "\n\n".join(lines)
-
-
-def _first_paragraph(value: str) -> str:
-    return value.strip().split("\n", 1)[0].strip()
-
-
-def _truncate(value: str, max_chars: int) -> str:
-    text = value.strip()
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 1].rstrip() + "…"

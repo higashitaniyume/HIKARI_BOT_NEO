@@ -6,8 +6,8 @@ from typing import Any
 
 from core.ai_tool_registry import iter_ai_tools
 from plugins.aiagent.config import get_config as get_aiagent_config
-from plugins.aiagent.config import list_persona_skills as list_aiagent_persona_skills
-from plugins.aiagent.config import resolve_persona_path as resolve_aiagent_persona_path
+from plugins.aiagent.persona import list_persona_skills as list_aiagent_persona_skills
+from plugins.aiagent.persona import resolve_persona_path as resolve_aiagent_persona_path
 from plugins.aiagent.config import save_config as save_aiagent_config
 from plugins.tts_speaker.config import DEFAULT_VOICES
 from plugins.tts_speaker.config import get_config as get_tts_config

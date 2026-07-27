@@ -20,7 +20,8 @@ from core.command_router import CommandContext, command, is_command_handled, mar
 from core.stats_tracker import increment as stats_increment
 
 from .client import AIAgentRequestError, request_chat_completion
-from .config import get_config, load_persona_prompt
+from .config import get_config
+from .persona import load_persona_prompt
 from .memory import (
     append_memory,
     clear_memory,
