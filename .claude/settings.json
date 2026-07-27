@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.iesdouyin.com)",
+      "WebFetch(domain:www.douyin.com)",
+      "Bash(curl -s -L -A \"Mozilla/5.0 \\(Linux; Android 8.0.0; SM-G955U Build/R16NW\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/116.0.0.0 Mobile Safari/537.36\" -H \"Referer: https://www.douyin.com/\" \"https://www.iesdouyin.com/share/note/7666361758289857811/\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -A \"Mozilla/5.0 \\(Linux; Android 8.0.0; SM-G955U Build/R16NW\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/116.0.0.0 Mobile Safari/537.36\" -H \"Referer: https://www.douyin.com/\" \"https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/?aweme_ids=[7666361758289857811]&request_source=200\")",
+      "Bash(curl -s -v -A \"Mozilla/5.0 \\(Linux; Android 8.0.0; SM-G955U Build/R16NW\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/116.0.0.0 Mobile Safari/537.36\" -H \"Referer: https://www.douyin.com/\" \"https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/?aweme_ids=[7666361758289857811]&request_source=200\")",
+      "Bash(curl -s -v -A \"Mozilla/5.0 \\(Linux; Android 8.0.0; SM-G955U Build/R16NW\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/116.0.0.0 Mobile Safari/537.36\" \"https://v.douyin.com/u9aV6poavRE/\")"
+    ]
+  }
+}
