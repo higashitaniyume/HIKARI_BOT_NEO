@@ -339,13 +339,29 @@ class MediaDetailWebHandler(BaseHTTPRequestHandler):
 
 
 def _is_trusted_ip(ip: str) -> bool:
-    """Check if client IP is in the trusted LAN range."""
-    return (
-        ip == "127.0.0.1"
-        or ip == "::1"
-        or ip == "::ffff:127.0.0.1"
-        or ip.startswith("192.168.31.")
-    )
+    """Check if client IP is from a trusted private network.
+
+    Allows:
+    - Localhost (IPv4/IPv6)
+    - Docker internal networks (172.x.x.x, 10.x.x.x)
+    - LAN (192.168.x.x)
+    """
+    if ip == "127.0.0.1" or ip == "::1" or ip == "::ffff:127.0.0.1":
+        return True
+    # Docker internal: 172.x.x.x (172.17.0.0/12 range)
+    if ip.startswith("172."):
+        parts = ip.split(".")
+        if len(parts) == 4:
+            second = int(parts[1])
+            if 16 <= second <= 31:
+                return True
+    # Docker / compose: 10.x.x.x
+    if ip.startswith("10."):
+        return True
+    # LAN: 192.168.x.x
+    if ip.startswith("192.168."):
+        return True
+    return False
 
 
 def _content_disposition(filename: str, download: bool) -> str:
