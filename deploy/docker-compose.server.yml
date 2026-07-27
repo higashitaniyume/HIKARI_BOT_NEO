@@ -86,7 +86,31 @@ services:
     volumes:
       - searxng_valkey_data:/data
 
+  # ── HIKARI_AI: QQ 官方机器人（由 DeepSeek V4 驱动 + NEO 协同媒体解析） ──
+  hikari-ai:
+    image: node:22-slim
+    container_name: hikari-ai
+    restart: unless-stopped
+    depends_on:
+      - hikaribot
+    environment:
+      TZ: Asia/Shanghai
+      NODE_ENV: production
+    working_dir: /app
+    volumes:
+      - ./app/Officials/HIKARI_AI:/app
+      - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
+      - hikari_ai_node_modules:/app/node_modules
+    command: >
+      sh -c "
+        npm install -g pnpm@11 &&
+        pnpm install --frozen-lockfile &&
+        pnpm build &&
+        exec node dist/index.js
+      "
+
 volumes:
   hikaribot_venv:
+  hikari_ai_node_modules:
   searxng_core_data:
   searxng_valkey_data:

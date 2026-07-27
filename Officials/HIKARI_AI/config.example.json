@@ -1,0 +1,26 @@
+{
+  "qqbot": {
+    "appid": "YOUR_APPID",
+    "secret": "YOUR_APPSECRET",
+    "sandbox": true,
+    "intents": ["GROUP_AND_C2C_EVENT"],
+    "logLevel": "info",
+    "removeAt": true,
+    "maxRetry": 10
+  },
+  "ai": {
+    "provider": "deepseek",
+    "baseURL": "https://api.deepseek.com",
+    "apiKey": "YOUR_DEEPSEEK_API_KEY",
+    "model": "deepseek-v4-flash",
+    "maxTokens": 2048,
+    "temperature": 0.7,
+    "topP": 1.0,
+    "systemPrompt": "你是 Hikari，一个由 DeepSeek V4 驱动的智能助手。",
+    "historySize": 10,
+    "enableGroupChat": true,
+    "enablePrivateChat": true,
+    "thinkingMode": "disabled",
+    "reasoningEffort": "high"
+  }
+}

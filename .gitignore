@@ -29,6 +29,7 @@ dotenv*
 
 # Config files with secrets (templates in *.example.json)
 BotData/config.json
+BotData/hikari_ai_config.json
 BotData/plugin_configs/*.json
 !BotData/plugin_configs/*.example.json
 BotData/resources/*.json

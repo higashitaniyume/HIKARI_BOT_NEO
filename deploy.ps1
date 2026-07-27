@@ -157,8 +157,8 @@ if ($Local) {
     Write-VersionFile
 
     Write-Host "从当前源码目录启动本机 hikaribot（不构建镜像）..." -ForegroundColor Yellow
-    docker compose -f $LocalCompose up -d --no-deps hikaribot
-    docker compose -f $LocalCompose restart hikaribot
+    docker compose -f $LocalCompose up -d --no-deps hikari-ai hikaribot
+    docker compose -f $LocalCompose restart hikaribot hikari-ai
 
     Write-Host "本地 hikaribot 已启动。" -ForegroundColor Green
     Write-Host "日志: docker compose -f `"$LocalCompose`" logs -f hikaribot" -ForegroundColor Gray
@@ -211,6 +211,20 @@ try {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# 同步 HIKARI_AI 的 config.json（gitignored 不会出现在主封包中）
+$localAiConfig = Join-Path $ProjectRoot "Officials\HIKARI_AI\config.json"
+if (Test-Path $localAiConfig) {
+    Write-Host "同步 HIKARI_AI 配置文件..." -ForegroundColor Yellow
+    $remoteAiConfigDir = "$DeployPath/app/Officials/HIKARI_AI/config.json"
+    scp -- $localAiConfig "${ServerUser}@${ServerIP}:$remoteAiConfigDir"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "⚠️  HIKARI_AI 配置文件同步失败，请手动上传。" -ForegroundColor Red
+    }
+} else {
+    Write-Host "⚠️  未找到 Officials/HIKARI_AI/config.json，请先创建。" -ForegroundColor Yellow
+    Write-Host "   参考: cp Officials/HIKARI_AI/config.example.json Officials/HIKARI_AI/config.json" -ForegroundColor Gray
+}
+
 $quotedSearxngSettingsPath = Quote-RemoteSingle "$DeployPath/searxng/core-config/settings.yml"
 $quotedSearxngTemplatePath = Quote-RemoteSingle "$DeployPath/app/deploy/searxng/core-config/settings.yml"
 Run-Remote "if [ ! -f $quotedSearxngSettingsPath ]; then cp $quotedSearxngTemplatePath $quotedSearxngSettingsPath && secret=`$(openssl rand -hex 32 2>/dev/null || date +%s) && sed -i `"s/__SEARXNG_SECRET__/`$secret/g`" $quotedSearxngSettingsPath; fi"
@@ -227,9 +241,9 @@ Run-Remote "cd $quotedDeployPath && docker compose config -q"
 
 Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -ForegroundColor Yellow
 if ($AllServices) {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot hikari-ai"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot napcat cobalt searxng searxng-valkey --remove-orphans && docker compose restart hikaribot"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot napcat cobalt searxng searxng-valkey --remove-orphans && docker compose restart hikaribot hikari-ai"
 }
 
 Write-Host ""

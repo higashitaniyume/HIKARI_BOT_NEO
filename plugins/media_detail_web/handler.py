@@ -74,6 +74,9 @@ class MediaDetailWebHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/parse_external":
+            self._handle_parse_external()
+            return
         if path != "/api/parse":
             self._send_json({"error": "页面不存在。"}, 404)
             return
@@ -269,6 +272,80 @@ class MediaDetailWebHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             raise
+
+    # ── Cross-bot API: media parsing for HIKARI_AI ──────────────
+
+    def _handle_parse_external(self) -> None:
+        """Handle /api/parse_external — for HIKARI_AI cross-bot media forwarding.
+
+        Restricted to LAN (192.168.31.x) and localhost.
+        Returns file paths in the shared volume (/tmp/hikari_bot) that HIKARI_AI
+        can access directly.
+        """
+        client_ip = self.client_address[0]
+        if not _is_trusted_ip(client_ip):
+            logger.warning("[MediaDetailWeb] external parse rejected from %s", client_ip)
+            self._send_json({"success": False, "error": "拒绝访问"}, 403)
+            return
+
+        try:
+            payload = self._read_json_body()
+            text = str(payload.get("url") or payload.get("text") or "").strip()
+            if not text:
+                self._send_json({"success": False, "error": "缺少 URL 参数"}, 400)
+                return
+
+            timeout = max(30, int(get_config().get("operation_timeout_seconds", 1800)))
+            result = asyncio.run(asyncio.wait_for(
+                parse_media_text(text, download=True),
+                timeout=timeout,
+            ))
+
+            results: list[dict[str, Any]] = []
+            for item in result.get("items", []):
+                item_result: dict[str, Any] = {
+                    "success": not bool(item.get("error")),
+                    "platform": item.get("platform", "unknown"),
+                    "title": item.get("title", ""),
+                    "author": item.get("author", ""),
+                    "source_url": item.get("source_url", ""),
+                    "files": [],
+                }
+                if item.get("error"):
+                    item_result["error"] = item["error"]
+
+                for media in item.get("media", []):
+                    token = media.get("token")
+                    if not token:
+                        continue
+                    entry = get_entry(token)
+                    if entry is not None and entry.path is not None:
+                        item_result["files"].append({
+                            "path": str(entry.path),
+                            "type": entry.kind,
+                            "size": entry.size_bytes,
+                        })
+
+                results.append(item_result)
+
+            self._send_json({"success": True, "results": results})
+        except asyncio.TimeoutError:
+            self._send_json({"success": False, "error": "解析超时"}, 504)
+        except ValueError as e:
+            self._send_json({"success": False, "error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("[MediaDetailWeb] external parse failed: %s", e)
+            self._send_json({"success": False, "error": "解析失败"}, 500)
+
+
+def _is_trusted_ip(ip: str) -> bool:
+    """Check if client IP is in the trusted LAN range."""
+    return (
+        ip == "127.0.0.1"
+        or ip == "::1"
+        or ip == "::ffff:127.0.0.1"
+        or ip.startswith("192.168.31.")
+    )
 
 
 def _content_disposition(filename: str, download: bool) -> str:
