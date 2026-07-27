@@ -12,7 +12,7 @@ from core.bot_messages import get_message as msg
 
 from .tools import available_tools, execute_tool_call
 from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
-from .wiki import _prefetch_wiki_priority_tools
+from .wiki import _latest_user_text, _prefetch_wiki_priority_tools
 
 logger = logging.getLogger("HikariBot.AIAgent.Client")
 
