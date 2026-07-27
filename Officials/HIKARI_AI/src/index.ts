@@ -202,6 +202,7 @@ async function handleMediaLinks(event: any, text: string, tag: string): Promise<
   let sentCount = 0;
   let totalBytes = 0;
   const platformSummary: string[] = [];
+  const sentTexts: string[] = [];
 
   for (const item of result.results) {
     if (!item.success) {
@@ -210,6 +211,14 @@ async function handleMediaLinks(event: any, text: string, tag: string): Promise<
     }
     if (!item.files?.length) {
       console.log(`${tag}   └─ ${item.platform}: 无媒体文件（可能为远程链接）`);
+      if (item.title || item.author) {
+        const textParts = [`[${item.platform}]`];
+        if (item.title) textParts.push(item.title);
+        if (item.author) textParts.push(`— ${item.author}`);
+        if (item.source_url) textParts.push(`
+${item.source_url}`);
+        sentTexts.push(textParts.join(' '));
+      }
       continue;
     }
 
@@ -218,6 +227,18 @@ async function handleMediaLinks(event: any, text: string, tag: string): Promise<
 
     for (const file of item.files) {
       try {
+        if (file.type === 'video' && file.size > 8 * 1024 * 1024) {
+          console.log(`${tag}   └─ ⏭️  视频过大 (${fmtBytes(file.size)})，改用文本发送`);
+          const textParts = [`[${item.platform}]`];
+          if (item.title) textParts.push(item.title);
+          if (item.author) textParts.push(`— ${item.author}`);
+          if (item.source_url) textParts.push(`
+原文: ${item.source_url}`);
+          textParts.push('视频过大无法直接发送，请点击原文查看');
+          sentTexts.push(textParts.join(' '));
+          continue;
+        }
+
         if (file.type === 'video') {
           await event.reply(segment.video(file.path));
         } else {
@@ -226,17 +247,35 @@ async function handleMediaLinks(event: any, text: string, tag: string): Promise<
         sentCount++;
         totalBytes += file.size;
       } catch (err) {
-        console.error(`${tag}   └─ ⚠️  发送 ${file.type} 失败 (${file.path}):`, err instanceof Error ? err.message : err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`${tag}   └─ ⚠️  发送 ${file.type} 失败: ${errMsg}`);
+        if (file.type === 'video' && item.source_url) {
+          const textParts = [`[${item.platform}]`];
+          if (item.title) textParts.push(item.title);
+          if (item.author) textParts.push(`— ${item.author}`);
+          textParts.push(`
+视频发送失败，点击查看原文: ${item.source_url}`);
+          sentTexts.push(textParts.join(' '));
+        }
       }
     }
     platformSummary.push(`${item.platform}(${item.files.length}个)`);
   }
 
+  // 发送文本兜底（无媒体 / 视频过大 / 发送失败时的替代文本）
+  for (const text of sentTexts) {
+    try {
+      await event.reply(text);
+    } catch (err) {
+      console.error(`${tag}   └─ ⚠️  发送兜底文本失败:`, err instanceof Error ? err.message : err);
+    }
+  }
+
   const elapsed = Date.now() - startedAt;
-  if (sentCount === 0) {
-    console.warn(`${tag} ⚠️  未能发送任何媒体文件 (${fmtDuration(elapsed)})`);
+  if (sentCount === 0 && sentTexts.length === 0) {
+    console.warn(`${tag} ⚠️  未能发送任何媒体或文本 (${fmtDuration(elapsed)})`);
     await event.reply('媒体解析失败，无法获取媒体文件').catch(() => {});
-  } else {
+  } else if (sentCount > 0) {
     console.log(`${tag} ✅ 媒体解析完成: ${platformSummary.join(', ')} | 共 ${sentCount} 个文件 ${fmtBytes(totalBytes)} | 耗时 ${fmtDuration(elapsed)}`);
   }
 
