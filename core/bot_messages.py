@@ -296,6 +296,10 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "pack_info": "📦 打包完成 → {name}（{count} 首）",
         "pack_failed": "❌ 打包失败，没有可用的音频文件。",
     },
+    "soundcloud": {
+        "failed": "SoundCloud 音频下载失败：{reason}",
+        "info": "SoundCloud 音频下载完成\n标题：{title}\n作者：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}",
+    },
     "tts": {
         "usage": "用法：说话 <文本>",
         "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>",

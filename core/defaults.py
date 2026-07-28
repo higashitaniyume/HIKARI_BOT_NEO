@@ -266,6 +266,23 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
+DEFAULT_SOUNDCLOUD_PARSER_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "auto_parse": True,
+    "max_links_per_message": 3,
+    "max_file_mb": 50,
+    "send_link_info": True,
+    "send_strategy": "record",  # "record" = MessageSegment.record(), "upload" = upload_group_file
+    "download_timeout": 600,
+    "socket_timeout": 30,
+    "retries": 3,
+    "cache_dir": "/tmp/hikari_bot/soundcloud",
+    "cache_ttl_seconds": 600,
+    "preferred_codec": "m4a",
+    "cookiefile": "",
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
+}
+
 DEFAULT_STICKER_CONFIG: dict[str, Any] = {
     "triggers": {
         "capoo_gif": ["capoo", "猫猫虫"],
