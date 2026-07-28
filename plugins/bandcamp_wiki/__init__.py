@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from nonebot.adapters.onebot.v11 import Message, MessageSegment
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
 
 from core.ai_tool_registry import AIToolContext, register_ai_tool
+from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
@@ -28,44 +29,6 @@ _TYPE_ICON = {
     "track": "🎵",
     "artist/label": "🏷️",
 }
-
-
-def _format_results(results: BandcampSearchResults) -> str:
-    """Format search results as a compact text list."""
-    lines = [msg("bandcamp.search_header", query=results.query)]
-    for i, r in enumerate(results.results, 1):
-        icon = _TYPE_ICON.get(r.type, "📄")
-        artist_info = f" — {r.artist}" if r.artist else ""
-        lines.append(
-            msg(
-                "bandcamp.result_item",
-                index=i,
-                icon=icon,
-                type=r.type,
-                title=r.title,
-                artist=artist_info,
-            )
-        )
-        if r.description:
-            lines.append(f"     {r.description[:120]}")
-    # Append URLs
-    for i, r in enumerate(results.results, 1):
-        lines.append(f"  {i}. {r.url}")
-    return "\n".join(lines)
-
-
-def _format_single(result: BandcampResult) -> str:
-    """Format a single page result with full detail."""
-    icon = _TYPE_ICON.get(result.type, "📄")
-    lines = [
-        f"{icon} {result.title}",
-    ]
-    if result.artist:
-        lines.append(f"  作者: {result.artist}")
-    if result.description:
-        lines.append(f"  简介: {result.description[:300]}")
-    lines.append(f"  {result.url}")
-    return "\n".join(lines)
 
 
 def _is_url_like(query: str) -> bool:
@@ -241,22 +204,102 @@ async def handle_bandcamp(ctx: CommandContext) -> None:
 
 
 async def _send_results(ctx: CommandContext, results: BandcampSearchResults) -> None:
-    text = _format_results(results)
-    await ctx.send(Message(text))
+    nodes = _build_search_nodes(ctx.bot.self_id, results)
+    try:
+        await _send_forward(ctx, nodes)
+    except Exception as exc:
+        logger.warning("[Bandcamp] 合并转发失败 query=%r error=%s", results.query, exc)
+        await _send_separate_search(ctx, results)
 
-    # Send thumbnail of the first hit if available
-    first = results.results[0]
-    if first.thumbnail:
-        try:
-            caption = msg("bandcamp.thumbnail", title=first.title)
-            await ctx.send(Message(caption + "\n") + MessageSegment.image(first.thumbnail))
-        except Exception as exc:
-            logger.debug("[Bandcamp] 缩略图发送失败: %s", exc)
+
+def _build_search_nodes(self_id: str, results: BandcampSearchResults) -> list[MessageSegment]:
+    nodes: list[MessageSegment] = []
+    # Header
+    header = msg("bandcamp.search_header", query=results.query)
+    nodes.append(_node(self_id, Message(header)))
+    # Each result as a node
+    for i, r in enumerate(results.results, 1):
+        icon = _TYPE_ICON.get(r.type, "📄")
+        artist_info = f" — {r.artist}" if r.artist else ""
+        line = msg("bandcamp.result_item", index=i, icon=icon, type=r.type, title=r.title, artist=artist_info)
+        if r.description:
+            line += f"\n{r.description[:200]}"
+        line += f"\n{r.url}"
+        nodes.append(_node(self_id, Message(line)))
+    return nodes
+
+
+async def _send_forward(ctx: CommandContext, nodes: list[MessageSegment]) -> None:
+    if isinstance(ctx.event, GroupMessageEvent):
+        await ctx.bot.send_group_forward_msg(group_id=ctx.event.group_id, messages=nodes)
+        return
+    await ctx.bot.send_private_forward_msg(user_id=int(ctx.event.get_user_id()), messages=nodes)
+
+
+def _node(self_id: str, content: Message) -> MessageSegment:
+    return MessageSegment.node_custom(
+        user_id=int(self_id),
+        nickname=get_bot_name(),
+        content=content,
+    )
+
+
+async def _send_separate_search(ctx: CommandContext, results: BandcampSearchResults) -> None:
+    header = msg("bandcamp.search_header", query=results.query)
+    await ctx.send(Message(header))
+    for r in results.results:
+        icon = _TYPE_ICON.get(r.type, "📄")
+        artist_info = f" — {r.artist}" if r.artist else ""
+        line = msg("bandcamp.result_item", index=0, icon=icon, type=r.type, title=r.title, artist=artist_info)
+        if r.description:
+            line += f"\n{r.description[:200]}"
+        line += f"\n{r.url}"
+        await ctx.send(Message(line))
 
 
 async def _send_single(ctx: CommandContext, result: BandcampResult) -> None:
-    text = _format_single(result)
-    await ctx.send(Message(text))
+    nodes = _build_single_nodes(ctx.bot.self_id, result)
+    try:
+        await _send_forward(ctx, nodes)
+    except Exception as exc:
+        logger.warning("[Bandcamp] 合并转发失败 title=%r error=%s", result.title, exc)
+        await _send_separate_single(ctx, result)
+
+
+def _build_single_nodes(self_id: str, result: BandcampResult) -> list[MessageSegment]:
+    nodes: list[MessageSegment] = []
+    icon = _TYPE_ICON.get(result.type, "📄")
+    lines = [f"{icon} {result.title}"]
+    if result.artist:
+        lines.append(f"  作者: {result.artist}")
+    lines.append(f"  {result.url}")
+    nodes.append(_node(self_id, Message("\n".join(lines))))
+
+    if result.description:
+        nodes.append(_node(self_id, Message(result.description[:500])))
+
+    if result.thumbnail:
+        try:
+            caption = msg("bandcamp.thumbnail", title=result.title)
+            nodes.append(
+                _node(self_id, Message(caption + "\n") + MessageSegment.image(result.thumbnail))
+            )
+        except Exception as exc:
+            logger.debug("[Bandcamp] 缩略图节点构建失败: %s", exc)
+
+    return nodes
+
+
+async def _send_separate_single(ctx: CommandContext, result: BandcampResult) -> None:
+    icon = _TYPE_ICON.get(result.type, "📄")
+    lines = [f"{icon} {result.title}"]
+    if result.artist:
+        lines.append(f"  作者: {result.artist}")
+    lines.append(f"  {result.url}")
+    await ctx.send(Message("\n".join(lines)))
+
+    if result.description:
+        await ctx.send(Message(result.description[:500]))
 
     if result.thumbnail:
         try:
