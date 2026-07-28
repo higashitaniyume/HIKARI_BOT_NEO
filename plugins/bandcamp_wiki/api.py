@@ -474,3 +474,97 @@ class BandcampClient:
 
 # Import asyncio for gather used in cross-referencing
 import asyncio  # noqa: E402
+
+
+# -- Netease direct search (reverse direction) ---------------------------------
+
+# Type mapping from filter keyword to Netease API type
+_NETEASE_TYPE_MAP: dict[str, int] = {
+    "album": 10,
+    "track": 1,
+    "song": 1,
+    "artist": 100,
+    "label": 100,
+    "artist/label": 100,
+}
+
+
+async def search_netease(
+    api_base: str,
+    query: str,
+    type_filter: str | None = None,
+    limit: int = 5,
+    timeout: float = 15,
+) -> list[BandcampResult]:
+    """Search NetEase Cloud Music directly via its self-hosted API.
+
+    Returns a list of ``BandcampResult`` (reusing the same data model) with
+    ``netease_url`` populated and ``url`` pointing to ``music.163.com``.
+    """
+    search_type = _NETEASE_TYPE_MAP.get(type_filter, 1) if type_filter else 1
+    url = f"{api_base.rstrip('/')}/cloudsearch"
+    params: dict[str, Any] = {"keywords": query, "type": search_type, "limit": limit}
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=min(timeout, 5.0))
+        ) as client:
+            resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.debug("[Bandcamp] NetEase 搜索失败 query=%r error=%s", query, exc)
+        raise BandcampError(f"网易云搜索失败: {exc}") from exc
+
+    if data.get("code") != 200:
+        raise BandcampError(f"网易云 API 返回异常 code={data.get('code')}")
+
+    result = data.get("result")
+    if not isinstance(result, dict):
+        raise BandcampNotFound(f"没有在网易云找到「{query}」")
+
+    items: list[BandcampResult] = []
+
+    if search_type == 1:  # songs
+        for s in (result.get("songs") or []):
+            artists = [a.get("name", "") for a in (s.get("ar") or [])]
+            artist_str = " / ".join(artists)
+            sid = s.get("id")
+            items.append(BandcampResult(
+                title=s.get("name", ""),
+                url=f"https://music.163.com/#/song?id={sid}",
+                artist=artist_str,
+                type="track",
+                thumbnail=s.get("al", {}).get("picUrl", "") if isinstance(s.get("al"), dict) else "",
+                netease_url=f"https://music.163.com/#/song?id={sid}",
+            ))
+
+    elif search_type == 10:  # albums
+        for a in (result.get("albums") or []):
+            artist_info = a.get("artist") or {}
+            aid = a.get("id")
+            items.append(BandcampResult(
+                title=a.get("name", ""),
+                url=f"https://music.163.com/#/album?id={aid}",
+                artist=artist_info.get("name", ""),
+                type="album",
+                thumbnail=a.get("picUrl", ""),
+                netease_url=f"https://music.163.com/#/album?id={aid}",
+            ))
+
+    elif search_type == 100:  # artists
+        for a in (result.get("artists") or []):
+            aid = a.get("id")
+            items.append(BandcampResult(
+                title=a.get("name", ""),
+                url=f"https://music.163.com/#/artist?id={aid}",
+                artist="",
+                type="artist/label",
+                thumbnail=a.get("picUrl", "") or a.get("img1v1Url", ""),
+                netease_url=f"https://music.163.com/#/artist?id={aid}",
+            ))
+
+    if not items:
+        raise BandcampNotFound(f"没有在网易云找到「{query}」")
+
+    return items[:limit]

@@ -12,7 +12,7 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
 
-from .api import BandcampClient, BandcampError, BandcampNotFound, BandcampResult, BandcampSearchResults
+from .api import BandcampClient, BandcampError, BandcampNotFound, BandcampResult, BandcampSearchResults, search_netease
 from .config import get_config
 
 logger = logging.getLogger("HikariBot.BandcampWiki")
@@ -138,6 +138,7 @@ async def ai_tool_bandcamp_search(
     "  bandcamp label <关键词>   搜索厂牌/艺术家\n"
     "  bandcamp album <关键词>   搜索专辑\n"
     "  bandcamp track <关键词>   搜索单曲\n"
+    "  bandcamp netease <关键词> 直接搜索网易云音乐\n"
     "  bandcamp taishi/专辑名    直接查看指定页面",
 )
 async def handle_bandcamp(ctx: CommandContext) -> None:
@@ -151,9 +152,11 @@ async def handle_bandcamp(ctx: CommandContext) -> None:
 
     # Parse optional type filter from the first word
     type_filter: str | None = None
+    netease_mode = False
     query = raw
     parts = raw.split(maxsplit=1)
     if len(parts) == 2:
+        kw = parts[0].lower()
         _SUB_MAP = {
             "album": "album",
             "track": "track",
@@ -163,11 +166,36 @@ async def handle_bandcamp(ctx: CommandContext) -> None:
             "艺术家": "artist/label",
             "音乐人": "artist/label",
         }
-        if parts[0].lower() in _SUB_MAP:
-            type_filter = _SUB_MAP[parts[0].lower()]
+        # Netease direct search
+        if kw in ("netease", "网易云", "网易云音乐", "ncm"):
+            netease_mode = True
+            query = parts[1]
+        elif kw in _SUB_MAP:
+            type_filter = _SUB_MAP[kw]
             query = parts[1]
 
     client = BandcampClient(get_config())
+
+    # Netease direct search
+    if netease_mode:
+        stats_increment(ctx.event, "bandcamp_queries", 1)
+        cfg = get_config()
+        api_url = str(cfg.get("netease_api_url") or "").strip()
+        if not api_url:
+            await ctx.send(Message(msg("bandcamp.failed", error="未配置网易云 API 地址")))
+            return
+        try:
+            results = await search_netease(api_url, query, limit=cfg.get("search_limit", 5))
+        except BandcampNotFound:
+            await ctx.send(Message(msg("bandcamp.not_found_ncm", query=query)))
+            return
+        except BandcampError as exc:
+            logger.warning("[Bandcamp] 网易云查询失败 query=%r error=%s", query, exc)
+            await ctx.send(Message(msg("bandcamp.failed", error=exc)))
+            return
+
+        await _send_netease_results(ctx, query, results)
+        return
 
     # URL-like query → direct page lookup
     if _is_url_like(query):
@@ -312,6 +340,32 @@ async def _send_separate_single(ctx: CommandContext, result: BandcampResult) -> 
             await ctx.send(Message(caption + "\n") + MessageSegment.image(result.thumbnail))
         except Exception as exc:
             logger.debug("[Bandcamp] 缩略图发送失败: %s", exc)
+
+
+# -- Netease direct search ---------------------------------------------------
+
+
+async def _send_netease_results(ctx: CommandContext, query: str, results: list[BandcampResult]) -> None:
+    nodes: list[MessageSegment] = []
+    header = msg("bandcamp.netease_header", query=query)
+    nodes.append(_node(ctx.bot.self_id, Message(header)))
+    for i, r in enumerate(results, 1):
+        icon = _TYPE_ICON.get(r.type, "📄")
+        artist_info = f" — {r.artist}" if r.artist else ""
+        line = msg("bandcamp.result_item", index=i, icon=icon, type=r.type, title=r.title, artist=artist_info)
+        line += f"\n{r.url}"
+        nodes.append(_node(ctx.bot.self_id, Message(line)))
+
+    try:
+        await _send_forward(ctx, nodes)
+    except Exception as exc:
+        logger.warning("[Bandcamp] 网易云结果合并转发失败 query=%r error=%s", query, exc)
+        await ctx.send(Message(header))
+        for r in results:
+            icon = _TYPE_ICON.get(r.type, "📄")
+            artist_info = f" — {r.artist}" if r.artist else ""
+            line = f"{icon} {r.title}{artist_info}\n{r.url}"
+            await ctx.send(Message(line))
 
 
 get_config()
