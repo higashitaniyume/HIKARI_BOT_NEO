@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "api_url": "https://terraria.wiki.gg/api.php",
+  "timeout": 12,
+  "search_limit": 3,
+  "summary_max_chars": 220,
+  "detail_max_chars": 1600,
+  "image_size": 640,
+  "proxy": "",
+  "user_agent": "{bot_name} terraria_wiki"
+}
