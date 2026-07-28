@@ -60,6 +60,8 @@ HIKARI BOT NEO 是一个功能丰富的 QQ 机器人，通过 NapCat 的 OneBot 
   - [5.26 JMComic PDF 下载](#526-jmcomic-pdf-下载)
   - [5.27 帮助与关于](#527-帮助与关于)
   - [5.28 错误通知](#528-错误通知)
+  - [5.29 SoundCloud 音频下载](#529-soundcloud-音频下载)
+  - [5.30 好友管理](#530-好友管理)
 - [六、AstrBot 插件兼容层](#六astrbot-插件兼容层)
   - [6.1 概述](#61-概述)
   - [6.2 支持的 AstrBot API](#62-支持的-astrbot-api)
@@ -165,6 +167,8 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | 戳一戳回戳 | 自动 | [5.24](#524-戳一戳回戳) |
 | 媒体转码 | 自动（贴纸转换） | [5.25](#525-媒体转码) |
 | JMComic PDF | `jm <id>` | [5.26](#526-jmcomic-pdf-下载) |
+| SoundCloud 音频下载 | 直接发送 SoundCloud 链接 | [5.29](#529-soundcloud-音频下载) |
+| 好友管理 | 自动 | [5.30](#530-好友管理) |
 | 帮助信息 | `帮助` | [5.27](#527-帮助与关于) |
 | 关于信息 | `关于` | [5.27](#527-帮助与关于) |
 | 错误通知 | 自动 | [5.28](#528-错误通知) |
@@ -1157,6 +1161,51 @@ jm 123456
 
 ---
 
+### 5.29 SoundCloud 音频下载
+
+**配置文件：** `BotData/plugin_configs/soundcloud_parser.json`
+
+使用 `yt-dlp` 下载 SoundCloud 音频。直接发送 `on.soundcloud.com` 短链接即可触发解析。
+
+**支持链接：**
+- `https://on.soundcloud.com/<shortcode>`（分享短链接，推荐）
+- `https://soundcloud.com/<艺人>/<曲目>`（完整链接）
+- `https://m.soundcloud.com/<艺人>/<曲目>`（移动端）
+
+> 单级路径的短链接（如 `soundcloud.com/xxxxx`）会被视为用户主页，不会被自动解析。
+
+**发送方式：** 默认通过 NapCat 上传文件到聊天（`艺人 - 曲目.flac` 等），可切换为语音消息。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `auto_parse` | 是否自动解析消息中的链接 |
+| `send_strategy` | `"upload"` = 上传文件，`"record"` = 语音消息 |
+| `preferred_codec` | `"best"` = 原始格式，或 `m4a` / `mp3` / `opus` / `flac` |
+| `max_file_mb` | 文件大小上限，默认 1024 MB |
+| `send_link_info` | 是否发送标题、作者、时长等详情 |
+| `download_timeout` | 下载超时（秒） |
+| `cookiefile` | yt-dlp cookies 文件路径（登录验证） |
+
+---
+
+### 5.30 好友管理
+
+**配置文件：** `BotData/plugin_configs/friend_manager.json`
+
+监听好友请求通知，自动通过好友申请并向新好友发送欢迎消息。支持白名单/黑名单控制。
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用自动通过好友请求 |
+| `welcome_message` | 通过好友后发送的欢迎文本 |
+| `blocked_users` | 黑名单用户列表（自动拒绝） |
+| `whitelist_mode` | 非空时只接受白名单用户 |
+
+---
+
 ## 六、AstrBot 插件兼容层
 
 **插件目录：** [`plugins/astrbot_compat/`](plugins/astrbot_compat/)
@@ -1464,6 +1513,7 @@ HIKARI_BOT_NEO/
 │   ├── cobalt_parser/                  #   Instagram / Facebook 解析
 │   ├── netease_parser/                 #   网易云音乐解析
 │   ├── youtube_downloader/             #   YouTube 视频下载
+│   ├── soundcloud_parser/              #   SoundCloud 音频下载
 │   ├── media_detail_web/               #   媒体详情 Web 页面
 │   ├── tg_sticker_parser/              #   Telegram 贴纸包导入
 │   ├── sticker_trigger/                #   本地贴纸触发
@@ -1486,6 +1536,7 @@ HIKARI_BOT_NEO/
 │   ├── profile_like/                   #   QQ 资料卡点赞
 │   ├── mention_reaction/               #   空 @ 表情回应
 │   ├── poke_back/                      #   戳一戳回戳
+│   ├── friend_manager/                 #   好友管理
 │   ├── media_transcoder/               #   媒体转码服务
 │   ├── astrbot_compat/                 #   AstrBot 插件兼容层
 │   └── sticker_web/                    #   旧后台兼容占位
