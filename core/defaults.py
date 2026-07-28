@@ -278,7 +278,7 @@ DEFAULT_SOUNDCLOUD_PARSER_CONFIG: dict[str, Any] = {
     "retries": 3,
     "cache_dir": "/tmp/hikari_bot/soundcloud",
     "cache_ttl_seconds": 600,
-    "preferred_codec": "flac",
+    "preferred_codec": "best",  # "best" = 原始格式不转码, 或 m4a/mp3/opus/flac
     "cookiefile": "",
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
