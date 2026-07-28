@@ -28,6 +28,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "stats_label_zhihu_hot_views": "知乎热搜",
         "stats_label_rss_reads": "RSS 阅读",
         "stats_label_wiki_queries": "Wiki 查询",
+        "stats_label_bandcamp_queries": "Bandcamp 搜索",
         "stats_label_ai_chat_sessions": "AI 对话",
         "stats_label_voice_triggers": "语音触发",
         "stats_label_tts_generated": "TTS 合成",
@@ -326,6 +327,14 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "packing_start": "📦 正在处理{type}《{name}》共 {count} 首，下载打包中...",
         "pack_info": "📦 打包完成 → {name}（{count} 首）",
         "pack_failed": "❌ 打包失败，没有可用的音频文件。",
+    },
+    "bandcamp": {
+        "search_header": "🔍 Bandcamp 搜索结果 — \"{query}\":",
+        "result_item": "{index}. {icon} [{type}] {title} — {artist}{date}",
+        "thumbnail": "{title} 封面",
+        "usage": "用法：\n  bandcamp <关键词>       搜索所有类型\n  bandcamp label <关键词>  搜索厂牌/艺术家\n  bandcamp album <关键词>  搜索专辑\n  bandcamp track <关键词>  搜索单曲",
+        "not_found": "未找到「{query}」相关的 Bandcamp 结果。",
+        "failed": "Bandcamp 搜索失败：{error}",
     },
     "soundcloud": {
         "failed": "SoundCloud 音频下载失败：{reason}",
