@@ -1,4 +1,4 @@
-"""Bandcamp 搜索 API 客户端 — 通过 SearXNG 查询 + 直接页面抓取"""
+"""Bandcamp 搜索 API 客户端 — 通过 SearXNG 查询 + 直接页面抓取 + 网易云跨引用"""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ class BandcampResult:
     type: str = "album"  # "album", "track", "artist/label"
     description: str = ""
     thumbnail: str = ""
+    netease_url: str = ""  # cross-reference to NetEase Cloud Music
 
 
 @dataclass(slots=True)
@@ -174,6 +175,111 @@ async def _fetch_page_metadata(url: str, timeout: float, proxy: str | None = Non
     }
 
 
+# -- NetEase cross-reference --------------------------------------------------
+
+
+NETEASE_BASE = "https://music.163.com"
+
+
+def _netease_search_type(bc_type: str) -> int:
+    """Map Bandcamp result type to NetEase API search type."""
+    return {"album": 10, "track": 1, "artist/label": 100}.get(bc_type, 1)
+
+
+def _netease_url(item_type: str, item_id: int) -> str:
+    """Build a music.163.com URL from type and ID."""
+    segments = {"album": "album", "track": "song", "artist/label": "artist"}
+    seg = segments.get(item_type, "song")
+    return f"{NETEASE_BASE}/#/{seg}?id={item_id}"
+
+
+async def _search_netease(
+    api_base: str,
+    query: str,
+    search_type: int,
+    timeout: float,
+) -> dict[str, Any] | None:
+    """Search NetEase Cloud Music via the self-hosted API.
+
+    Returns the first result item dict, or ``None`` on failure / no results.
+    """
+    url = f"{api_base.rstrip('/')}/cloudsearch"
+    params = {"keywords": query, "type": search_type, "limit": 1}
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=min(timeout, 5.0))
+        ) as client:
+            resp = await client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.debug("[Bandcamp] NetEase 搜索失败 query=%r error=%s", query, exc)
+        return None
+
+    if data.get("code") != 200:
+        return None
+
+    result = data.get("result")
+    if not isinstance(result, dict):
+        return None
+
+    # The key depends on search type
+    key_map = {10: "albums", 1: "songs", 100: "artists"}
+    items = result.get(key_map.get(search_type, "songs"), [])
+    if not items:
+        return None
+
+    return items[0]
+
+
+def _is_name_match(bc_title: str, bc_artist: str, netease_item: dict[str, Any], search_type: int) -> bool:
+    """Check if a NetEase search result is likely the same item as the Bandcamp one.
+
+    Uses a simple heuristic: the NetEase title must contain the Bandcamp title
+    (or vice versa), and if the artist is known, at least one artist name should overlap.
+    """
+    # Normalise for comparison
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", "", s.lower())
+
+    bc_norm = norm(bc_title)
+
+    if search_type == 10:  # album
+        ne_title = norm(netease_item.get("name", ""))
+        if bc_norm not in ne_title and ne_title not in bc_norm:
+            return False
+        # Check artist if available
+        ne_artist = norm(netease_item.get("artist", {}).get("name", ""))
+        if bc_artist and ne_artist:
+            bc_artist_norm = norm(bc_artist)
+            if bc_artist_norm not in ne_artist and ne_artist not in bc_artist_norm:
+                return False
+        return True
+
+    elif search_type == 1:  # song
+        ne_title = norm(netease_item.get("name", ""))
+        if bc_norm not in ne_title and ne_title not in bc_norm:
+            return False
+        # Check at least one artist matches
+        if bc_artist:
+            bc_artist_norm = norm(bc_artist)
+            ne_artists = [norm(a.get("name", "")) for a in (netease_item.get("ar") or [])]
+            if ne_artists and not any(
+                bc_artist_norm in a or a in bc_artist_norm for a in ne_artists
+            ):
+                return False
+        return True
+
+    elif search_type == 100:  # artist
+        ne_name = norm(netease_item.get("name", ""))
+        # For artists, also check aliases
+        ne_aliases = [norm(a) for a in (netease_item.get("alias") or [])]
+        return bc_norm in ne_name or ne_name in bc_norm or any(bc_norm in a or a in bc_norm for a in ne_aliases)
+
+    return True
+
+
 # -- client -------------------------------------------------------------------
 
 
@@ -195,6 +301,8 @@ class BandcampClient:
         self.user_agent = format_bot_name_text(
             config.get("user_agent") or "{bot_name} bandcamp_search"
         )
+        self.netease_api_url = str(config.get("netease_api_url") or "").strip() or ""
+        self.cross_reference = bool(config.get("cross_reference", True))
 
     # -- search via SearXNG ---------------------------------------------------
 
@@ -276,7 +384,13 @@ class BandcampClient:
         if not parsed:
             raise BandcampNotFound(f"没有在 Bandcamp 找到「{keyword}」")
 
-        return BandcampSearchResults(query=keyword, results=parsed)
+        results = BandcampSearchResults(query=keyword, results=parsed)
+
+        # Cross-reference to NetEase Cloud Music
+        if self.cross_reference and self.netease_api_url:
+            await self._cross_reference_all(results)
+
+        return results
 
     # -- direct page metadata -------------------------------------------------
 
@@ -300,7 +414,7 @@ class BandcampClient:
 
         bc_title, artist = _parse_bandcamp_title(meta["title"])
         bc_type = _infer_type(bandcamp_url)
-        return BandcampResult(
+        result = BandcampResult(
             title=bc_title or meta["title"],
             url=meta["url"],
             artist=artist,
@@ -308,3 +422,55 @@ class BandcampClient:
             description=meta.get("description", ""),
             thumbnail=meta.get("thumbnail", ""),
         )
+
+        # Cross-reference to NetEase
+        if self.cross_reference and self.netease_api_url:
+            await self._cross_reference_one(result)
+
+        return result
+
+    # -- NetEase cross-referencing --------------------------------------------
+
+    async def _cross_reference_all(self, results: BandcampSearchResults) -> None:
+        """Search NetEase for each result in parallel."""
+        if not self.netease_api_url or not results.results:
+            return
+
+        coros = [self._cross_reference_one(r) for r in results.results]
+        await asyncio.gather(*coros, return_exceptions=True)
+
+    async def _cross_reference_one(self, result: BandcampResult) -> None:
+        """Search NetEase for a single result and attach a link if matched."""
+        if not self.netease_api_url:
+            return
+
+        search_type = _netease_search_type(result.type)
+
+        # Build a search query
+        if result.type == "artist/label":
+            query = result.title
+        else:
+            query = f"{result.title} {result.artist}".strip()
+
+        if not query:
+            return
+
+        item = await _search_netease(
+            self.netease_api_url, query, search_type, self.timeout
+        )
+        if item is None:
+            return
+
+        # Verify the match looks reasonable
+        if not _is_name_match(result.title, result.artist, item, search_type):
+            return
+
+        item_id = item.get("id")
+        if not item_id:
+            return
+
+        result.netease_url = _netease_url(result.type, int(item_id))
+
+
+# Import asyncio for gather used in cross-referencing
+import asyncio  # noqa: E402

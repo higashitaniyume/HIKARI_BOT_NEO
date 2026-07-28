@@ -14,6 +14,8 @@ DEFAULT_BANDCAMP_CONFIG: dict[str, Any] = {
     "searxng_url": "http://searxng-core:8080",
     "proxy": "",
     "user_agent": "{bot_name} bandcamp_search",
+    "cross_reference": True,
+    "netease_api_url": "http://192.168.31.2:5111",
 }
 
 _first_load_done = False

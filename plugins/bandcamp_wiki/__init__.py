@@ -212,6 +212,19 @@ async def _send_results(ctx: CommandContext, results: BandcampSearchResults) -> 
         await _send_separate_search(ctx, results)
 
 
+def _format_result_line(r: BandcampResult, index: int) -> str:
+    """Build a single result line, optionally with NetEase cross-ref."""
+    icon = _TYPE_ICON.get(r.type, "📄")
+    artist_info = f" — {r.artist}" if r.artist else ""
+    line = msg("bandcamp.result_item", index=index, icon=icon, type=r.type, title=r.title, artist=artist_info)
+    if r.description:
+        line += f"\n{r.description[:200]}"
+    line += f"\n{r.url}"
+    if r.netease_url:
+        line += f"\n{msg('bandcamp.netease_link')} {r.netease_url}"
+    return line
+
+
 def _build_search_nodes(self_id: str, results: BandcampSearchResults) -> list[MessageSegment]:
     nodes: list[MessageSegment] = []
     # Header
@@ -219,13 +232,7 @@ def _build_search_nodes(self_id: str, results: BandcampSearchResults) -> list[Me
     nodes.append(_node(self_id, Message(header)))
     # Each result as a node
     for i, r in enumerate(results.results, 1):
-        icon = _TYPE_ICON.get(r.type, "📄")
-        artist_info = f" — {r.artist}" if r.artist else ""
-        line = msg("bandcamp.result_item", index=i, icon=icon, type=r.type, title=r.title, artist=artist_info)
-        if r.description:
-            line += f"\n{r.description[:200]}"
-        line += f"\n{r.url}"
-        nodes.append(_node(self_id, Message(line)))
+        nodes.append(_node(self_id, Message(_format_result_line(r, i))))
     return nodes
 
 
@@ -248,13 +255,7 @@ async def _send_separate_search(ctx: CommandContext, results: BandcampSearchResu
     header = msg("bandcamp.search_header", query=results.query)
     await ctx.send(Message(header))
     for r in results.results:
-        icon = _TYPE_ICON.get(r.type, "📄")
-        artist_info = f" — {r.artist}" if r.artist else ""
-        line = msg("bandcamp.result_item", index=0, icon=icon, type=r.type, title=r.title, artist=artist_info)
-        if r.description:
-            line += f"\n{r.description[:200]}"
-        line += f"\n{r.url}"
-        await ctx.send(Message(line))
+        await ctx.send(Message(_format_result_line(r, 0)))
 
 
 async def _send_single(ctx: CommandContext, result: BandcampResult) -> None:
@@ -273,6 +274,8 @@ def _build_single_nodes(self_id: str, result: BandcampResult) -> list[MessageSeg
     if result.artist:
         lines.append(f"  作者: {result.artist}")
     lines.append(f"  {result.url}")
+    if result.netease_url:
+        lines.append(f"{msg('bandcamp.netease_link')} {result.netease_url}")
     nodes.append(_node(self_id, Message("\n".join(lines))))
 
     if result.description:
@@ -296,6 +299,8 @@ async def _send_separate_single(ctx: CommandContext, result: BandcampResult) -> 
     if result.artist:
         lines.append(f"  作者: {result.artist}")
     lines.append(f"  {result.url}")
+    if result.netease_url:
+        lines.append(f"{msg('bandcamp.netease_link')} {result.netease_url}")
     await ctx.send(Message("\n".join(lines)))
 
     if result.description:
