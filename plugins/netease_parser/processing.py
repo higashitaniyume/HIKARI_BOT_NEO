@@ -349,12 +349,6 @@ async def _process_multi_file_zip(
         title, total,
     )
 
-    # 发送开始提示
-    type_label = "歌单" if item_type == "playlist" else "专辑"
-    await bot.send(event, Message(
-        msg("netease.packing_start", type=type_label, name=title, count=total)
-    ))
-
     # 下载所有歌曲（并发限制为 3）
     sem = asyncio.Semaphore(3)
     downloaded: list[tuple[Path, str]] = []
@@ -459,12 +453,8 @@ async def _process_single_album(
         step_elapsed, album_name, len(songs),
     )
 
-    # 发送专辑信息
     max_links = max(1, int(cfg.get("max_links_per_message", 5)))
     songs_to_process = [s for s in songs if s.id][:max_links]
-    await bot.send(event, Message(
-        msg("netease.album_info", album_name=album_name, song_count=len(songs_to_process))
-    ))
 
     if multi_file_mode == "zip":
         await _process_multi_file_zip(bot, event, album_name, songs_to_process, cfg, "album")
