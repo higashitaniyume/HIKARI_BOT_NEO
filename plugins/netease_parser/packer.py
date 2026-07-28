@@ -33,6 +33,51 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes}B"
 
 
+def _create_zip_sync(
+    zip_path: str | Path,
+    batch_files: list,
+    max_size_bytes: int,
+) -> int:
+    """
+    同步创建 ZIP 文件并写入文件列表（在后台线程中执行，避免阻塞事件循环）。
+
+    Returns:
+        实际写入的文件数
+    """
+    current_size = 0
+    written_count = 0
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for src_path_raw, arc_name in batch_files:
+            src_path = Path(src_path_raw) if not isinstance(src_path_raw, Path) else src_path_raw
+            if not src_path.exists():
+                logger.warning("[Netease] 打包跳过: 文件不存在 → %s", src_path.name)
+                continue
+
+            arc_name_clean = _sanitize_arcname(arc_name)
+            if not arc_name_clean:
+                arc_name_clean = src_path.name
+
+            file_size = src_path.stat().st_size
+
+            # 检查是否会超大小限制（不拆分，仅跳过过大文件）
+            if current_size + file_size > max_size_bytes:
+                logger.warning(
+                    "[Netease] 打包跳过（超大小限制）→ %s (%s + %s > %dMB)",
+                    arc_name_clean,
+                    _format_size(current_size),
+                    _format_size(file_size),
+                    max_size_bytes // (1024 * 1024),
+                )
+                continue
+
+            # 写入 ZIP
+            zf.write(src_path, arc_name_clean)
+            current_size += file_size
+            written_count += 1
+
+    return written_count
+
+
 async def pack_to_zip(
     files: list[tuple[Path, str]],
     zip_name: str,
@@ -76,7 +121,6 @@ async def pack_to_zip(
         zip_path = output_path / zip_filename
 
         temp_zip = zip_path.with_suffix(f".zip.tmp.{os.getpid()}")
-        current_size = 0
 
         logger.info(
             "[Netease] 开始打包 → %s (%d 个文件, batch %d)",
@@ -85,55 +129,32 @@ async def pack_to_zip(
 
         pack_start = time.time()
         try:
-            with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-                for src_path_raw, arc_name in batch:
-                    src_path = Path(src_path_raw) if not isinstance(src_path_raw, Path) else src_path_raw
-                    if not src_path.exists():
-                        logger.warning("[Netease] 打包跳过: 文件不存在 → %s", src_path.name)
-                        continue
+            # ZIP 压缩是 CPU 密集型操作，在线程中执行避免阻塞事件循环
+            written_count = await asyncio.to_thread(
+                _create_zip_sync, temp_zip, batch, max_size_bytes,
+            )
 
-                    arc_name_clean = _sanitize_arcname(arc_name)
-                    if not arc_name_clean:
-                        arc_name_clean = src_path.name
-
-                    file_size = src_path.stat().st_size
-
-                    # 检查是否会超大小限制（不拆分，仅跳过过大文件）
-                    if current_size + file_size > max_size_bytes:
-                        logger.warning(
-                            "[Netease] 打包跳过（超大小限制）→ %s (%s + %s > %dMB)",
-                            arc_name_clean,
-                            _format_size(current_size),
-                            _format_size(file_size),
-                            max_size_mb,
-                        )
-                        continue
-
-                    # 写入 ZIP
-                    zf.write(src_path, arc_name_clean)
-                    current_size += file_size
-
-            # 完成打包，rename
-            if temp_zip.exists() and temp_zip.stat().st_size > 0:
-                if zip_path.exists():
-                    temp_zip.unlink(missing_ok=True)
-                    logger.debug("[Netease] 打包跳过: ZIP 已被其他协程创建 → %s", zip_path.name)
-                else:
-                    temp_zip.replace(zip_path)
-                zip_paths.append(zip_path)
-                register_temp_media_path(zip_path, ttl_seconds=cache_ttl_seconds)
-
-                elapsed = time.time() - pack_start
-                logger.info(
-                    "[Netease] 打包完成 (%.1fs) → %s (%s, %d 个文件)",
-                    elapsed, zip_path.name,
-                    _format_size(zip_path.stat().st_size),
-                    len(batch),
-                )
-            else:
+            if not written_count:
                 temp_zip.unlink(missing_ok=True)
                 logger.warning("[Netease] 打包结果为空 → %s", zip_filename)
                 continue
+
+            # 完成打包，rename
+            if zip_path.exists():
+                temp_zip.unlink(missing_ok=True)
+                logger.debug("[Netease] 打包跳过: ZIP 已被其他协程创建 → %s", zip_path.name)
+            else:
+                temp_zip.replace(zip_path)
+            zip_paths.append(zip_path)
+            register_temp_media_path(zip_path, ttl_seconds=cache_ttl_seconds)
+
+            elapsed = time.time() - pack_start
+            logger.info(
+                "[Netease] 打包完成 (%.1fs) → %s (%s, %d 个文件)",
+                elapsed, zip_path.name,
+                _format_size(zip_path.stat().st_size),
+                len(batch),
+            )
 
         except Exception:
             temp_zip.unlink(missing_ok=True)

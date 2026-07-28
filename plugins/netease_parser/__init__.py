@@ -56,7 +56,7 @@ def _queue_settings(cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "enabled": bool(raw.get("enabled", True)),
         "max_size": max(1, int(raw.get("max_size", 100))),
-        "max_concurrent": max(1, int(raw.get("max_concurrent", 2))),
+        "max_concurrent": max(1, int(raw.get("max_concurrent", 4))),
         "delay_seconds": max(0.0, float(raw.get("delay_seconds", 0.8))),
     }
 

@@ -26,6 +26,16 @@ USER_AGENT = (
     "Chrome/136.0.7103.48 Safari/537.36"
 )
 CHUNK_LOG_INTERVAL_BYTES = 10 * 1024 * 1024  # 每 10MB 打印一次进度
+_FLUSH_INTERVAL = 512 * 1024  # 512KB — 写入缓冲区阈值，达到后异步刷写到磁盘
+
+
+def _flush_to_file(path: Path, data: bytes) -> None:
+    """同步写入数据到文件（在后台线程中执行，避免阻塞事件循环）。
+
+    使用 append 模式（"ab"），文件不存在时自动创建，存在时追加。
+    """
+    with open(path, "ab") as f:
+        f.write(data)
 
 
 def _cache_path(url: str, cache_dir: str, ext: str = ".mp3") -> Path:
@@ -126,26 +136,38 @@ async def download_audio(
 
                     written = 0
                     last_chunk_log = 0
-                    with tmp_path.open("wb") as f:
-                        async for chunk in resp.aiter_bytes():
-                            if chunk:
-                                written += len(chunk)
-                                if written > max_bytes:
-                                    raise RuntimeError(
-                                        f"音频超过大小限制：{written / 1024 / 1024:.1f}MB"
-                                    )
-                                f.write(chunk)
+                    buf = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        if chunk:
+                            buf.extend(chunk)
+                            written += len(chunk)
+                            if written > max_bytes:
+                                raise RuntimeError(
+                                    f"音频超过大小限制：{written / 1024 / 1024:.1f}MB"
+                                )
 
-                                if written - last_chunk_log >= CHUNK_LOG_INTERVAL_BYTES:
-                                    last_chunk_log = written
-                                    elapsed_now = time.time() - t_start
-                                    speed = written / 1024 / 1024 / elapsed_now if elapsed_now > 0 else 0
-                                    logger.info(
-                                        "[Netease] 下载中... %.1fMB / %s (%.1fMB/s, %.1fs)",
-                                        written / 1024 / 1024,
-                                        f"{remote_size / 1024 / 1024:.1f}MB" if remote_size else "未知",
-                                        speed, elapsed_now,
-                                    )
+                            # 缓冲区达到阈值后异步刷写到磁盘，避免阻塞事件循环
+                            if len(buf) >= _FLUSH_INTERVAL:
+                                await asyncio.to_thread(
+                                    _flush_to_file, tmp_path, bytes(buf),
+                                )
+                                buf.clear()
+
+                            if written - last_chunk_log >= CHUNK_LOG_INTERVAL_BYTES:
+                                last_chunk_log = written
+                                elapsed_now = time.time() - t_start
+                                speed = written / 1024 / 1024 / elapsed_now if elapsed_now > 0 else 0
+                                logger.info(
+                                    "[Netease] 下载中... %.1fMB / %s (%.1fMB/s, %.1fs)",
+                                    written / 1024 / 1024,
+                                    f"{remote_size / 1024 / 1024:.1f}MB" if remote_size else "未知",
+                                    speed, elapsed_now,
+                                )
+
+                    # 刷写剩余缓冲区
+                    if buf:
+                        await asyncio.to_thread(_flush_to_file, tmp_path, bytes(buf))
+                        buf.clear()
 
                 # 安全 rename
                 if path.exists():
