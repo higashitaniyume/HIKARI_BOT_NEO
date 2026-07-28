@@ -394,3 +394,91 @@ async def fetch_album_detail(
         elapsed, resp.status_code, album_name, len(songs),
     )
     return album_name, songs
+
+
+async def fetch_playlist_detail(
+    playlist_id: str,
+    api_base: str,
+    timeout: int = 30,
+    real_ip: str = "",
+) -> tuple[str, list[NeteaseSongInfo]]:
+    """
+    获取歌单详情，包括歌单名和曲目列表。
+
+    调用 /playlist/detail?id=XXX API，返回 (playlist_name, songs_list)。
+
+    Raises:
+        httpx.TimeoutException: API 请求超时
+        httpx.HTTPStatusError: HTTP 状态码异常
+        ValueError: 响应格式异常 / 歌单不存在
+    """
+    path = f"/playlist/detail?id={playlist_id}"
+    if real_ip:
+        path += f"&realIP={real_ip}"
+
+    url = _api_url(api_base, path)
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+
+    t_start = time.time()
+    logger.info(
+        "[Netease] API GET → %s (timeout=%ds, real_ip=%s)",
+        url, timeout, "已配置" if real_ip else "未配置",
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 超时 (%.1fs) → %s", elapsed, url)
+        raise
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API HTTP 错误 (%.1fs) → %s HTTP %s", elapsed, url, e.response.status_code)
+        raise
+    except Exception:
+        elapsed = time.time() - t_start
+        logger.error("[Netease] API 请求异常 (%.1fs) → %s", elapsed, url)
+        raise
+
+    elapsed = time.time() - t_start
+
+    if data.get("code") != 200:
+        raise ValueError(
+            f"API 返回异常: code={data.get('code')}, msg={data.get('msg', '')} "
+            f"(elapsed={elapsed:.1f}s)"
+        )
+
+    playlist_data = data.get("playlist")
+    if not playlist_data:
+        raise ValueError(f"歌单不存在或为空 (id={playlist_id})")
+
+    playlist_name = str(playlist_data.get("name", ""))
+    songs_raw = playlist_data.get("tracks", [])
+    if not songs_raw:
+        raise ValueError(f"歌单为空 (id={playlist_id})")
+
+    songs: list[NeteaseSongInfo] = []
+    for s in songs_raw:
+        artists = s.get("ar") or s.get("artists") or []
+        artist_names = " / ".join(
+            a.get("name", "") for a in artists if isinstance(a, dict)
+        )
+        album_info = s.get("al") or s.get("album") or {}
+        album_name_for_song = album_info.get("name", "") if isinstance(album_info, dict) else ""
+
+        songs.append(NeteaseSongInfo(
+            id=str(s.get("id", "")),
+            name=str(s.get("name", "")),
+            artist=artist_names,
+            album=album_name_for_song,
+            pic_url=album_info.get("picUrl", "") if isinstance(album_info, dict) else "",
+        ))
+
+    logger.info(
+        "[Netease] API playlist/detail 响应 (%.1fs) → HTTP %d, 歌单=%s, 曲目=%d 首",
+        elapsed, resp.status_code, playlist_name, len(songs),
+    )
+    return playlist_name, songs

@@ -287,10 +287,14 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     "netease": {
         "fetching": "正在解析网易云音乐链接...",
         "album_info": "📀 专辑《{album_name}》共 {song_count} 首，正在解析...",
+        "playlist_info": "📋 歌单《{playlist_name}》共 {song_count} 首，正在解析...",
         "info": "🎵 {name}\n歌手：{artist}\n专辑：{album}",
         "failed": "网易云音乐解析失败，请稍后再试。",
         "not_found": "未找到歌曲信息。",
         "url_unavailable": "无法获取歌曲音频链接（可能需要版权或登录）。",
+        "packing_start": "📦 正在处理{type}《{name}》共 {count} 首，下载打包中...",
+        "pack_info": "📦 打包完成 → {name}（{count} 首）",
+        "pack_failed": "❌ 打包失败，没有可用的音频文件。",
     },
     "tts": {
         "usage": "用法：说话 <文本>",

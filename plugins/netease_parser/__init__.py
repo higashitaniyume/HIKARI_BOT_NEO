@@ -23,6 +23,7 @@ from core.message_pipeline import register_handler
 from .config import get_config
 from .parser import (
     extract_album_ids_from_event,
+    extract_playlist_ids_from_event,
     extract_program_ids_from_event,
     extract_song_ids_from_event,
     has_netease_url,
@@ -112,6 +113,7 @@ def _sanitize_filename(text: str) -> str:
 from .processing import (  # noqa: E402
     _process_queue_item,
     _process_single_album,
+    _process_single_playlist,
     _process_single_program,
     _process_single_song,
 )
@@ -185,6 +187,27 @@ async def _enqueue_album_parse_job(
         await _process_single_album(bot, event, album_id, get_config())
 
 
+async def _enqueue_playlist_parse_job(
+    bot: Bot,
+    event: MessageEvent,
+    playlist_id: str,
+    cfg: dict,
+) -> None:
+    """将歌单 ID 加入解析队列。"""
+    settings = _queue_settings(cfg)
+
+    if settings["enabled"]:
+        queue = _ensure_parse_workers(cfg)
+        item = NeteaseQueueItem(bot=bot, event=event, item_id=playlist_id, item_type="playlist")
+        if queue.full():
+            logger.warning("[Netease] 解析队列已满，歌单 %s 被丢弃", playlist_id)
+            return
+        queue.put_nowait(item)
+        logger.info("[Netease] 歌单加入解析队列 → id=%s, 队列大小=%d", playlist_id, queue.qsize())
+    else:
+        await _process_single_playlist(bot, event, playlist_id, get_config())
+
+
 class AutoNeteaseHandler:
     """自动检测网易云音乐歌曲链接并解析的 Handler。"""
 
@@ -231,6 +254,13 @@ class AutoNeteaseHandler:
         program_ids = (await extract_program_ids_from_event(event))[:max_links]
         song_ids = (await extract_song_ids_from_event(event))[:max_links]
         album_ids = (await extract_album_ids_from_event(event))[:max_links]
+        playlist_ids = (await extract_playlist_ids_from_event(event))[:max_links]
+
+        # 优先级：歌单 > 专辑 > 单曲/播客
+        if playlist_ids:
+            for pid in playlist_ids:
+                await _enqueue_playlist_parse_job(bot, event, pid, cfg)
+            return
 
         # 专辑优先：如果有专辑链接，将专辑歌曲入队
         if album_ids:

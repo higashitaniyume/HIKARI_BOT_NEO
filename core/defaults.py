@@ -256,6 +256,11 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "cookie": "",
     "max_file_mb": 200,
     "send_link_info": True,
+    "send_strategy": {
+        "multi_file_mode": "zip",
+        "zip_max_files": 50,
+        "zip_max_mb": 200,
+    },
     "cache_dir": "/tmp/hikari_bot/netease",
     "cache_ttl_seconds": 600,
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
