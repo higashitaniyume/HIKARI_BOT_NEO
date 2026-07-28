@@ -330,9 +330,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "bandcamp": {
         "search_header": "🔍 Bandcamp 搜索结果 — \"{query}\":",
-        "result_item": "{index}. {icon} [{type}] {title} — {artist}{date}",
+        "result_item": "{index}. {icon} [{type}] {title}{artist}",
         "thumbnail": "{title} 封面",
-        "usage": "用法：\n  bandcamp <关键词>       搜索所有类型\n  bandcamp label <关键词>  搜索厂牌/艺术家\n  bandcamp album <关键词>  搜索专辑\n  bandcamp track <关键词>  搜索单曲",
+        "usage": "用法：\n  bandcamp <关键词>       搜索所有类型\n  bandcamp label <关键词>  搜索厂牌/艺术家\n  bandcamp album <关键词>  搜索专辑\n  bandcamp track <关键词>  搜索单曲\n  bandcamp 子域/路径       直接查看指定页面",
         "not_found": "未找到「{query}」相关的 Bandcamp 结果。",
         "failed": "Bandcamp 搜索失败：{error}",
     },

@@ -11,6 +11,7 @@ DEFAULT_BANDCAMP_CONFIG: dict[str, Any] = {
     "enabled": True,
     "timeout": 15,
     "search_limit": 5,
+    "searxng_url": "http://searxng-core:8080",
     "proxy": "",
     "user_agent": "{bot_name} bandcamp_search",
 }
