@@ -17,6 +17,7 @@ from typing import Any
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent
 
 from core.access_control import is_event_allowed
+from core.bot_messages import get_message as msg
 from core.error_notifier import notify_error_to_superuser, send_user_error
 from core.message_pipeline import register_handler
 
