@@ -55,7 +55,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "sticker": {
         "empty_library": "贴纸包都是空的，请先添加一些表情包。",
-        "help": "贴纸包 随机：从所有贴纸包随机发送一张。\n贴纸包 拼图 <关键词>：将关键词命中的贴纸包拼成预览图。\n贴纸包 统计：查看唯一贴纸数、贴纸包数和关键词数。\n贴纸包 列表 [页码|全部]：分页查看已配置贴纸包和关键词。\n贴纸包 预览：生成包含所有贴纸包名称、关键词和预览图的长图。",
+        "help": "贴纸包 随机：从所有贴纸包随机发送一张。\n贴纸包 拼图 <关键词>：将关键词命中的贴纸包拼成预览图。\n贴纸包 统计：查看唯一贴纸数、贴纸包数和关键词数。\n贴纸包 列表 [页码|全部]：分页查看已配置贴纸包和关键词。\n贴纸包 预览：生成包含所有贴纸包名称、关键词和预览图的 PDF。",
         "collage_usage": "用法：贴纸包 拼图 <关键词>",
         "empty_pack": "贴纸包 {pack} 是空的。",
         "collage_progress": "正在拼图 {pack}（{count} 张）...",
@@ -65,7 +65,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "pack_list_usage": "用法：贴纸包 列表、贴纸包 列表 <页码>、贴纸包 列表 全部",
         "pack_list_page_out_of_range": "页码超出范围，目前共有 {total_pages} 页。",
         "no_packs": "暂无贴纸包。",
-        "pack_preview_progress": "正在生成贴纸包预览图...",
+        "pack_preview_progress": "正在生成贴纸包预览 PDF...",
         "pack_preview_failed": "贴纸包预览生成失败，请稍后再试。",
         "count_min": "数量至少为 1。",
         "library_stats": "贴纸库统计：\n· 唯一贴纸：{total_stickers} 张\n· 贴纸包：{pack_count} 个\n· 关键词：{keyword_count} 个\n· 同一关键词命中多个包时会合并去重",
@@ -327,6 +327,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "packing_start": "📦 正在处理{type}《{name}》共 {count} 首，下载打包中...",
         "pack_info": "📦 打包完成 → {name}（{count} 首）",
         "pack_failed": "❌ 打包失败，没有可用的音频文件。",
+        "private_chat_only": "专辑/歌单解析仅支持私聊，请私聊机器人发送链接。",
     },
     "bandcamp": {
         "search_header": "🔍 Bandcamp 搜索结果 — \"{query}\":",
@@ -342,6 +343,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     "soundcloud": {
         "failed": "SoundCloud 音频下载失败：{reason}",
         "info": "SoundCloud 音频下载完成\n标题：{title}\n作者：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}",
+        "private_chat_only": "多链接发送仅支持私聊，请私聊机器人发送链接。",
     },
     "tts": {
         "usage": "用法：说话 <文本>",

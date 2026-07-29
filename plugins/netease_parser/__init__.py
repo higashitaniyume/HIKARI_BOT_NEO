@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent
 
 from core.access_control import is_event_allowed
 from core.error_notifier import notify_error_to_superuser, send_user_error
@@ -255,6 +255,12 @@ class AutoNeteaseHandler:
         song_ids = (await extract_song_ids_from_event(event))[:max_links]
         album_ids = (await extract_album_ids_from_event(event))[:max_links]
         playlist_ids = (await extract_playlist_ids_from_event(event))[:max_links]
+
+        # 群聊中专辑/歌单仅提示私聊
+        if (album_ids or playlist_ids) and isinstance(event, GroupMessageEvent):
+            logger.info("[Netease] 群聊专辑/歌单，提示私聊 → user=%s", event.get_user_id())
+            await bot.send(event, Message(msg("netease.private_chat_only")))
+            return
 
         # 优先级：歌单 > 专辑 > 单曲/播客
         if playlist_ids:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent
 
 from core.access_control import is_event_allowed
 from core.activity_tracker import ActivityScope
@@ -53,6 +53,15 @@ class AutoSoundCloudHandler:
 
         max_links = max(1, int(cfg.get("max_links_per_message", 3)))
         urls_to_process = urls[:max_links]
+
+        # 群聊中多链接仅提示私聊
+        if len(urls_to_process) > 1 and isinstance(event, GroupMessageEvent):
+            logger.info(
+                "[SoundCloud] 群聊多链接，提示私聊 → user=%s, count=%d",
+                event.get_user_id(), len(urls_to_process),
+            )
+            await bot.send(event, Message(msg("soundcloud.private_chat_only")))
+            return
 
         logger.info(
             "[SoundCloud] 自动解析触发 -> user=%s, found=%d, process=%d",

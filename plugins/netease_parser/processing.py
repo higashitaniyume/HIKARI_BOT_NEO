@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
 from core.activity_tracker import ActivityScope
@@ -393,9 +393,10 @@ async def _process_multi_file_zip(
     # 发送 ZIP 文件
     for zip_path in zip_paths:
         zip_display = f"{zip_name}.zip" if len(zip_paths) == 1 else zip_path.name
-        await bot.send(event, Message(
-            msg("netease.pack_info", name=zip_display, count=len(downloaded))
-        ))
+        pack_msg = Message(MessageSegment.reply(event.message_id)) + msg(
+            "netease.pack_info", name=zip_display, count=len(downloaded),
+        )
+        await bot.send(event, pack_msg)
         await _upload_file_via_bot(bot, event, zip_path, zip_path.name)
 
     total_elapsed = time.time() - session_start
@@ -422,7 +423,7 @@ async def _process_single_album(
     real_ip = str(cfg.get("real_ip", "")).strip()
 
     send_strategy = cfg.get("send_strategy", {})
-    multi_file_mode = send_strategy.get("multi_file_mode", "zip")
+    multi_file_mode = send_strategy.get("multi_file_mode", "sequential")
 
     log_extra = f"album_id={album_id}"
     logger.info(
@@ -485,7 +486,7 @@ async def _process_single_playlist(
     real_ip = str(cfg.get("real_ip", "")).strip()
 
     send_strategy = cfg.get("send_strategy", {})
-    multi_file_mode = send_strategy.get("multi_file_mode", "zip")
+    multi_file_mode = send_strategy.get("multi_file_mode", "sequential")
 
     log_extra = f"playlist_id={playlist_id}"
     logger.info(
