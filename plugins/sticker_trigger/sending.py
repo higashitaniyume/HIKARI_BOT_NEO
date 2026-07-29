@@ -71,6 +71,19 @@ async def _send_image(bot: Bot, event: MessageEvent, path: Path, label: str) -> 
     )
 
 
+async def _send_file(bot: Bot, event: MessageEvent, path: Path, file_name: str) -> None:
+    """通过文件上传接口发送文件（如 PDF）。"""
+    from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
+
+    shared_path = _copy_to_shared(path)
+    file_path = str(shared_path)
+
+    if isinstance(event, GroupMessageEvent):
+        await bot.call_api("upload_group_file", group_id=event.group_id, file=file_path, name=file_name)
+    else:
+        await bot.call_api("upload_private_file", user_id=int(event.get_user_id()), file=file_path, name=file_name)
+
+
 async def _try_send_text(bot: Bot, event: MessageEvent, text: str, label: str) -> None:
     try:
         await _send_with_retry(lambda: bot.send(event, Message(text)), label)

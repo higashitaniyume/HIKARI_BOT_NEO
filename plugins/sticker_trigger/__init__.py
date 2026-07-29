@@ -21,6 +21,7 @@ from plugins import sticker_library
 from .sending import (
     _log_send_failure,
     _notify_sticker_error,
+    _send_file,
     _send_image,
     _send_many_stickers,
     _send_text_forward,
@@ -220,9 +221,9 @@ async def cmd_sticker_pack_preview(ctx: CommandContext) -> None:
 
     await _try_send_text(ctx.bot, ctx.event, msg("sticker.pack_preview_progress"), "贴纸包预览进度")
     try:
-        with ActivityScope("sticker_trigger", "generating", "生成贴纸预览图"):
+        with ActivityScope("sticker_trigger", "generating", "生成贴纸预览 PDF"):
             preview_path = await _make_pack_preview_image()
-        await _send_image(ctx.bot, ctx.event, preview_path, "贴纸包预览")
+        await _send_file(ctx.bot, ctx.event, preview_path, "贴纸包预览.pdf")
     except Exception as e:
         logger.exception("[Sticker] 贴纸包预览生成或发送失败: %s", e)
         await _notify_sticker_error(ctx.bot, ctx.event, e, "StickerPackPreview")

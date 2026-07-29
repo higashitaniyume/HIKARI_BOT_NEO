@@ -308,8 +308,31 @@ async def _make_pack_preview_image() -> Path:
             y += card_h + card_gap
 
         SHARED_DIR.mkdir(parents=True, exist_ok=True)
-        out_path = SHARED_DIR / f"pack_preview_{int(time.time())}.jpg"
-        image.save(out_path, "JPEG", quality=80, optimize=True)
+        out_path = SHARED_DIR / f"pack_preview_{int(time.time())}.pdf"
+
+        # 将长图按 A4 比例拆分为多页 PDF
+        img_height = image.height
+        page_height = int(width * 297 / 210)  # A4 竖版比例
+        pages = []
+        for y_offset in range(0, img_height, page_height):
+            box = (0, y_offset, width, min(y_offset + page_height, img_height))
+            page_img = image.crop(box)
+            if page_img.height < page_height:
+                new_page = Image.new("RGB", (width, page_height), (255, 255, 255))
+                new_page.paste(page_img, (0, 0))
+                page_img = new_page
+            pages.append(page_img)
+
+        if not pages:
+            raise RuntimeError("没有可渲染的页面")
+
+        pages[0].save(
+            out_path,
+            save_all=True,
+            append_images=pages[1:],
+            format="PDF",
+            resolution=72.0,
+        )
         return out_path
 
     return await asyncio.to_thread(_do_render)
