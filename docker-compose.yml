@@ -35,6 +35,11 @@ services:
       - hikaribot_venv:/opt/hikaribot-venv
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # 显式指定国内 DNS：宿主机默认 DNS 对 b23.tv 等域名会返回被污染的记录，
+    # 导致媒体解析连不上 B 站 CDN。
+    dns:
+      - 223.5.5.5
+      - 119.29.29.29
 
   napcat:
     image: mlikiowa/napcat-docker:latest
