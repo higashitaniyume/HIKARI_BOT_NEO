@@ -99,13 +99,13 @@ async def notify_error_to_superuser(
     except Exception:
         lines.append("原始消息: 获取失败")
 
+    # 堆栈只写入日志供排查，不随 QQ 通知发送，避免刷屏
     tb_lines = traceback.format_exception(type(exception), exception, exception.__traceback__)
     tb_text = _redact_text("".join(tb_lines))
-    lines.append(f"\n堆栈跟踪:\n{tb_text}")
 
     full_message = "\n".join(lines)
 
-    logger.error(f"详细错误信息:\n{full_message}")
+    logger.error(f"详细错误信息:\n{full_message}\n堆栈跟踪:\n{tb_text}")
 
     if len(full_message) > 2000:
         full_message = full_message[:1950] + "\n... [消息过长已截断，完整脱敏堆栈见日志文件]"
