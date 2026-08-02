@@ -7,7 +7,7 @@ from typing import Any
 from core.ai_tool_registry import AIToolContext, execute_ai_tool, iter_ai_tools
 from core.config_loader import load_main_config
 
-from . import files, search
+from . import files, help, search
 from ..utils import safe_bool
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
@@ -19,6 +19,8 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
         tools.append(search.definition())
     if files.enabled(cfg):
         tools.extend(files.definitions())
+    if help.enabled(cfg):
+        tools.append(help.definition())
     if _plugin_tools_enabled(cfg):
         tools.extend(spec.definition() for spec in _iter_enabled_plugin_tools(cfg, context))
     return tools
@@ -52,6 +54,12 @@ async def execute_tool_call(
         except Exception as e:
             logger.warning("[AIAgent] 文件工具调用失败: %s", e)
             content = json.dumps({"error": f"file tool failed: {e}"}, ensure_ascii=False)
+    elif name == help.TOOL_NAME and help.enabled(cfg):
+        try:
+            content = help.execute(cfg, arguments)
+        except Exception as e:
+            logger.warning("[AIAgent] 帮助文档工具调用失败: %s", e)
+            content = json.dumps({"error": f"help tool failed: {e}"}, ensure_ascii=False)
     elif _plugin_tools_enabled(cfg) and _plugin_tool_allowed(name, cfg, context):
         content = await execute_ai_tool(name, context, arguments)
     else:

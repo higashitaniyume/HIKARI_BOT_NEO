@@ -78,6 +78,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_file_chars": 60000,
     },
     "tools": {
+        "help": {
+            "enabled": True,
+        },
         "search": {
             "enabled": True,
             "base_url": "http://searxng-core:8080",

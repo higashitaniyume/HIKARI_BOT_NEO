@@ -400,7 +400,10 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
     def test_file_tools_are_declared_when_enabled(self) -> None:
         tools = aiagent._available_tools(base_cfg(search_enabled=False, files_enabled=True))
         tool_names = {tool["function"]["name"] for tool in tools}
-        self.assertEqual(tool_names, {"read_persona_resource", "read_user_file", "write_user_file"})
+        self.assertEqual(
+            tool_names,
+            {"bot_help", "read_persona_resource", "read_user_file", "write_user_file"},
+        )
 
     async def test_file_tools_respect_botdata_and_userdata_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
