@@ -32,13 +32,25 @@ function renderAiAgentQuota() {
 
   const user = cfg.default_user || {};
   const group = cfg.default_group || {};
-  $("#quotaDefaultUserDaily").value = user.daily ?? 100000;
-  $("#quotaDefaultUserHourly").value = user.hourly ?? 10000;
-  $("#quotaDefaultGroupDaily").value = group.daily ?? 500000;
-  $("#quotaDefaultGroupHourly").value = group.hourly ?? 60000;
+  $("#quotaDefaultUserDaily").value = user.daily ?? 100;
+  $("#quotaDefaultUserHourly").value = user.hourly ?? 10;
+  $("#quotaDefaultGroupDaily").value = group.daily ?? 300;
+  $("#quotaDefaultGroupHourly").value = group.hourly ?? 30;
 
+  renderQuotaPermissions(data.permissions || {});
   renderQuotaOverrides(cfg);
   renderQuotaUsageTable(data.scopes || []);
+}
+
+function renderQuotaPermissions(permissions) {
+  const whitelist = permissions.whitelist || {};
+  const blacklist = permissions.blacklist || {};
+  $("#quotaWhitelistEnabled").checked = whitelist.enable === true;
+  $("#quotaWhitelistUsers").value = joinIds(whitelist.user);
+  $("#quotaWhitelistGroups").value = joinIds(whitelist.group);
+  $("#quotaBlacklistEnabled").checked = blacklist.enable === true;
+  $("#quotaBlacklistUsers").value = joinIds(blacklist.user);
+  $("#quotaBlacklistGroups").value = joinIds(blacklist.group);
 }
 
 function renderQuotaOverrides(cfg) {
@@ -171,6 +183,18 @@ async function saveAiAgentQuota(event) {
       exempt_user_ids: splitIds($("#quotaExemptUsers").value),
       exempt_group_ids: splitIds($("#quotaExemptGroups").value),
       count_background: $("#quotaCountBackground").checked,
+    },
+    permissions: {
+      whitelist: {
+        enable: $("#quotaWhitelistEnabled").checked,
+        user: splitIds($("#quotaWhitelistUsers").value),
+        group: splitIds($("#quotaWhitelistGroups").value),
+      },
+      blacklist: {
+        enable: $("#quotaBlacklistEnabled").checked,
+        user: splitIds($("#quotaBlacklistUsers").value),
+        group: splitIds($("#quotaBlacklistGroups").value),
+      },
     },
   };
 

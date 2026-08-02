@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from core.access_control import DEFAULT_ACCESS_RULES
 from .persona import PERSONA_ROOT
 
 logger = logging.getLogger("HikariBot.AIAgent.Config")
@@ -113,6 +114,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "exempt_group_ids": [],
         "count_background": True,
     },
+    # 黑白名单：配额页「访问控制」板块管理。命中黑名单/不在白名单时直接拒绝，
+    # 优先于配额检查。
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
 
@@ -148,9 +152,10 @@ def ensure_config() -> None:
         return
 
     merged = _deep_merge(DEFAULT_CONFIG, data)
-    # 迁移：旧版 permissions 黑白名单已被 quota 取代，从配置中移除。
-    # 保留会误导后台「权限」页（该页已不再列出 aiagent）。
-    merged.pop("permissions", None)
+    # 保留用户设置的 permissions（配额页「访问控制」板块管理）
+    existing_permissions = data.get("permissions")
+    if existing_permissions is not None:
+        merged["permissions"] = existing_permissions
     if merged != data:
         _write_config(merged)
         logger.info("已补全 AI Agent 配置文件: %s", CONFIG_PATH)
@@ -170,8 +175,16 @@ def get_config() -> dict[str, Any]:
 
 def save_config(data: dict[str, Any]) -> dict[str, Any]:
     cfg = _deep_merge(DEFAULT_CONFIG, data)
-    # 迁移：旧版 permissions 黑白名单已被 quota 取代，写入时一并移除。
-    cfg.pop("permissions", None)
+    if "permissions" not in data:
+        # 调用方未传 permissions（如 AI 设置页）时，保留文件里已有的黑白名单
+        try:
+            if CONFIG_PATH.is_file():
+                existing = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+                existing_permissions = existing.get("permissions")
+                if existing_permissions is not None:
+                    cfg["permissions"] = existing_permissions
+        except Exception as e:
+            logger.warning("读取现有 AI Agent 配置失败（继续写入）: %s", e)
     _write_config(cfg)
     return copy.deepcopy(cfg)
 

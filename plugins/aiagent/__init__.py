@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
 
+from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
 from core.activity_tracker import ActivityScope
 from core.bot_identity import get_bot_name
@@ -267,6 +268,14 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
 
     cfg = get_config()
     if not cfg.get("enabled", False):
+        return
+    # 黑白名单准入检查（优先于配额检查）
+    if not is_event_allowed(cfg, event):
+        logger.info(
+            "[AIAgent] 黑白名单已阻止回复 -> user=%s group=%s",
+            event.get_user_id(),
+            getattr(event, "group_id", ""),
+        )
         return
 
     await _handle_chat_event(bot, event, event.get_plaintext())

@@ -3,20 +3,21 @@
         <div class="panel-heading">
           <div>
             <h2>AI 配额</h2>
-            <p>群聊按群额度、私聊按个人额度（每日 + 每小时对话次数，0 = 不限额）。一条用户消息计 1 次对话。</p>
+            <p>群聊按群额度、私聊按个人额度（每日 + 每小时对话次数，0 = 不限额）。一条用户消息计 1 次对话；黑白名单优先于配额检查。</p>
           </div>
           <button type="button" id="quotaRefreshBtn" class="ghost">刷新</button>
         </div>
 
-        <form id="quotaConfigForm" class="settings-form aiagent-form">
-          <label class="checkbox-field settings-toggle">
-            <input id="quotaEnabled" type="checkbox">
-            <span>启用 AI 配额</span>
-          </label>
-          <small>关闭时所有用户/群不设限（替代旧的白名单/黑名单开关）。</small>
-
-          <fieldset class="quota-fieldset">
-            <legend>默认额度（未单独定制的用户/群，单位：对话次数）</legend>
+        <form id="quotaConfigForm" class="quota-form">
+          <section class="quota-section">
+            <div class="quota-section-head">
+              <h3>基本设置</h3>
+              <p>关闭时所有用户/群不设限。</p>
+            </div>
+            <label class="checkbox-field">
+              <input id="quotaEnabled" type="checkbox">
+              <span>启用 AI 配额</span>
+            </label>
             <div class="quota-grid">
               <label>
                 <span>用户每日次数</span>
@@ -35,35 +36,68 @@
                 <input id="quotaDefaultGroupHourly" type="number" min="0" step="1">
               </label>
             </div>
-          </fieldset>
+            <label class="checkbox-field">
+              <input id="quotaCountBackground" type="checkbox">
+              <span>记忆总结等后台调用计入配额（只计不拦）</span>
+            </label>
+          </section>
 
-          <label class="checkbox-field">
-            <input id="quotaCountBackground" type="checkbox">
-            <span>记忆总结等后台调用计入配额（只计不拦）</span>
-          </label>
+          <section class="quota-section">
+            <div class="quota-section-head">
+              <h3>访问控制</h3>
+              <p>黑白名单优先于配额：命中黑名单或在白名单之外的人/群直接不回复；豁免对象不设配额限制。</p>
+            </div>
+            <div class="quota-access-row">
+              <label class="checkbox-field">
+                <input id="quotaWhitelistEnabled" type="checkbox">
+                <span>启用白名单（仅名单内可用）</span>
+              </label>
+              <label class="quota-two-col">
+                <span>白名单 QQ 号（一行一个）</span>
+                <textarea id="quotaWhitelistUsers" rows="3" placeholder="123456&#10;234567"></textarea>
+              </label>
+              <label class="quota-two-col">
+                <span>白名单群号（一行一个）</span>
+                <textarea id="quotaWhitelistGroups" rows="3" placeholder="987654321"></textarea>
+              </label>
+            </div>
+            <div class="quota-access-row">
+              <label class="checkbox-field">
+                <input id="quotaBlacklistEnabled" type="checkbox">
+                <span>启用黑名单（名单内禁止）</span>
+              </label>
+              <label class="quota-two-col">
+                <span>黑名单 QQ 号（一行一个）</span>
+                <textarea id="quotaBlacklistUsers" rows="3" placeholder="123456"></textarea>
+              </label>
+              <label class="quota-two-col">
+                <span>黑名单群号（一行一个）</span>
+                <textarea id="quotaBlacklistGroups" rows="3" placeholder="987654321"></textarea>
+              </label>
+            </div>
+            <div class="quota-access-row">
+              <label class="quota-two-col">
+                <span>豁免用户 QQ 号（一行一个，不限额）</span>
+                <textarea id="quotaExemptUsers" rows="3" placeholder="123456&#10;234567"></textarea>
+              </label>
+              <label class="quota-two-col">
+                <span>豁免群号（一行一个，不限额）</span>
+                <textarea id="quotaExemptGroups" rows="3" placeholder="987654321"></textarea>
+              </label>
+            </div>
+          </section>
 
-          <label>
-            <span>豁免用户 QQ 号（一行一个）</span>
-            <textarea id="quotaExemptUsers" rows="2" placeholder="123456&#10;234567"></textarea>
-          </label>
-          <label>
-            <span>豁免群号（一行一个）</span>
-            <textarea id="quotaExemptGroups" rows="2" placeholder="987654321"></textarea>
-          </label>
+          <section class="quota-section">
+            <div class="quota-section-head">
+              <h3>定制限额</h3>
+              <p>给指定用户/群设置独立对话次数（每日/每小时，0 = 不限额）。</p>
+            </div>
+            <div id="quotaOverrideList" class="quota-override-list">加载中...</div>
+            <button type="button" id="quotaAddOverrideBtn" class="ghost quota-add-override">＋ 添加定制</button>
+          </section>
 
           <button type="submit" class="primary">保存配额设置</button>
         </form>
-      </section>
-
-      <section class="panel settings-panel">
-        <div class="panel-heading">
-          <div>
-            <h3>定制限额</h3>
-            <p>给指定用户/群设置独立对话次数（每日/每小时，0 = 不限额），保存后随保存按钮一起生效。</p>
-          </div>
-          <button type="button" id="quotaAddOverrideBtn" class="ghost">＋ 添加</button>
-        </div>
-        <div id="quotaOverrideList" class="quota-override-list">加载中...</div>
       </section>
 
       <section class="panel settings-panel">

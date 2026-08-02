@@ -1,28 +1,87 @@
 /* AI 配额页面样式 */
 
+/* 单列纵向表单（替代 settings-form 的 3 列网格） */
+.quota-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 16px;
+  margin: 8px 0 0;
+}
+
+.quota-form .primary {
+  align-self: flex-end;
+  min-width: 180px;
+}
+
+.quota-section {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quota-section-head h3 {
+  margin: 0;
+}
+
+.quota-section-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
 .quota-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
 }
 
-.quota-fieldset {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  margin: 0 0 14px;
+/* 两个 textarea 并排 */
+.quota-access-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
 }
 
-.quota-fieldset legend {
-  padding: 0 6px;
-  color: var(--muted);
-  font-size: 0.9em;
+.quota-access-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.quota-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.quota-two-col textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+@media (max-width: 720px) {
+  .quota-two-col {
+    grid-template-columns: 1fr;
+  }
 }
 
 .quota-override-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.quota-override-list.empty {
+  color: var(--muted);
 }
 
 .quota-override-row {
@@ -34,6 +93,12 @@
 
 .quota-override-row input[type="number"] {
   min-width: 0;
+}
+
+.quota-add-override {
+  align-self: flex-start;
+  width: auto;
+  padding: 0 14px;
 }
 
 .quota-tabs {
@@ -49,6 +114,8 @@
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  width: auto;
+  min-height: 34px;
 }
 
 .quota-tab.is-active {

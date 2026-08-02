@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
+from core.access_control import is_event_allowed
 from plugins.aiagent import quota as quota_mod
 
 
@@ -280,6 +281,95 @@ class RecordUsageTests(QuotaTestBase):
         usage = quota_mod.get_all_usage()
         self.assertIn("group:111", usage)
         self.assertIn("user:333", usage)
+
+
+class AccessControlTests(QuotaTestBase):
+    """配额页保存的黑白名单与准入检查集成。"""
+
+    def _cfg_with_permissions(self, permissions: dict) -> dict:
+        cfg = make_cfg()
+        cfg["permissions"] = permissions
+        return cfg
+
+    def test_default_allows(self) -> None:
+        cfg = self._cfg_with_permissions({})
+        self.assertTrue(is_event_allowed(cfg, make_group_event()))
+        self.assertTrue(is_event_allowed(cfg, make_private_event()))
+
+    def test_blacklist_user_blocks(self) -> None:
+        cfg = self._cfg_with_permissions({
+            "blacklist": {"enable": True, "user": ["222"], "group": []},
+        })
+        self.assertFalse(is_event_allowed(cfg, make_group_event(user_id="222")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event(user_id="888")))
+
+    def test_blacklist_group_blocks(self) -> None:
+        cfg = self._cfg_with_permissions({
+            "blacklist": {"enable": True, "user": [], "group": ["111"]},
+        })
+        self.assertFalse(is_event_allowed(cfg, make_group_event("111")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event("999")))
+
+    def test_whitelist_blocks_outsiders(self) -> None:
+        cfg = self._cfg_with_permissions({
+            "whitelist": {"enable": True, "user": ["222"], "group": []},
+        })
+        self.assertTrue(is_event_allowed(cfg, make_group_event(user_id="222")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event(user_id="888")))
+
+    def test_whitelist_group_allows_members(self) -> None:
+        cfg = self._cfg_with_permissions({
+            "whitelist": {"enable": True, "user": [], "group": ["111"]},
+        })
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("999")))
+
+    def test_admin_always_allowed(self) -> None:
+        cfg = self._cfg_with_permissions({
+            "admin_id": "666",
+            "blacklist": {"enable": True, "user": ["666"], "group": []},
+        })
+        self.assertTrue(is_event_allowed(cfg, make_private_event("666")))
+
+    def test_quota_page_save_persists_permissions(self) -> None:
+        """模拟配额页保存：permissions 一并写入配置并可再次读出。
+
+        使用临时 cwd，避免写入真实 BotData 配置文件。
+        """
+        import os
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            old_cwd = Path.cwd()
+            os.chdir(tmp)
+            try:
+                from plugins.bot_admin.settings import _update_aiagent_quota
+                from plugins.aiagent.config import get_config
+
+                state = _update_aiagent_quota({
+                    "quota": {"enabled": True},
+                    "permissions": {
+                        "blacklist": {"enable": True, "user": ["222"], "group": []},
+                    },
+                })
+                saved = state["permissions"]
+                self.assertTrue(saved["blacklist"]["enable"])
+                self.assertIn("222", saved["blacklist"]["user"])
+                # 配置文件里确实写入了 permissions
+                cfg = get_config()
+                self.assertIn("222", cfg["permissions"]["blacklist"]["user"])
+                # 未传 permissions 时（如 AI 设置页保存）不应清空已有黑白名单
+                from plugins.bot_admin.settings import _update_aiagent_config
+
+                _update_aiagent_config({
+                    "enabled": True,
+                    "model": {"base_url": "http://x/v1", "model": "m"},
+                })
+                cfg = get_config()
+                self.assertIn("222", cfg["permissions"]["blacklist"]["user"])
+            finally:
+                os.chdir(old_cwd)
 
 
 if __name__ == "__main__":

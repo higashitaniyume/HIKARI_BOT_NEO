@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from core.access_control import normalize_access_rules
 from core.ai_tool_registry import iter_ai_tools
 from plugins.aiagent.config import get_config as get_aiagent_config
 from plugins.aiagent.persona import list_persona_skills as list_aiagent_persona_skills
@@ -340,10 +341,11 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _aiagent_quota_state() -> dict[str, Any]:
-    """AI 配额页数据：配置 + 全部已知 scope 的实时用量快照。"""
+    """AI 配额页数据：配置 + 黑白名单 + 全部已知 scope 的实时用量快照。"""
     cfg = get_aiagent_config()
     quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
-    return {"config": quota_cfg, "scopes": _aiagent_quota_scopes(cfg)}
+    permissions = normalize_access_rules(cfg.get("permissions", {}))
+    return {"config": quota_cfg, "permissions": permissions, "scopes": _aiagent_quota_scopes(cfg)}
 
 
 def _aiagent_quota_scopes(cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -431,6 +433,9 @@ def _update_aiagent_quota(data: dict[str, Any]) -> dict[str, Any]:
         ),
     }
     current["quota"] = next_quota
+    # 黑白名单（配额页「访问控制」板块）
+    if "permissions" in data:
+        current["permissions"] = normalize_access_rules(data.get("permissions", {}))
     save_aiagent_config(current)
     return _aiagent_quota_state()
 
