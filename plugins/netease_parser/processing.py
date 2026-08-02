@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import NetworkError
 
 from core.activity_tracker import ActivityScope
 from core.bot_messages import get_message as msg
@@ -32,6 +33,37 @@ from .sender import send_song
 from . import NeteaseQueueItem, _sanitize_filename
 
 logger = logging.getLogger("HikariBot.NeteasePlugin")
+
+
+def _is_upload_timeout(exc: Exception) -> bool:
+    """判断是否为上传超时错误（WS 响应超时，文件很可能已送达，不应重试）。
+
+    上传文件时 OneBot WS 调用超时：NapCat 通常已收到文件并完成发送，
+    只是响应没能及时返回，重试会导致同一文件重复发送。
+    """
+    if not isinstance(exc, NetworkError):
+        return False
+    msg_text = str(exc.msg or "")
+    return (
+        ("upload_private_file" in msg_text or "upload_group_file" in msg_text)
+        and "timeout" in msg_text
+    )
+
+
+async def _notify_final_failure(
+    bot: Bot,
+    event: MessageEvent,
+    label: str,
+    e: Exception,
+    note: str,
+) -> None:
+    """终结失败：记录日志并通知 superuser。"""
+    logger.exception("[Netease] ✗ %s %s → %s", label, note, e)
+    try:
+        await send_user_error(bot, event)
+        await notify_error_to_superuser(bot, event, e, "NeteaseParser")
+    except Exception as notify_err:
+        logger.exception("发送错误通知失败: %s", notify_err)
 
 
 async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
@@ -62,6 +94,13 @@ async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            if _is_upload_timeout(e):
+                # 上传超时：文件很可能已送达，重试会重复发送，直接终结
+                await _notify_final_failure(
+                    item.bot, item.event, label, e,
+                    "上传超时（文件可能已送达），不重试",
+                )
+                return
             if attempt < max_attempts:
                 logger.warning(
                     "[Netease] 重试 %d/%d → %s error=%s",
@@ -69,12 +108,10 @@ async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
                 )
                 await asyncio.sleep(retry_delay)
             else:
-                logger.exception("[Netease] ✗ %s 重试耗尽 (共 %d 次) → %s", label, max_attempts, e)
-                try:
-                    await send_user_error(item.bot, item.event)
-                    await notify_error_to_superuser(item.bot, item.event, e, "NeteaseParser")
-                except Exception as notify_err:
-                    logger.exception("发送错误通知失败: %s", notify_err)
+                await _notify_final_failure(
+                    item.bot, item.event, label, e,
+                    f"重试耗尽 (共 {max_attempts} 次)",
+                )
 
 
 async def _process_single_program(
