@@ -331,6 +331,131 @@ class AccessControlTests(QuotaTestBase):
         })
         self.assertTrue(is_event_allowed(cfg, make_private_event("666")))
 
+    def test_dimension_switches_are_independent(self) -> None:
+        """只开用户白名单：私聊/群聊都只认用户名单，群维度不生效。"""
+        cfg = self._cfg_with_permissions({
+            "whitelist": {
+                "enable": True,
+                "user_enable": True,
+                "group_enable": False,
+                "user": ["222"],
+                "group": ["111"],
+            },
+        })
+        # 名单内用户放行（私聊与群聊）
+        self.assertTrue(is_event_allowed(cfg, make_private_event("222")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="222")))
+        # 名单外用户拒绝（即使所在群在白名单里——群维度未启用）
+        self.assertFalse(is_event_allowed(cfg, make_private_event("333")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("111", user_id="333")))
+
+    def test_group_whitelist_only(self) -> None:
+        """只开群白名单：名单内群放行（成员无需在用户名单），名单外拒绝，私聊全拒。"""
+        cfg = self._cfg_with_permissions({
+            "whitelist": {
+                "enable": True,
+                "user_enable": False,
+                "group_enable": True,
+                "user": [],
+                "group": ["111"],
+            },
+        })
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="333")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("999", user_id="222")))
+        # 私聊没有群，群白名单维度无法命中 → 拒绝
+        self.assertFalse(is_event_allowed(cfg, make_private_event("222")))
+
+    def test_user_blacklist_only(self) -> None:
+        """只开用户黑名单：名单内用户被拒（私聊与群聊），群维度不受影响。"""
+        cfg = self._cfg_with_permissions({
+            "blacklist": {
+                "enable": True,
+                "user_enable": True,
+                "group_enable": False,
+                "user": ["222"],
+                "group": ["111"],
+            },
+        })
+        self.assertFalse(is_event_allowed(cfg, make_private_event("222")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("111", user_id="222")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="333")))
+        self.assertTrue(is_event_allowed(cfg, make_private_event("333")))
+
+    def test_group_blacklist_only(self) -> None:
+        """只开群黑名单：名单内群被拒，其他群与私聊不受影响。"""
+        cfg = self._cfg_with_permissions({
+            "blacklist": {
+                "enable": True,
+                "user_enable": False,
+                "group_enable": True,
+                "user": ["222"],
+                "group": ["111"],
+            },
+        })
+        self.assertFalse(is_event_allowed(cfg, make_group_event("111")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event("999")))
+        self.assertTrue(is_event_allowed(cfg, make_private_event("222")))
+
+    def test_whitelist_or_semantics_between_dimensions(self) -> None:
+        """用户白名单 + 群白名单：命中任一维度即放行。"""
+        cfg = self._cfg_with_permissions({
+            "whitelist": {
+                "enable": True,
+                "user_enable": True,
+                "group_enable": True,
+                "user": ["222"],
+                "group": ["111"],
+            },
+        })
+        # 用户命中（群未命中）
+        self.assertTrue(is_event_allowed(cfg, make_group_event("999", user_id="222")))
+        # 群命中（用户未命中）
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="333")))
+        # 都未命中
+        self.assertFalse(is_event_allowed(cfg, make_group_event("999", user_id="333")))
+        self.assertFalse(is_event_allowed(cfg, make_private_event("333")))
+
+    def test_legacy_enable_field_keeps_old_behavior(self) -> None:
+        """旧配置（只有 enable，无维度开关）行为与旧逻辑一致。"""
+        # 白名单整体开：名单外拒绝
+        cfg = self._cfg_with_permissions({
+            "whitelist": {"enable": True, "user": ["222"], "group": ["111"]},
+        })
+        self.assertTrue(is_event_allowed(cfg, make_private_event("222")))
+        self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="333")))
+        self.assertFalse(is_event_allowed(cfg, make_private_event("333")))
+        # 用户命中白名单（即使群不在名单）→ 放行；两者都未命中 → 拒绝
+        self.assertTrue(is_event_allowed(cfg, make_group_event("999", user_id="222")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("999", user_id="888")))
+        # 黑名单整体开：名单内拒绝
+        cfg = self._cfg_with_permissions({
+            "blacklist": {"enable": True, "user": ["222"], "group": ["111"]},
+        })
+        self.assertFalse(is_event_allowed(cfg, make_private_event("222")))
+        self.assertFalse(is_event_allowed(cfg, make_group_event("111", user_id="222")))
+        self.assertTrue(is_event_allowed(cfg, make_private_event("333")))
+        # 群不在名单且用户不在名单 → 放行
+        self.assertTrue(is_event_allowed(cfg, make_group_event("999", user_id="888")))
+
+    def test_normalize_preserves_dimension_switches(self) -> None:
+        from core.access_control import normalize_access_rules
+
+        rules = normalize_access_rules({
+            "whitelist": {
+                "enable": True,
+                "user_enable": False,
+                "group_enable": True,
+                "user": ["222"],
+                "group": [],
+            },
+        })
+        self.assertIs(rules["whitelist"]["user_enable"], False)
+        self.assertIs(rules["whitelist"]["group_enable"], True)
+        # 未提供的维度开关不写入（判定回退 enable）
+        rules2 = normalize_access_rules({"whitelist": {"enable": True}})
+        self.assertNotIn("user_enable", rules2["whitelist"])
+        self.assertNotIn("group_enable", rules2["whitelist"])
+
     def test_quota_page_save_persists_permissions(self) -> None:
         """模拟配额页保存：permissions 一并写入配置并可再次读出。
 

@@ -45,16 +45,21 @@
           <section class="quota-section">
             <div class="quota-section-head">
               <h3>访问控制</h3>
-              <p>黑白名单优先于配额：命中黑名单或在白名单之外的人/群直接不回复；豁免对象不设配额限制。</p>
+              <p>黑白名单优先于配额，用户/群维度可分别开关：命中黑名单或在任一启用的白名单之外直接不回复；豁免对象不设配额限制。</p>
             </div>
             <div class="quota-access-row">
+              <div class="quota-access-title">白名单</div>
               <label class="checkbox-field">
-                <input id="quotaWhitelistEnabled" type="checkbox">
-                <span>启用白名单（仅名单内可用）</span>
+                <input id="quotaWhitelistUserEnabled" type="checkbox">
+                <span>启用用户白名单（仅名单内 QQ 号可用，私聊与群聊均生效）</span>
               </label>
               <label class="quota-two-col">
                 <span>白名单 QQ 号（一行一个）</span>
                 <textarea id="quotaWhitelistUsers" rows="3" placeholder="123456&#10;234567"></textarea>
+              </label>
+              <label class="checkbox-field">
+                <input id="quotaWhitelistGroupEnabled" type="checkbox">
+                <span>启用群白名单（仅名单内群可用）</span>
               </label>
               <label class="quota-two-col">
                 <span>白名单群号（一行一个）</span>
@@ -62,13 +67,18 @@
               </label>
             </div>
             <div class="quota-access-row">
+              <div class="quota-access-title">黑名单</div>
               <label class="checkbox-field">
-                <input id="quotaBlacklistEnabled" type="checkbox">
-                <span>启用黑名单（名单内禁止）</span>
+                <input id="quotaBlacklistUserEnabled" type="checkbox">
+                <span>启用用户黑名单（名单内 QQ 号禁止）</span>
               </label>
               <label class="quota-two-col">
                 <span>黑名单 QQ 号（一行一个）</span>
                 <textarea id="quotaBlacklistUsers" rows="3" placeholder="123456"></textarea>
+              </label>
+              <label class="checkbox-field">
+                <input id="quotaBlacklistGroupEnabled" type="checkbox">
+                <span>启用群黑名单（名单内群禁止）</span>
               </label>
               <label class="quota-two-col">
                 <span>黑名单群号（一行一个）</span>

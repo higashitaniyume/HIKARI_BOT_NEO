@@ -52,6 +52,11 @@
   border-bottom: 1px dashed var(--border);
 }
 
+.quota-access-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
 .quota-access-row:last-child {
   border-bottom: none;
   padding-bottom: 0;

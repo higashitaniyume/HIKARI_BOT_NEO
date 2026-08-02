@@ -45,10 +45,15 @@ function renderAiAgentQuota() {
 function renderQuotaPermissions(permissions) {
   const whitelist = permissions.whitelist || {};
   const blacklist = permissions.blacklist || {};
-  $("#quotaWhitelistEnabled").checked = whitelist.enable === true;
+  // 新配置用 user_enable/group_enable；旧配置只有 enable 时按整体开关回退显示
+  const wlEnable = whitelist.enable === true;
+  const blEnable = blacklist.enable === true;
+  $("#quotaWhitelistUserEnabled").checked = whitelist.user_enable !== undefined ? whitelist.user_enable === true : wlEnable;
+  $("#quotaWhitelistGroupEnabled").checked = whitelist.group_enable !== undefined ? whitelist.group_enable === true : wlEnable;
   $("#quotaWhitelistUsers").value = joinIds(whitelist.user);
   $("#quotaWhitelistGroups").value = joinIds(whitelist.group);
-  $("#quotaBlacklistEnabled").checked = blacklist.enable === true;
+  $("#quotaBlacklistUserEnabled").checked = blacklist.user_enable !== undefined ? blacklist.user_enable === true : blEnable;
+  $("#quotaBlacklistGroupEnabled").checked = blacklist.group_enable !== undefined ? blacklist.group_enable === true : blEnable;
   $("#quotaBlacklistUsers").value = joinIds(blacklist.user);
   $("#quotaBlacklistGroups").value = joinIds(blacklist.group);
 }
@@ -184,18 +189,7 @@ async function saveAiAgentQuota(event) {
       exempt_group_ids: splitIds($("#quotaExemptGroups").value),
       count_background: $("#quotaCountBackground").checked,
     },
-    permissions: {
-      whitelist: {
-        enable: $("#quotaWhitelistEnabled").checked,
-        user: splitIds($("#quotaWhitelistUsers").value),
-        group: splitIds($("#quotaWhitelistGroups").value),
-      },
-      blacklist: {
-        enable: $("#quotaBlacklistEnabled").checked,
-        user: splitIds($("#quotaBlacklistUsers").value),
-        group: splitIds($("#quotaBlacklistGroups").value),
-      },
-    },
+    permissions: buildQuotaPermissions(),
   };
 
   const button = $("#quotaConfigForm button[type='submit']");
@@ -215,6 +209,29 @@ async function saveAiAgentQuota(event) {
   } finally {
     button.disabled = false;
   }
+}
+
+function buildQuotaPermissions() {
+  const wlUser = $("#quotaWhitelistUserEnabled").checked;
+  const wlGroup = $("#quotaWhitelistGroupEnabled").checked;
+  const blUser = $("#quotaBlacklistUserEnabled").checked;
+  const blGroup = $("#quotaBlacklistGroupEnabled").checked;
+  return {
+    whitelist: {
+      enable: wlUser || wlGroup,
+      user_enable: wlUser,
+      group_enable: wlGroup,
+      user: splitIds($("#quotaWhitelistUsers").value),
+      group: splitIds($("#quotaWhitelistGroups").value),
+    },
+    blacklist: {
+      enable: blUser || blGroup,
+      user_enable: blUser,
+      group_enable: blGroup,
+      user: splitIds($("#quotaBlacklistUsers").value),
+      group: splitIds($("#quotaBlacklistGroups").value),
+    },
+  };
 }
 
 async function resetQuotaScope(scope) {
