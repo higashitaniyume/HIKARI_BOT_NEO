@@ -48,13 +48,12 @@ def make_cfg() -> dict:
     return {
         "quota": {
             "enabled": True,
-            "default_user": {"daily": 1000, "hourly": 200},
-            "default_group": {"daily": 2000, "hourly": 400},
+            "default_user": {"daily": 100, "hourly": 10},
+            "default_group": {"daily": 300, "hourly": 30},
             "user_overrides": {},
             "group_overrides": {},
             "exempt_user_ids": [],
             "exempt_group_ids": [],
-            "output_reserve_tokens": 50,
             "count_background": True,
         }
     }
@@ -74,36 +73,11 @@ class QuotaTestBase(unittest.TestCase):
         self._tmpdir.cleanup()
 
 
-class EstimateTokenTests(QuotaTestBase):
-    def test_empty_text_is_zero(self) -> None:
-        self.assertEqual(quota_mod.estimate_text_tokens(""), 0)
-        self.assertEqual(quota_mod.estimate_text_tokens(None), 0)
-
-    def test_non_empty_text_is_positive(self) -> None:
-        self.assertGreater(quota_mod.estimate_text_tokens("你好世界"), 0)
-        self.assertGreater(quota_mod.estimate_text_tokens("hello world"), 0)
-        self.assertGreater(quota_mod.estimate_text_tokens("混合 mixed 123"), 0)
-
-    def test_fallback_estimate_when_tokenizer_unavailable(self) -> None:
-        with patch.object(quota_mod, "_load_tokenizer", return_value=None):
-            self.assertGreater(quota_mod.estimate_text_tokens("你好世界"), 0)
-            # 兜底估算：2 个 CJK 字符 = 2 tokens
-            self.assertEqual(quota_mod._fallback_estimate("你好"), 2)
-            # 8 个 ASCII 字符 = 2 tokens
-            self.assertEqual(quota_mod._fallback_estimate("abcdefgh"), 2)
-
-    def test_messages_estimate_includes_overhead(self) -> None:
-        messages = [{"role": "system", "content": "你好"}]
-        plain = quota_mod.estimate_text_tokens("你好")
-        total = quota_mod.estimate_messages_tokens(messages)
-        self.assertGreater(total, plain)
-
-
 class LimitResolutionTests(QuotaTestBase):
     def test_defaults_applied(self) -> None:
         cfg = make_cfg()
-        self.assertEqual(quota_mod._limits_for(cfg, "user:333"), {"daily": 1000, "hourly": 200})
-        self.assertEqual(quota_mod._limits_for(cfg, "group:111"), {"daily": 2000, "hourly": 400})
+        self.assertEqual(quota_mod._limits_for(cfg, "user:333"), {"daily": 100, "hourly": 10})
+        self.assertEqual(quota_mod._limits_for(cfg, "group:111"), {"daily": 300, "hourly": 30})
 
     def test_override_wins(self) -> None:
         cfg = make_cfg()
@@ -115,7 +89,7 @@ class LimitResolutionTests(QuotaTestBase):
     def test_override_missing_field_falls_back_to_default(self) -> None:
         cfg = make_cfg()
         cfg["quota"]["user_overrides"] = {"333": {"hourly": 7}}
-        self.assertEqual(quota_mod._limits_for(cfg, "user:333"), {"daily": 1000, "hourly": 7})
+        self.assertEqual(quota_mod._limits_for(cfg, "user:333"), {"daily": 100, "hourly": 7})
 
     def test_window_keys(self) -> None:
         now = datetime(2026, 8, 2, 15, 30)
@@ -126,45 +100,39 @@ class CheckQuotaTests(QuotaTestBase):
     def test_disabled_always_allows(self) -> None:
         cfg = make_cfg()
         cfg["quota"]["enabled"] = False
-        self.assertIsNone(quota_mod.check_quota(cfg, make_group_event(), [{"role": "user", "content": "hi"}]))
+        self.assertIsNone(quota_mod.check_quota(cfg, make_group_event()))
 
     def test_within_limits_allows(self) -> None:
         cfg = make_cfg()
-        cfg["quota"]["default_group"] = {"daily": 200, "hourly": 1000}
+        cfg["quota"]["default_group"] = {"daily": 10, "hourly": 100}
         event = make_group_event()
         scope = quota_mod.scope_for_event(event)
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=100), patch.object(
-            quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")
-        ):
-            quota_mod._record(scope, "day", "2026-08-02", 50)
-            self.assertIsNone(quota_mod.check_quota(cfg, event, []))
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(scope, "day", "2026-08-02", 5)
+            self.assertIsNone(quota_mod.check_quota(cfg, event))
 
     def test_daily_block(self) -> None:
         cfg = make_cfg()
-        cfg["quota"]["default_group"] = {"daily": 200, "hourly": 1000}
+        cfg["quota"]["default_group"] = {"daily": 10, "hourly": 100}
         event = make_group_event()
         scope = quota_mod.scope_for_event(event)
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=100), patch.object(
-            quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")
-        ):
-            quota_mod._record(scope, "day", "2026-08-02", 150)
-            block = quota_mod.check_quota(cfg, event, [])
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(scope, "day", "2026-08-02", 10)
+            block = quota_mod.check_quota(cfg, event)
         self.assertIsNotNone(block)
         self.assertEqual(block["who"], "group")
         self.assertEqual(block["period"], "day")
-        self.assertEqual(block["used"], 150)
-        self.assertEqual(block["limit"], 200)
+        self.assertEqual(block["used"], 10)
+        self.assertEqual(block["limit"], 10)
 
     def test_hourly_block(self) -> None:
         cfg = make_cfg()
-        cfg["quota"]["default_group"] = {"daily": 100000, "hourly": 400}
+        cfg["quota"]["default_group"] = {"daily": 1000, "hourly": 30}
         event = make_group_event()
         scope = quota_mod.scope_for_event(event)
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=100), patch.object(
-            quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")
-        ):
-            quota_mod._record(scope, "hour", "2026-08-02-15", 350)
-            block = quota_mod.check_quota(cfg, event, [])
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(scope, "hour", "2026-08-02-15", 30)
+            block = quota_mod.check_quota(cfg, event)
         self.assertIsNotNone(block)
         self.assertEqual(block["period"], "hour")
         self.assertEqual(block["who"], "group")
@@ -172,48 +140,53 @@ class CheckQuotaTests(QuotaTestBase):
     def test_zero_limit_is_unlimited(self) -> None:
         cfg = make_cfg()
         cfg["quota"]["default_user"] = {"daily": 0, "hourly": 0}
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=10**9):
-            self.assertIsNone(quota_mod.check_quota(cfg, make_private_event(), []))
+        event = make_private_event()
+        scope = quota_mod.scope_for_event(event)
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(scope, "day", "2026-08-02", 10**9)
+            quota_mod._record(scope, "hour", "2026-08-02-15", 10**9)
+            self.assertIsNone(quota_mod.check_quota(cfg, event))
 
     def test_exempt_user_always_allows(self) -> None:
         cfg = make_cfg()
         cfg["quota"]["default_user"] = {"daily": 1, "hourly": 1}
         cfg["quota"]["exempt_user_ids"] = ["333"]
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=10**9):
-            self.assertIsNone(quota_mod.check_quota(cfg, make_private_event("333"), []))
+        event = make_private_event("333")
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(quota_mod.scope_for_event(event), "day", "2026-08-02", 10**9)
+            self.assertIsNone(quota_mod.check_quota(cfg, event))
 
     def test_exempt_group_always_allows(self) -> None:
         cfg = make_cfg()
         cfg["quota"]["default_group"] = {"daily": 1, "hourly": 1}
         cfg["quota"]["exempt_group_ids"] = ["111"]
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=10**9):
-            self.assertIsNone(quota_mod.check_quota(cfg, make_group_event("111"), []))
-
-    def test_reserve_tokens_counted(self) -> None:
-        cfg = make_cfg()
-        cfg["quota"]["default_user"] = {"daily": 105, "hourly": 10**6}
-        cfg["quota"]["output_reserve_tokens"] = 50
-        with patch.object(quota_mod, "estimate_messages_tokens", return_value=60):
-            # 60 + 50 = 110 > 105 → 拦截
-            self.assertIsNotNone(quota_mod.check_quota(cfg, make_private_event(), []))
-            # 50 + 50 = 100 ≤ 105 → 放行
-            with patch.object(quota_mod, "estimate_messages_tokens", return_value=50):
-                self.assertIsNone(quota_mod.check_quota(cfg, make_private_event(), []))
+        event = make_group_event("111")
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._record(quota_mod.scope_for_event(event), "day", "2026-08-02", 10**9)
+            self.assertIsNone(quota_mod.check_quota(cfg, event))
 
 
 class RecordUsageTests(QuotaTestBase):
     def test_record_and_status(self) -> None:
         cfg = make_cfg()
         event = make_group_event()
-        quota_mod.record_usage(cfg, event, 300)
+        quota_mod.record_usage(cfg, event, 1)
         status = quota_mod.get_quota_status(cfg, event)
         self.assertEqual(status["scope"], "group:111")
-        self.assertEqual(status["daily"]["used"], 300)
-        self.assertEqual(status["hourly"]["used"], 300)
-        self.assertEqual(status["daily"]["limit"], 2000)
-        self.assertEqual(status["daily"]["remaining"], 1700)
+        self.assertEqual(status["daily"]["used"], 1)
+        self.assertEqual(status["hourly"]["used"], 1)
+        self.assertEqual(status["daily"]["limit"], 300)
+        self.assertEqual(status["daily"]["remaining"], 299)
 
-    def test_zero_tokens_not_recorded(self) -> None:
+    def test_default_record_is_one_conversation(self) -> None:
+        cfg = make_cfg()
+        event = make_private_event()
+        quota_mod.record_usage(cfg, event)
+        quota_mod.record_usage(cfg, event)
+        status = quota_mod.get_quota_status(cfg, event)
+        self.assertEqual(status["daily"]["used"], 2)
+
+    def test_non_positive_count_not_recorded(self) -> None:
         cfg = make_cfg()
         event = make_group_event()
         quota_mod.record_usage(cfg, event, 0)
@@ -225,7 +198,7 @@ class RecordUsageTests(QuotaTestBase):
         cfg = make_cfg()
         cfg["quota"]["enabled"] = False
         event = make_group_event()
-        quota_mod.record_usage(cfg, event, 300)
+        quota_mod.record_usage(cfg, event, 1)
         status = quota_mod.get_quota_status(cfg, event)
         self.assertEqual(status["daily"]["used"], 0)
 
@@ -233,7 +206,7 @@ class RecordUsageTests(QuotaTestBase):
         cfg = make_cfg()
         cfg["quota"]["exempt_user_ids"] = ["333"]
         event = make_private_event("333")
-        quota_mod.record_usage(cfg, event, 300)
+        quota_mod.record_usage(cfg, event, 1)
         status = quota_mod.get_quota_status(cfg, event)
         self.assertTrue(status["exempt"])
         self.assertEqual(status["daily"]["used"], 0)
@@ -242,15 +215,15 @@ class RecordUsageTests(QuotaTestBase):
         cfg = make_cfg()
         event = make_group_event()
         with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
-            quota_mod.record_usage(cfg, event, 300)
+            quota_mod.record_usage(cfg, event, 1)
             status = quota_mod.get_quota_status(cfg, event)
-        self.assertEqual(status["daily"]["used"], 300)
-        self.assertEqual(status["hourly"]["used"], 300)
+        self.assertEqual(status["daily"]["used"], 1)
+        self.assertEqual(status["hourly"]["used"], 1)
 
         # 跨小时：日桶保留，时桶归零
         with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-16")):
             status = quota_mod.get_quota_status(cfg, event)
-        self.assertEqual(status["daily"]["used"], 300)
+        self.assertEqual(status["daily"]["used"], 1)
         self.assertEqual(status["hourly"]["used"], 0)
 
         # 跨天：日桶归零
@@ -262,18 +235,32 @@ class RecordUsageTests(QuotaTestBase):
     def test_persistence_across_reload(self) -> None:
         cfg = make_cfg()
         event = make_private_event()
-        quota_mod.record_usage(cfg, event, 123)
+        quota_mod.record_usage(cfg, event, 1)
         # 模拟重启：清空内存后从磁盘重载
         quota_mod.reset_usage_state()
         quota_mod._load_usage()
         status = quota_mod.get_quota_status(cfg, event)
-        self.assertEqual(status["daily"]["used"], 123)
-        self.assertEqual(status["hourly"]["used"], 123)
+        self.assertEqual(status["daily"]["used"], 1)
+        self.assertEqual(status["hourly"]["used"], 1)
+
+    def test_legacy_tokens_field_compatible(self) -> None:
+        """旧版（token 配额时代）账本数据按次数读取兼容。"""
+        cfg = make_cfg()
+        event = make_group_event()
+        scope = quota_mod.scope_for_event(event)
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod._usage[scope] = {
+                "day": {"k": "2026-08-02", "tokens": 12345},
+                "hour": {"k": "2026-08-02-15", "tokens": 67},
+            }
+            status = quota_mod.get_quota_status(cfg, event)
+        self.assertEqual(status["daily"]["used"], 12345)
+        self.assertEqual(status["hourly"]["used"], 67)
 
     def test_reset_scope(self) -> None:
         cfg = make_cfg()
         event = make_group_event()
-        quota_mod.record_usage(cfg, event, 100)
+        quota_mod.record_usage(cfg, event, 1)
         self.assertTrue(quota_mod.reset_scope("group:111"))
         self.assertFalse(quota_mod.reset_scope("group:999"))
         status = quota_mod.get_quota_status(cfg, event)
@@ -281,15 +268,15 @@ class RecordUsageTests(QuotaTestBase):
 
     def test_reset_all(self) -> None:
         cfg = make_cfg()
-        quota_mod.record_usage(cfg, make_group_event(), 100)
-        quota_mod.record_usage(cfg, make_private_event(), 50)
+        quota_mod.record_usage(cfg, make_group_event(), 1)
+        quota_mod.record_usage(cfg, make_private_event(), 1)
         self.assertEqual(quota_mod.reset_all_usage(), 2)
         self.assertEqual(quota_mod.get_all_usage(), {})
 
     def test_get_all_usage_keys(self) -> None:
         cfg = make_cfg()
-        quota_mod.record_usage(cfg, make_group_event(), 100)
-        quota_mod.record_usage(cfg, make_private_event(), 50)
+        quota_mod.record_usage(cfg, make_group_event(), 1)
+        quota_mod.record_usage(cfg, make_private_event(), 1)
         usage = quota_mod.get_all_usage()
         self.assertIn("group:111", usage)
         self.assertIn("user:333", usage)

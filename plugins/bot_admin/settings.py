@@ -409,10 +409,10 @@ def _update_aiagent_quota(data: dict[str, Any]) -> dict[str, Any]:
     next_quota = {
         "enabled": _parse_bool(input_quota.get("enabled", quota_cfg.get("enabled", False))),
         "default_user": _quota_limits(
-            input_quota.get("default_user"), 100000, 10000
+            input_quota.get("default_user"), 100, 10
         ),
         "default_group": _quota_limits(
-            input_quota.get("default_group"), 500000, 60000
+            input_quota.get("default_group"), 300, 30
         ),
         "user_overrides": _quota_id_map(
             input_quota.get("user_overrides", quota_cfg.get("user_overrides", {}))
@@ -425,12 +425,6 @@ def _update_aiagent_quota(data: dict[str, Any]) -> dict[str, Any]:
         ),
         "exempt_group_ids": _quota_id_list(
             input_quota.get("exempt_group_ids", quota_cfg.get("exempt_group_ids", []))
-        ),
-        "output_reserve_tokens": _parse_int(
-            input_quota.get("output_reserve_tokens", quota_cfg.get("output_reserve_tokens", 500)),
-            500,
-            minimum=0,
-            maximum=100000,
         ),
         "count_background": _parse_bool(
             input_quota.get("count_background", quota_cfg.get("count_background", True))

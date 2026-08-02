@@ -157,12 +157,6 @@ async def post_chat_completion(
     message = choices[0].get("message") if isinstance(choices[0], dict) else {}
     if not isinstance(message, dict):
         raise RuntimeError("AI Agent 返回消息格式无效。")
-    # 附带 usage（prompt_tokens/completion_tokens/total_tokens）供配额记账。
-    # 调用方自行决定是否使用；_assistant_tool_message 只复制已知字段，
-    # 不会把 usage 污染进后续请求消息。
-    usage = data.get("usage") if isinstance(data, dict) else None
-    if isinstance(usage, dict):
-        message["usage"] = usage
     return message
 
 
@@ -170,7 +164,6 @@ async def request_chat_completion(
     cfg: dict[str, Any],
     messages: list[dict[str, str]],
     tool_context: AIToolContext | None = None,
-    on_usage: Any = None,
 ) -> str:
     plain_request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
@@ -181,28 +174,15 @@ async def request_chat_completion(
     if tools and max_rounds > 0:
         await _prefetch_wiki_priority_tools(cfg, request_messages, tools, tool_context)
 
-    def _notify_usage(message: dict[str, Any]) -> None:
-        # 每轮 API 调用后把真实 usage 回传给调用方（配额记账用）
-        if on_usage is None:
-            return
-        usage = message.get("usage") if isinstance(message, dict) else None
-        if isinstance(usage, dict):
-            try:
-                on_usage(usage)
-            except Exception:
-                logger.exception("[AIAgent] on_usage 回调异常")
-
     for round_index in range(max_rounds + 1):
         try:
             message = await post_chat_completion(cfg, request_messages, tools)
-            _notify_usage(message)
         except AIAgentRequestError as e:
             if tools and e.status_code in {400, 422}:
                 logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
                 tools = []
                 request_messages = [dict(message) for message in plain_request_messages]
                 message = await post_chat_completion(cfg, request_messages, tools)
-                _notify_usage(message)
             else:
                 raise
         tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
@@ -243,7 +223,6 @@ async def request_chat_completion(
                 if isinstance(tool_call, dict):
                     request_messages.append(await execute_tool_call(cfg, tool_call, tool_context))
             message = await post_chat_completion(cfg, request_messages, tools)
-            _notify_usage(message)
             content = str(message.get("content") or "").strip()
             return content or msg("aiagent.tool_limit_reached")
 

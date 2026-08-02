@@ -21,13 +21,7 @@ from core.stats_tracker import increment as stats_increment
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config
 from .persona import load_persona_prompt
-from .quota import (
-    check_quota,
-    estimate_messages_tokens,
-    estimate_text_tokens,
-    get_quota_status,
-    record_usage,
-)
+from .quota import check_quota, get_quota_status, record_usage
 from .memory import (
     append_memory,
     clear_memory,
@@ -214,8 +208,8 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
     try:
         messages = _build_messages(cfg, event, session, text)
 
-        # 配额前置检查：估算输入 + 预留输出，超限不发请求
-        quota_block = check_quota(cfg, event, messages)
+        # 配额前置检查：今日/本小时对话次数超限则拦截
+        quota_block = check_quota(cfg, event)
         if quota_block is not None:
             block = dict(quota_block)
             block["used"] = f"{block['used']:,}"
@@ -225,29 +219,15 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             return
 
         user_preview = text[:40].replace("\n", " ")
-        usage_total: dict[str, int] = {"tokens": 0}
-
-        def _on_usage(usage: dict) -> None:
-            # 每轮 API 调用回传真实 usage（配额记账用，本地估算兜底）
-            usage_total["tokens"] += int(usage.get("total_tokens") or 0)
-
         with ActivityScope("aiagent", "replying", "回复用户", description=user_preview):
-            reply = await request_chat_completion(
-                cfg,
-                messages,
-                AIToolContext(bot=bot, event=event, agent_config=cfg),
-                on_usage=_on_usage,
-            )
+            reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
         remember(session, text, reply, cfg)
         append_memory(event, cfg, text, reply)
-        # 配额记账：API 返回 usage 用实际值，缺失时用本地估算兜底
-        billed = usage_total["tokens"]
-        if billed <= 0:
-            billed = estimate_messages_tokens(messages) + estimate_text_tokens(reply)
-        record_usage(cfg, event, billed)
+        # 配额记账：本次对话计 1 次
+        record_usage(cfg, event, 1)
         # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))

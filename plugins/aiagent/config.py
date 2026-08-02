@@ -100,17 +100,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_tool_rounds": 4,
     },
     # 配额：替代原 permissions 黑白名单。群聊扣群额度，私聊扣用户额度。
+    # 额度单位为「对话次数」（一条用户消息 = 1 次），每日 / 每小时各一窗。
     # 所有限额 0 = 不限额；user/group_overrides 可给个别用户/群定制；
     # exempt_* 完全跳过检查与扣费。enabled 默认关闭，在后台「AI 配额」页启用。
     "quota": {
         "enabled": False,
-        "default_user": {"daily": 100000, "hourly": 10000},
-        "default_group": {"daily": 500000, "hourly": 60000},
+        "default_user": {"daily": 100, "hourly": 10},
+        "default_group": {"daily": 300, "hourly": 30},
         "user_overrides": {},
         "group_overrides": {},
         "exempt_user_ids": [],
         "exempt_group_ids": [],
-        "output_reserve_tokens": 500,
         "count_background": True,
     },
 }

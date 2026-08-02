@@ -27,7 +27,6 @@ function renderAiAgentQuota() {
 
   $("#quotaEnabled").checked = cfg.enabled === true;
   $("#quotaCountBackground").checked = cfg.count_background !== false;
-  $("#quotaReserveTokens").value = cfg.output_reserve_tokens ?? 500;
   $("#quotaExemptUsers").value = (cfg.exempt_user_ids || []).join("\n");
   $("#quotaExemptGroups").value = (cfg.exempt_group_ids || []).join("\n");
 
@@ -74,8 +73,8 @@ function buildQuotaOverrideRow(kind, id, daily, hourly) {
       <option value="group"${kind === "group" ? " selected" : ""}>群</option>
     </select>
     <input class="quota-ov-id" type="text" placeholder="QQ 号 / 群号" value="${escapeHtml(id)}">
-    <input class="quota-ov-daily" type="number" min="0" step="1000" value="${Number(daily) || 0}" title="每日 Tokens，0 = 不限额">
-    <input class="quota-ov-hourly" type="number" min="0" step="1000" value="${Number(hourly) || 0}" title="每小时 Tokens，0 = 不限额">
+    <input class="quota-ov-daily" type="number" min="0" step="1" value="${Number(daily) || 0}" title="每日次数，0 = 不限额">
+    <input class="quota-ov-hourly" type="number" min="0" step="1" value="${Number(hourly) || 0}" title="每小时次数，0 = 不限额">
     <button type="button" class="ghost quota-ov-remove">删除</button>`;
   row.querySelector(".quota-ov-remove").addEventListener("click", () => {
     row.remove();
@@ -123,7 +122,7 @@ function renderQuotaUsageTable(scopes) {
   const totalUsed = list.reduce((sum, s) => sum + (s.daily?.used || 0), 0);
   const totalLimit = list.reduce((sum, s) => sum + (s.daily?.limit || 0), 0);
   if (summary) {
-    summary.textContent = `${list.length} 个${tab === "group" ? "群" : "用户"}，今日合计 ${quotaFmt(totalUsed)} Tokens${totalLimit ? " / 限额 " + quotaFmt(totalLimit) : ""}`;
+    summary.textContent = `${list.length} 个${tab === "group" ? "群" : "用户"}，今日合计 ${quotaFmt(totalUsed)} 次对话${totalLimit ? " / 限额 " + quotaFmt(totalLimit) : ""}`;
   }
 }
 
@@ -171,7 +170,6 @@ async function saveAiAgentQuota(event) {
       group_overrides: overrides.group_overrides,
       exempt_user_ids: splitIds($("#quotaExemptUsers").value),
       exempt_group_ids: splitIds($("#quotaExemptGroups").value),
-      output_reserve_tokens: Number($("#quotaReserveTokens").value) || 0,
       count_background: $("#quotaCountBackground").checked,
     },
   };

@@ -232,9 +232,7 @@ async def summarize_session_memory(
             # 后台总结按 count_background 计入配额（只计不拦；配额未启用/豁免时 record_usage 内部跳过）
             quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
             if quota_cfg.get("count_background", True):
-                usage = summary_msg.get("usage") if isinstance(summary_msg, dict) else None
-                if isinstance(usage, dict):
-                    record_usage(cfg, event, int(usage.get("total_tokens") or 0))
+                record_usage(cfg, event, 1)
             summary = (summary_msg.get("content") or "").strip()
             if summary and "无重要信息" not in summary:
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M")

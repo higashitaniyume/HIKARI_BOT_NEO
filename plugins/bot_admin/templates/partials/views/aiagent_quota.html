@@ -3,7 +3,7 @@
         <div class="panel-heading">
           <div>
             <h2>AI 配额</h2>
-            <p>群聊按群额度、私聊按个人额度（每日 + 每小时，0 = 不限额）。实际扣费按 API 返回的 usage 记账，令牌估算使用 DeepSeek tokenizer。</p>
+            <p>群聊按群额度、私聊按个人额度（每日 + 每小时对话次数，0 = 不限额）。一条用户消息计 1 次对话。</p>
           </div>
           <button type="button" id="quotaRefreshBtn" class="ghost">刷新</button>
         </div>
@@ -16,23 +16,23 @@
           <small>关闭时所有用户/群不设限（替代旧的白名单/黑名单开关）。</small>
 
           <fieldset class="quota-fieldset">
-            <legend>默认额度（未单独定制的用户/群）</legend>
+            <legend>默认额度（未单独定制的用户/群，单位：对话次数）</legend>
             <div class="quota-grid">
               <label>
-                <span>用户每日 Tokens</span>
-                <input id="quotaDefaultUserDaily" type="number" min="0" step="1000">
+                <span>用户每日次数</span>
+                <input id="quotaDefaultUserDaily" type="number" min="0" step="1">
               </label>
               <label>
-                <span>用户每小时 Tokens</span>
-                <input id="quotaDefaultUserHourly" type="number" min="0" step="1000">
+                <span>用户每小时次数</span>
+                <input id="quotaDefaultUserHourly" type="number" min="0" step="1">
               </label>
               <label>
-                <span>群每日 Tokens</span>
-                <input id="quotaDefaultGroupDaily" type="number" min="0" step="1000">
+                <span>群每日次数</span>
+                <input id="quotaDefaultGroupDaily" type="number" min="0" step="1">
               </label>
               <label>
-                <span>群每小时 Tokens</span>
-                <input id="quotaDefaultGroupHourly" type="number" min="0" step="1000">
+                <span>群每小时次数</span>
+                <input id="quotaDefaultGroupHourly" type="number" min="0" step="1">
               </label>
             </div>
           </fieldset>
@@ -40,12 +40,6 @@
           <label class="checkbox-field">
             <input id="quotaCountBackground" type="checkbox">
             <span>记忆总结等后台调用计入配额（只计不拦）</span>
-          </label>
-
-          <label>
-            <span>请求前预留输出 Tokens</span>
-            <input id="quotaReserveTokens" type="number" min="0" max="100000" step="1">
-            <small>预检时用「估算输入 + 预留」判断是否放行；实际扣费始终按 API usage。</small>
           </label>
 
           <label>
@@ -65,7 +59,7 @@
         <div class="panel-heading">
           <div>
             <h3>定制限额</h3>
-            <p>给指定用户/群设置独立额度（每日/每小时，0 = 不限额），保存后随保存按钮一起生效。</p>
+            <p>给指定用户/群设置独立对话次数（每日/每小时，0 = 不限额），保存后随保存按钮一起生效。</p>
           </div>
           <button type="button" id="quotaAddOverrideBtn" class="ghost">＋ 添加</button>
         </div>

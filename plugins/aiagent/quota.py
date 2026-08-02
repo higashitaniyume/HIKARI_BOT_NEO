@@ -1,16 +1,13 @@
-"""AI Agent 配额模块。
+"""AI Agent 配额模块（对话次数版）。
 
-每笔聊天请求都有两个固定时间窗配额（每日 / 每小时），额度来源：
+每笔聊天请求都有两个固定时间窗配额（每日 / 每小时对话次数），额度来源：
 - 群聊（group:<id>）扣群共享额度，私聊（user:<id>）扣用户个人额度
 - 默认值取自配置 quota.default_user / quota.default_group
 - 个别用户 / 群可用 quota.user_overrides / quota.group_overrides 定制（0 = 不限额）
 - quota.exempt_user_ids / exempt_group_ids 完全跳过检查与扣费
 
-Token 计数：
-- 请求发出前用 DeepSeek tokenizer（third_party/deepseek_tokenizer）本地估算
-  （失败时降级为字符估算），加上 quota.output_reserve_tokens 预留输出
-- 请求完成后按 API 返回的 usage 实扣；接口不返回 usage 时用本地估算兜底
-- 后台任务（如记忆总结）按 quota.count_background 计入但不拦截
+计次口径：一条用户消息 = 1 次对话（内部工具调用多轮 API 只算 1 次）。
+后台任务（如记忆总结）按 quota.count_background 计入但不拦截。
 
 持久化：UserData/aiagent_quota.json，每次记账写盘（文件极小），
 线程安全由 threading.RLock 保证（NoneBot 事件循环线程 + admin HTTP 线程共用）。
@@ -20,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -33,79 +29,8 @@ logger = logging.getLogger("HikariBot.AIAgent.Quota")
 
 QUOTA_PATH = Path("UserData/aiagent_quota.json")
 
-# DeepSeek 官方 tokenizer（vendored in third_party/deepseek_tokenizer）
-_TOKENIZER_PATH = Path("third_party/deepseek_tokenizer/tokenizer.json")
-
-# 每条消息的角色标记 / 结构开销估算（<｜User｜>、<｜Assistant｜>、EOS 等）
-_PER_MESSAGE_OVERHEAD = 3
-_BOS_OVERHEAD = 1
-
-# 本地估算的兜底字符比例（tokenizer 不可用或加载失败时）
-_CJK_RE = re.compile(r"[一-鿿　-〿＀-￯]")
-
 _usage: dict[str, dict[str, dict[str, int]]] = {}
 _lock = threading.RLock()
-_tokenizer: Any = None
-_tokenizer_tried = False
-
-
-# ── Token 估算 ───────────────────────────────────────────────────────────
-
-
-def _load_tokenizer() -> Any:
-    """惰性加载 DeepSeek tokenizer，失败返回 None（只尝试一次）。"""
-    global _tokenizer, _tokenizer_tried
-    if _tokenizer_tried:
-        return _tokenizer
-    _tokenizer_tried = True
-    try:
-        from tokenizers import Tokenizer
-    except Exception as e:
-        logger.warning("[AIAgent] tokenizers 库不可用，配额估算降级为字符估算: %s", e)
-        return None
-    if not _TOKENIZER_PATH.is_file():
-        logger.warning("[AIAgent] tokenizer 文件缺失: %s，配额估算降级为字符估算", _TOKENIZER_PATH)
-        return None
-    try:
-        _tokenizer = Tokenizer.from_file(str(_TOKENIZER_PATH))
-        logger.info("[AIAgent] DeepSeek tokenizer 加载成功")
-    except Exception as e:
-        logger.warning("[AIAgent] tokenizer 加载失败，配额估算降级为字符估算: %s", e)
-    return _tokenizer
-
-
-def _fallback_estimate(text: str) -> int:
-    """字符级估算：CJK/全角字符 1 token，其他字符 4 个 1 token。"""
-    if not text:
-        return 0
-    cjk = len(_CJK_RE.findall(text))
-    other = max(0, len(text) - cjk)
-    return cjk + (other + 3) // 4
-
-
-def estimate_text_tokens(text: str) -> int:
-    """估算一段文本的 token 数（tokenizer 优先，失败降级字符估算）。"""
-    text = str(text or "")
-    if not text:
-        return 0
-    tok = _load_tokenizer()
-    if tok is None:
-        return _fallback_estimate(text)
-    try:
-        return len(tok.encode(text, add_special_tokens=False).tokens)
-    except Exception as e:
-        logger.warning("[AIAgent] tokenizer 编码失败，降级为字符估算: %s", e)
-        return _fallback_estimate(text)
-
-
-def estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
-    """估算一组合法 chat messages 的输入 token 数（不含预留输出）。"""
-    total = _BOS_OVERHEAD
-    for message in messages:
-        content = message.get("content") if isinstance(message, dict) else None
-        total += estimate_text_tokens(content)
-        total += _PER_MESSAGE_OVERHEAD
-    return total
 
 
 # ── 窗口与账本 ────────────────────────────────────────────────────────────
@@ -153,7 +78,7 @@ def _limit_map(quota: dict[str, Any], key: str) -> dict[str, Any]:
 
 
 def _limits_for(cfg: dict[str, Any], scope: str) -> dict[str, int]:
-    """取某 scope 的日/时限额（0 = 不限额）。优先覆盖，其次默认值。"""
+    """取某 scope 的日/时次数限额（0 = 不限额）。优先覆盖，其次默认值。"""
     quota = _quota_cfg(cfg)
     kind = scope.split(":", 1)[0]
     scope_key = scope.split(":", 1)[1]
@@ -221,30 +146,31 @@ def _used(scope: str, period: str, key: str) -> int:
     with _lock:
         bucket = _usage.get(scope, {}).get(period)
         if bucket and bucket.get("k") == key:
-            return int(bucket.get("tokens", 0))
+            # 兼容旧版 tokens 字段（token 配额时代留下的账本数据）
+            return int(bucket.get("count", bucket.get("tokens", 0)))
         return 0
 
 
-def _record(scope: str, period: str, key: str, tokens: int) -> None:
+def _record(scope: str, period: str, key: str, count: int) -> None:
     with _lock:
         entry = _usage.setdefault(scope, {}).setdefault(period, {})
         if entry.get("k") != key:
             entry.clear()
             entry["k"] = key
-        entry["tokens"] = int(entry.get("tokens", 0)) + tokens
+        entry["count"] = int(entry.get("count", 0)) + count
         _save_usage()
 
 
 # ── 对外接口 ──────────────────────────────────────────────────────────────
 
 
-def check_quota(cfg: dict[str, Any], event: MessageEvent, messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+def check_quota(cfg: dict[str, Any], event: MessageEvent) -> dict[str, Any] | None:
     """请求发出前的配额检查。
 
     返回 None 表示放行；返回参数字典表示拦截（用于拼接超限提示消息）。
 
     配额未启用或 scope 豁免时始终放行。0 = 不限额。
-    估算 = 输入 messages 估算 + output_reserve_tokens 预留。
+    检查当前窗口（今日 / 本小时）的已用次数是否已达到限额。
     """
     quota = _quota_cfg(cfg)
     if not quota.get("enabled", False):
@@ -254,16 +180,12 @@ def check_quota(cfg: dict[str, Any], event: MessageEvent, messages: list[dict[st
 
     scope = scope_for_event(event)
     limits = _limits_for(cfg, scope)
-    estimated = estimate_messages_tokens(messages)
-    reserve = _sanitize_limit(quota.get("output_reserve_tokens"), 500)
-    estimated += reserve
-
     day_key, hour_key = _window_keys()
     used_day = _used(scope, "day", day_key)
     used_hour = _used(scope, "hour", hour_key)
     now = datetime.now()
 
-    if limits["daily"] > 0 and used_day + estimated > limits["daily"]:
+    if limits["daily"] > 0 and used_day >= limits["daily"]:
         return {
             "who": "group" if scope.startswith("group:") else "user",
             "period": "day",
@@ -271,7 +193,7 @@ def check_quota(cfg: dict[str, Any], event: MessageEvent, messages: list[dict[st
             "limit": limits["daily"],
             "resets": _window_resets_at("day", now),
         }
-    if limits["hourly"] > 0 and used_hour + estimated > limits["hourly"]:
+    if limits["hourly"] > 0 and used_hour >= limits["hourly"]:
         return {
             "who": "group" if scope.startswith("group:") else "user",
             "period": "hour",
@@ -282,10 +204,10 @@ def check_quota(cfg: dict[str, Any], event: MessageEvent, messages: list[dict[st
     return None
 
 
-def record_usage(cfg: dict[str, Any], event: MessageEvent, tokens: int) -> None:
-    """按 API 实际 usage（或兜底估算）记账。配额未启用或豁免时跳过。"""
-    tokens = int(tokens)
-    if tokens <= 0:
+def record_usage(cfg: dict[str, Any], event: MessageEvent, count: int = 1) -> None:
+    """按对话次数记账（默认 1 次 = 一条用户消息）。配额未启用或豁免时跳过。"""
+    count = int(count)
+    if count <= 0:
         return
     quota = _quota_cfg(cfg)
     if not quota.get("enabled", False):
@@ -295,12 +217,12 @@ def record_usage(cfg: dict[str, Any], event: MessageEvent, tokens: int) -> None:
 
     scope = scope_for_event(event)
     day_key, hour_key = _window_keys()
-    _record(scope, "day", day_key, tokens)
-    _record(scope, "hour", hour_key, tokens)
+    _record(scope, "day", day_key, count)
+    _record(scope, "hour", hour_key, count)
     logger.debug(
-        "[AIAgent] 配额记账 %s += %d tokens（日 %d / 时 %d）",
+        "[AIAgent] 配额记账 %s += %d 次（日 %d / 时 %d）",
         scope,
-        tokens,
+        count,
         _used(scope, "day", day_key),
         _used(scope, "hour", hour_key),
     )
