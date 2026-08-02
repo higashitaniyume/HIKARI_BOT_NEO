@@ -104,10 +104,11 @@ def is_event_allowed(config: dict[str, Any], event: MessageEvent) -> bool:
         allowed = False
 
     if allowed is None:
-        # 任一启用的白名单维度未命中 → 拒绝（全部未启用时默认放行）
+        # 任一启用的白名单维度未命中 → 拒绝（全部未启用时默认放行）。
+        # 群白名单只约束群聊：私聊没有群号，不受群白名单影响。
         allowed = True
         if wl_user and sender_id not in whitelist["user"]:
             allowed = False
-        elif wl_group and (not group_id or group_id not in whitelist["group"]):
+        elif wl_group and group_id and group_id not in whitelist["group"]:
             allowed = False
     return allowed

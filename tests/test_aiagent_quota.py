@@ -350,7 +350,7 @@ class AccessControlTests(QuotaTestBase):
         self.assertFalse(is_event_allowed(cfg, make_group_event("111", user_id="333")))
 
     def test_group_whitelist_only(self) -> None:
-        """只开群白名单：名单内群放行（成员无需在用户名单），名单外拒绝，私聊全拒。"""
+        """只开群白名单：名单内群放行（成员无需在用户名单），名单外拒绝；私聊不受群白名单影响。"""
         cfg = self._cfg_with_permissions({
             "whitelist": {
                 "enable": True,
@@ -362,8 +362,8 @@ class AccessControlTests(QuotaTestBase):
         })
         self.assertTrue(is_event_allowed(cfg, make_group_event("111", user_id="333")))
         self.assertFalse(is_event_allowed(cfg, make_group_event("999", user_id="222")))
-        # 私聊没有群，群白名单维度无法命中 → 拒绝
-        self.assertFalse(is_event_allowed(cfg, make_private_event("222")))
+        # 群白名单只管群聊：私聊没有群号，不受约束
+        self.assertTrue(is_event_allowed(cfg, make_private_event("222")))
 
     def test_user_blacklist_only(self) -> None:
         """只开用户黑名单：名单内用户被拒（私聊与群聊），群维度不受影响。"""
