@@ -331,5 +331,112 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
+    # 保留配额配置（本页面不含 quota 字段，由「AI 配额」页面单独管理）
+    next_config["quota"] = current.get("quota", {})
     return save_aiagent_config(next_config)
+
+
+# ── AI 配额（quota）──────────────────────────────────────────────────────
+
+
+def _aiagent_quota_state() -> dict[str, Any]:
+    """AI 配额页数据：配置 + 全部已知 scope 的实时用量快照。"""
+    cfg = get_aiagent_config()
+    quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
+    return {"config": quota_cfg, "scopes": _aiagent_quota_scopes(cfg)}
+
+
+def _aiagent_quota_scopes(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """收集已知 scope（有用量记录 / 有覆盖配置），附实时用量状态。"""
+    from plugins.aiagent.quota import get_all_usage, get_scope_status
+
+    known: set[str] = set(get_all_usage().keys())
+    quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
+    for field, prefix in (("user_overrides", "user:"), ("group_overrides", "group:")):
+        overrides = quota_cfg.get(field) if isinstance(quota_cfg.get(field), dict) else {}
+        for ident in overrides:
+            known.add(f"{prefix}{ident}")
+
+    scopes: list[dict[str, Any]] = []
+    for scope in sorted(known):
+        status = get_scope_status(cfg, scope)
+        status["id"] = scope.split(":", 1)[1] if ":" in scope else scope
+        scopes.append(status)
+    return scopes
+
+
+def _quota_limits(value: Any, default_daily: int, default_hourly: int) -> dict[str, int]:
+    src = value if isinstance(value, dict) else {}
+    return {
+        "daily": _parse_int(src.get("daily", default_daily), default_daily, minimum=0, maximum=10_000_000_000),
+        "hourly": _parse_int(src.get("hourly", default_hourly), default_hourly, minimum=0, maximum=10_000_000_000),
+    }
+
+
+def _quota_id_map(value: Any) -> dict[str, dict[str, int]]:
+    src = value if isinstance(value, dict) else {}
+    result: dict[str, dict[str, int]] = {}
+    for ident, limits in src.items():
+        ident = str(ident).strip()
+        if ident:
+            result[ident] = _quota_limits(limits, 0, 0)
+    return result
+
+
+def _quota_id_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        items = value
+    elif isinstance(value, str):
+        items = value.replace("，", ",").replace("\n", ",").split(",")
+    else:
+        items = []
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _update_aiagent_quota(data: dict[str, Any]) -> dict[str, Any]:
+    """校验并保存配额配置（热生效）。"""
+    current = get_aiagent_config()
+    quota_cfg = current.get("quota") if isinstance(current.get("quota"), dict) else {}
+    input_quota = data.get("quota") if isinstance(data.get("quota"), dict) else {}
+
+    next_quota = {
+        "enabled": _parse_bool(input_quota.get("enabled", quota_cfg.get("enabled", False))),
+        "default_user": _quota_limits(
+            input_quota.get("default_user"), 100000, 10000
+        ),
+        "default_group": _quota_limits(
+            input_quota.get("default_group"), 500000, 60000
+        ),
+        "user_overrides": _quota_id_map(
+            input_quota.get("user_overrides", quota_cfg.get("user_overrides", {}))
+        ),
+        "group_overrides": _quota_id_map(
+            input_quota.get("group_overrides", quota_cfg.get("group_overrides", {}))
+        ),
+        "exempt_user_ids": _quota_id_list(
+            input_quota.get("exempt_user_ids", quota_cfg.get("exempt_user_ids", []))
+        ),
+        "exempt_group_ids": _quota_id_list(
+            input_quota.get("exempt_group_ids", quota_cfg.get("exempt_group_ids", []))
+        ),
+        "output_reserve_tokens": _parse_int(
+            input_quota.get("output_reserve_tokens", quota_cfg.get("output_reserve_tokens", 500)),
+            500,
+            minimum=0,
+            maximum=100000,
+        ),
+        "count_background": _parse_bool(
+            input_quota.get("count_background", quota_cfg.get("count_background", True))
+        ),
+    }
+    current["quota"] = next_quota
+    save_aiagent_config(current)
+    return _aiagent_quota_state()
 

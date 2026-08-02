@@ -1,0 +1,105 @@
+    <section class="view-panel" data-view="aiagent_quota" hidden>
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>AI 配额</h2>
+            <p>群聊按群额度、私聊按个人额度（每日 + 每小时，0 = 不限额）。实际扣费按 API 返回的 usage 记账，令牌估算使用 DeepSeek tokenizer。</p>
+          </div>
+          <button type="button" id="quotaRefreshBtn" class="ghost">刷新</button>
+        </div>
+
+        <form id="quotaConfigForm" class="settings-form aiagent-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="quotaEnabled" type="checkbox">
+            <span>启用 AI 配额</span>
+          </label>
+          <small>关闭时所有用户/群不设限（替代旧的白名单/黑名单开关）。</small>
+
+          <fieldset class="quota-fieldset">
+            <legend>默认额度（未单独定制的用户/群）</legend>
+            <div class="quota-grid">
+              <label>
+                <span>用户每日 Tokens</span>
+                <input id="quotaDefaultUserDaily" type="number" min="0" step="1000">
+              </label>
+              <label>
+                <span>用户每小时 Tokens</span>
+                <input id="quotaDefaultUserHourly" type="number" min="0" step="1000">
+              </label>
+              <label>
+                <span>群每日 Tokens</span>
+                <input id="quotaDefaultGroupDaily" type="number" min="0" step="1000">
+              </label>
+              <label>
+                <span>群每小时 Tokens</span>
+                <input id="quotaDefaultGroupHourly" type="number" min="0" step="1000">
+              </label>
+            </div>
+          </fieldset>
+
+          <label class="checkbox-field">
+            <input id="quotaCountBackground" type="checkbox">
+            <span>记忆总结等后台调用计入配额（只计不拦）</span>
+          </label>
+
+          <label>
+            <span>请求前预留输出 Tokens</span>
+            <input id="quotaReserveTokens" type="number" min="0" max="100000" step="1">
+            <small>预检时用「估算输入 + 预留」判断是否放行；实际扣费始终按 API usage。</small>
+          </label>
+
+          <label>
+            <span>豁免用户 QQ 号（一行一个）</span>
+            <textarea id="quotaExemptUsers" rows="2" placeholder="123456&#10;234567"></textarea>
+          </label>
+          <label>
+            <span>豁免群号（一行一个）</span>
+            <textarea id="quotaExemptGroups" rows="2" placeholder="987654321"></textarea>
+          </label>
+
+          <button type="submit" class="primary">保存配额设置</button>
+        </form>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>定制限额</h3>
+            <p>给指定用户/群设置独立额度（每日/每小时，0 = 不限额），保存后随保存按钮一起生效。</p>
+          </div>
+          <button type="button" id="quotaAddOverrideBtn" class="ghost">＋ 添加</button>
+        </div>
+        <div id="quotaOverrideList" class="quota-override-list">加载中...</div>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>用量明细</h3>
+            <p id="quotaUsageSummary">...</p>
+          </div>
+          <button type="button" id="quotaResetAllBtn" class="ghost">重置全部用量</button>
+        </div>
+        <div class="quota-tabs">
+          <button type="button" class="quota-tab is-active" data-quota-tab="group">群聊</button>
+          <button type="button" class="quota-tab" data-quota-tab="user">私聊用户</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>每日（已用 / 限额）</th>
+                <th>每小时（已用 / 限额）</th>
+                <th>剩余（每日）</th>
+                <th>下次重置</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="quotaUsageTableBody">
+              <tr><td colspan="6">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </section>

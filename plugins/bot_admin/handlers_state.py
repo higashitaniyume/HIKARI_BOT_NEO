@@ -18,7 +18,7 @@ from .operations import (
     _push_config_state,
     _rss_config_state,
 )
-from .settings import _aiagent_config_state, _tts_config_state
+from .settings import _aiagent_config_state, _aiagent_quota_state, _tts_config_state
 from .stickers import _inbox_state, _pack_state, _voice_state
 from .system_probe import system_probe_state
 from core.runtime_info import runtime_info_state
@@ -61,6 +61,13 @@ class StateHandlerMixin:
             self._send_json(_read_memory_file(file_param))
         else:
             self._send_json(aiagent_memory_state())
+
+    def _handle_aiagent_quota(self) -> None:
+        try:
+            self._send_json(_aiagent_quota_state())
+        except Exception as e:
+            logger.exception("读取 AI 配额失败: %s", e)
+            self._send_json({"error": "读取 AI 配额失败，请检查服务日志。"}, 500)
 
     def _handle_push_config_get(self) -> None:
         try:

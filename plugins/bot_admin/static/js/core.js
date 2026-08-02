@@ -18,6 +18,8 @@ const state = {
   aiagentConfig: {},
   aiagentPersonas: [],
   aiagentTools: [],
+  aiagentQuota: null,
+  quotaTab: "group",
   pushConfig: {},
   pushSources: [],
   selectedPushJobId: "",
@@ -54,6 +56,7 @@ const VIEW_TITLES = {
   settings: "设置",
   aiagent: "AI Agent",
   aiagent_memory: "记忆管理",
+  aiagent_quota: "AI 配额",
   push: "推送",
   rss: "RSS",
   access: "权限",
@@ -94,6 +97,9 @@ function setView(view) {
   }
   if (target === "access" && !state.accessRules.length) {
     fetchAccessRules().catch((err) => showToast(err.message, true));
+  }
+  if (target === "aiagent_quota" && !state.aiagentQuota) {
+    fetchAiAgentQuota().catch((err) => showToast(err.message, true));
   }
   if (target === "aiagent_memory") {
     fetchMemoryFiles().catch((err) => showToast(err.message, true));

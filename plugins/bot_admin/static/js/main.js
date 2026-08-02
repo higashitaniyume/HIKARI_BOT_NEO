@@ -9,6 +9,13 @@ $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
 $("#pushConfigForm").addEventListener("submit", savePushConfig);
 $("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);
+$("#quotaConfigForm").addEventListener("submit", saveAiAgentQuota);
+$("#quotaAddOverrideBtn").addEventListener("click", addQuotaOverrideRow);
+$("#quotaRefreshBtn").addEventListener("click", () => fetchAiAgentQuota().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
+$("#quotaResetAllBtn").addEventListener("click", () => resetAllQuota().catch((err) => showToast(err.message, true)));
+for (const btn of document.querySelectorAll("[data-quota-tab]")) {
+  btn.addEventListener("click", () => switchQuotaTab(btn));
+}
 $("#ttsVoiceForm").addEventListener("submit", saveTtsVoice);
 $("#ttsVoiceEditCancel").addEventListener("click", resetTtsVoiceEdit);
 $("#inboxForm").addEventListener("submit", assignInboxItems);

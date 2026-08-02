@@ -11,7 +11,6 @@ from urllib.parse import urlparse
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
 
-from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
 from core.activity_tracker import ActivityScope
 from core.bot_identity import get_bot_name
@@ -22,6 +21,13 @@ from core.stats_tracker import increment as stats_increment
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config
 from .persona import load_persona_prompt
+from .quota import (
+    check_quota,
+    estimate_messages_tokens,
+    estimate_text_tokens,
+    get_quota_status,
+    record_usage,
+)
 from .memory import (
     append_memory,
     clear_memory,
@@ -207,14 +213,41 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
 
     try:
         messages = _build_messages(cfg, event, session, text)
+
+        # 配额前置检查：估算输入 + 预留输出，超限不发请求
+        quota_block = check_quota(cfg, event, messages)
+        if quota_block is not None:
+            block = dict(quota_block)
+            block["used"] = f"{block['used']:,}"
+            block["limit"] = f"{block['limit']:,}"
+            await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
+            mark_event_handled(event)
+            return
+
         user_preview = text[:40].replace("\n", " ")
+        usage_total: dict[str, int] = {"tokens": 0}
+
+        def _on_usage(usage: dict) -> None:
+            # 每轮 API 调用回传真实 usage（配额记账用，本地估算兜底）
+            usage_total["tokens"] += int(usage.get("total_tokens") or 0)
+
         with ActivityScope("aiagent", "replying", "回复用户", description=user_preview):
-            reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
+            reply = await request_chat_completion(
+                cfg,
+                messages,
+                AIToolContext(bot=bot, event=event, agent_config=cfg),
+                on_usage=_on_usage,
+            )
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
         remember(session, text, reply, cfg)
         append_memory(event, cfg, text, reply)
+        # 配额记账：API 返回 usage 用实际值，缺失时用本地估算兜底
+        billed = usage_total["tokens"]
+        if billed <= 0:
+            billed = estimate_messages_tokens(messages) + estimate_text_tokens(reply)
+        record_usage(cfg, event, billed)
         # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))
@@ -254,13 +287,6 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
 
     cfg = get_config()
     if not cfg.get("enabled", False):
-        return
-    if not is_event_allowed(cfg, event):
-        logger.info(
-            "[AIAgent] 权限规则已阻止回复 -> user=%s group=%s",
-            event.get_user_id(),
-            getattr(event, "group_id", ""),
-        )
         return
 
     await _handle_chat_event(bot, event, event.get_plaintext())
@@ -325,3 +351,48 @@ async def handle_summarize_memory(ctx: CommandContext) -> None:
     await ctx.send(Message("⏳ 正在总结记忆，请稍候..."))
     result = await summarize_session_memory(cfg, ctx.event, force=True)
     await ctx.send(Message(result))
+
+
+@command(
+    "额度",
+    aliases=("配额", "quota"),
+    description="",
+    usage="额度",
+    show_in_help=False,
+    require_tome=True,
+)
+async def handle_quota_query(ctx: CommandContext) -> None:
+    """查询当前会话（群/个人）的 AI 配额使用情况。"""
+    cfg = get_config()
+    if not cfg.get("enabled", False):
+        await ctx.send(Message("AI Agent 未启用"))
+        return
+
+    status = get_quota_status(cfg, ctx.event)
+    if status["exempt"]:
+        await ctx.send(Message(msg("aiagent.quota_exempt")))
+        return
+    if not status["enabled"]:
+        await ctx.send(Message(msg("aiagent.quota_disabled")))
+        return
+
+    def _fmt(value: int) -> str:
+        return "不限" if value < 0 else f"{value:,}"
+
+    daily = status["daily"]
+    hourly = status["hourly"]
+    await ctx.send(
+        Message(
+            msg(
+                "aiagent.quota_usage",
+                daily_used=f"{daily['used']:,}",
+                daily_limit=_fmt(daily["limit"]),
+                daily_remaining=_fmt(daily["remaining"]),
+                hourly_used=f"{hourly['used']:,}",
+                hourly_limit=_fmt(hourly["limit"]),
+                hourly_remaining=_fmt(hourly["remaining"]),
+                daily_resets=daily["resets_at"],
+                hourly_resets=hourly["resets_at"],
+            )
+        )
+    )

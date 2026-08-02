@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from core.access_control import DEFAULT_ACCESS_RULES
 from .persona import PERSONA_ROOT
 
 logger = logging.getLogger("HikariBot.AIAgent.Config")
@@ -100,7 +99,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "max_tool_rounds": 4,
     },
-    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
+    # 配额：替代原 permissions 黑白名单。群聊扣群额度，私聊扣用户额度。
+    # 所有限额 0 = 不限额；user/group_overrides 可给个别用户/群定制；
+    # exempt_* 完全跳过检查与扣费。enabled 默认关闭，在后台「AI 配额」页启用。
+    "quota": {
+        "enabled": False,
+        "default_user": {"daily": 100000, "hourly": 10000},
+        "default_group": {"daily": 500000, "hourly": 60000},
+        "user_overrides": {},
+        "group_overrides": {},
+        "exempt_user_ids": [],
+        "exempt_group_ids": [],
+        "output_reserve_tokens": 500,
+        "count_background": True,
+    },
 }
 
 
@@ -135,11 +147,10 @@ def ensure_config() -> None:
     if not isinstance(data, dict):
         return
 
-    # Preserve user-set permissions so admin panel changes survive restarts.
-    existing_permissions = data.get("permissions")
     merged = _deep_merge(DEFAULT_CONFIG, data)
-    if existing_permissions is not None:
-        merged["permissions"] = existing_permissions
+    # 迁移：旧版 permissions 黑白名单已被 quota 取代，从配置中移除。
+    # 保留会误导后台「权限」页（该页已不再列出 aiagent）。
+    merged.pop("permissions", None)
     if merged != data:
         _write_config(merged)
         logger.info("已补全 AI Agent 配置文件: %s", CONFIG_PATH)
@@ -159,15 +170,8 @@ def get_config() -> dict[str, Any]:
 
 def save_config(data: dict[str, Any]) -> dict[str, Any]:
     cfg = _deep_merge(DEFAULT_CONFIG, data)
-    # 保留现有的 permissions（管理面板 AI Agent 设置页面不包含此字段）
-    try:
-        if CONFIG_PATH.is_file():
-            existing = json.loads(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-            existing_permissions = existing.get("permissions")
-            if existing_permissions is not None:
-                cfg["permissions"] = existing_permissions
-    except Exception as e:
-        logger.warning("读取现有 AI Agent 配置失败（继续写入）: %s", e)
+    # 迁移：旧版 permissions 黑白名单已被 quota 取代，写入时一并移除。
+    cfg.pop("permissions", None)
     _write_config(cfg)
     return copy.deepcopy(cfg)
 

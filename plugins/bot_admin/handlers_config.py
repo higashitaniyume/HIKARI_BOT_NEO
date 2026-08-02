@@ -20,10 +20,13 @@ from .operations import (
 from .parsing import _parse_float, _parse_str
 from .settings import (
     _aiagent_config_state,
+    _aiagent_quota_state,
     _tts_config_state,
     _update_aiagent_config,
+    _update_aiagent_quota,
     _update_tts_config,
 )
+from plugins.aiagent.quota import reset_all_usage, reset_scope
 from plugins.push_framework import submit_manual_push
 
 logger = logging.getLogger("HikariBot.BotAdmin")
@@ -69,6 +72,36 @@ class ConfigHandlerMixin:
         except Exception as e:
             logger.exception("保存 AI Agent 设置失败: %s", e)
             self._send_json({"error": "保存 AI Agent 设置失败，请检查服务日志。"}, 500)
+
+    def _handle_aiagent_quota_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            payload = _update_aiagent_quota(data)
+            payload["message"] = "AI 配额设置已保存。"
+            self._send_json(payload)
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存 AI 配额设置失败: %s", e)
+            self._send_json({"error": "保存 AI 配额设置失败，请检查服务日志。"}, 500)
+
+    def _handle_aiagent_quota_reset(self) -> None:
+        try:
+            data = self._read_json_body()
+            scope = str(data.get("scope") or "").strip()
+            if not scope:
+                count = reset_all_usage()
+                self._send_json({"message": f"已重置全部 {count} 个 scope 的用量。"})
+                return
+            if not reset_scope(scope):
+                self._send_json({"error": f"没有找到该 scope 的用量记录: {scope}"}, 404)
+                return
+            self._send_json({"scope": scope, "message": f"已重置 {scope} 的用量。"})
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("重置 AI 配额失败: %s", e)
+            self._send_json({"error": "重置 AI 配额失败，请检查服务日志。"}, 500)
 
     def _handle_aiagent_memory_summarize(self) -> None:
         try:

@@ -134,6 +134,7 @@ def clear_memory(event: MessageEvent, cfg: dict[str, Any]) -> None:
 # ── 会话摘要 / 自动总结 ──────────────────────────────────────────────
 
 from .client import post_chat_completion
+from .quota import record_usage
 
 _SESSION_MARKER: str = "\n<!-- current session -->\n"
 _last_activity: dict[str, datetime] = {}
@@ -228,6 +229,12 @@ async def summarize_session_memory(
                 {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
             ]
             summary_msg = await post_chat_completion(cfg, messages, tools=[])
+            # 后台总结按 count_background 计入配额（只计不拦；配额未启用/豁免时 record_usage 内部跳过）
+            quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
+            if quota_cfg.get("count_background", True):
+                usage = summary_msg.get("usage") if isinstance(summary_msg, dict) else None
+                if isinstance(usage, dict):
+                    record_usage(cfg, event, int(usage.get("total_tokens") or 0))
             summary = (summary_msg.get("content") or "").strip()
             if summary and "无重要信息" not in summary:
                 ts = datetime.now().strftime("%Y-%m-%d %H:%M")
