@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from typing import Any
 
@@ -54,6 +55,24 @@ def is_platform_allowed(platform: str, event: MessageEvent) -> bool:
     return is_event_allowed(mock_config, event)
 
 
+def _normalize_url_key(url: str) -> str:
+    """归一化 URL 用于去重：QQ 卡片经 CQ 码序列化后 `&` 会变成 `&amp;`，二者是同一链接。"""
+    return html.unescape(url).strip()
+
+
+def dedupe_links(links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
+    """按归一化 URL 去重（保留首个出现的链接），避免同一链接的转义/未转义形态被重复解析。"""
+    seen: set[str] = set()
+    result: list[tuple[str, Any]] = []
+    for url, parser in links:
+        key = _normalize_url_key(url)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append((url, parser))
+    return result
+
+
 def _event_text(event: MessageEvent) -> str:
     parts = [str(event.get_message())]
     plain = event.get_plaintext()
@@ -72,8 +91,9 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
         if data is None:
             continue
         for candidate in _card_url_candidates(data):
-            if candidate and candidate not in seen:
-                seen.add(candidate)
+            key = _normalize_url_key(candidate)
+            if candidate and key not in seen:
+                seen.add(key)
                 urls.append(candidate)
     return urls
 
@@ -142,6 +162,7 @@ async def _prepare_text(
     if runtime is None:
         return None
     links = list(links_with_parser) if links_with_parser is not None else runtime.parser_manager.extract_all_links(text)
+    links = dedupe_links(links)
     links = [
         (url, parser) for url, parser in links
         if is_platform_allowed(getattr(parser, "name", "unknown"), event)

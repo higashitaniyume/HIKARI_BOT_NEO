@@ -192,7 +192,7 @@ async def _parse_worker(key: str) -> None:
 
 
 async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool = False) -> None:
-    from .prepare import _process_parse_item, is_platform_allowed
+    from .prepare import _process_parse_item, dedupe_links, is_platform_allowed
 
     runtime = _get_runtime()
     if runtime is None:
@@ -201,6 +201,7 @@ async def _enqueue_text(bot: Bot, event: MessageEvent, text: str, *, force: bool
         return
 
     links = runtime.parser_manager.extract_all_links(text)
+    links = dedupe_links(links)
     links = [
         (url, parser) for url, parser in links
         if is_platform_allowed(getattr(parser, "name", "unknown"), event)
