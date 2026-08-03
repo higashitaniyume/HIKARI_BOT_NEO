@@ -117,3 +117,18 @@ async def notify_error_to_superuser(
         logger.error(f"向 superuser 发送错误通知失败: {_redact_text(e)}")
         logger.error(full_message)
 
+
+async def notify_superuser_message(bot: Bot, message: str) -> None:
+    """
+    给 superuser 私发一条脱敏后的消息，不转发到触发会话。
+
+    用于只应让管理员看到的内容（如解析失败详情），群聊/私聊窗口不展示。
+    """
+    superuser_id = _get_superuser_id()
+    try:
+        await bot.send_private_msg(user_id=int(superuser_id), message=_redact_text(message))
+        logger.info(f"已向 superuser ({superuser_id}) 发送消息")
+    except Exception as e:
+        logger.error(f"向 superuser 发送消息失败: {_redact_text(e)}")
+        logger.error(_redact_text(message))
+

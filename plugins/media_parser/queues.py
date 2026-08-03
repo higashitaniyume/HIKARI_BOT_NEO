@@ -12,6 +12,7 @@ import aiohttp
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 
 from core.bot_messages import get_message as msg
+from core.error_notifier import notify_superuser_message
 from core.stats_tracker import increment as stats_increment
 from core.activity_tracker import QUEUE_SIZES
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
@@ -336,9 +337,16 @@ async def _send_processed_item(item: MediaSendQueueItem) -> None:
             reason = "抖音内容暂时不可访问，可能是链接失效或触发了平台限流，请稍后重试"
         else:
             reason = f"解析失败：{raw_reason[:120]}"
-        await item.bot.send(
-            item.event,
-            Message(msg("media_parser.metadata_error", platform=platform, reason=reason, url=err.get("source_url", ""))),
+        logger.info(
+            "[MediaParser] parse failed -> platform=%s url=%s error=%s (notified superuser only)",
+            platform,
+            err.get("source_url", ""),
+            raw_reason[:120],
+        )
+        # 失败详情只私发 superuser，不在群里暴露
+        await notify_superuser_message(
+            item.bot,
+            msg("media_parser.metadata_error", platform=platform, reason=reason, url=err.get("source_url", "")),
         )
     elif not any(m.get("_enable_text_metadata") for m in item.processed):
         await item.bot.send(item.event, Message(msg("media_parser.no_media")))

@@ -8,6 +8,7 @@ from core.config_loader import DEFAULT_MEDIA_PARSER_CONFIG
 import plugins.media_parser as media_parser
 from plugins.media_parser.bilibili_cookie_assist import BilibiliCookieAssistManager
 from plugins.media_parser import sender
+from plugins.media_parser.queues import MediaSendQueueItem, _send_processed_item
 
 
 class MediaParserSchedulerTests(unittest.TestCase):
@@ -123,6 +124,36 @@ class MediaParserSchedulerTests(unittest.TestCase):
                 "12345",
             )
         )
+
+
+class MediaParserErrorNotifyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_parse_failure_notifies_superuser_only(self) -> None:
+        event = SimpleNamespace(get_user_id=lambda: "10001")
+        bot = SimpleNamespace(send=AsyncMock())
+        item = MediaSendQueueItem(
+            bot=bot,
+            event=event,
+            processed=[{
+                "error": "无法找到笔记数据，JSON结构可能不同（移动端和PC端路径都失败）",
+                "platform": "xiaohongshu",
+                "source_url": "https://www.xiaohongshu.com/discovery/item/69fc6523000000003501f26c",
+                "_enable_text_metadata": True,
+            }],
+            config={},
+        )
+
+        with patch(
+            "plugins.media_parser.queues.notify_superuser_message",
+            new=AsyncMock(),
+        ) as mock_notify:
+            await _send_processed_item(item)
+
+        mock_notify.assert_awaited_once()
+        sent = mock_notify.await_args.args[1]
+        self.assertIn("媒体解析失败", sent)
+        self.assertIn("xiaohongshu", sent)
+        self.assertIn("69fc6523000000003501f26c", sent)
+        bot.send.assert_not_awaited()
 
 
 class MediaParserRetryTests(unittest.IsolatedAsyncioTestCase):
