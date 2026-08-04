@@ -100,6 +100,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "done": "完成：JM{album_id}",
         "upload_failed": "JM解析完成，但 PDF 上传失败，请稍后再试。",
         "failed": "下载/转换 PDF 失败，请稍后再试。",
+        "not_found": "本子不存在：JM{jm_id}",
     },
     "bot_help": {
         "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。",

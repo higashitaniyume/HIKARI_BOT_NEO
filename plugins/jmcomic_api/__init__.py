@@ -9,6 +9,7 @@ from typing import Optional
 
 import jmcomic
 from jmcomic import Feature
+from jmcomic.jm_exception import MissingAlbumPhotoException
 from nonebot import on_regex
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, PrivateMessageEvent
 from nonebot.params import RegexGroup
@@ -320,6 +321,10 @@ async def _download_and_send_pdf(
             # 注册到全局临时文件清理器，即使上传失败也能按 TTL 自动清理
             register_temp_media_path(pdf_path, ttl_seconds=cache_ttl)
 
+        except MissingAlbumPhotoException:
+            logger.warning("本子不存在：JM%s", jm_id)
+            await bot.send(event, msg("jmcomic.not_found", jm_id=jm_id))
+            return
         except Exception:
             logger.exception("下载/转换 PDF 失败：JM%s", jm_id)
 
