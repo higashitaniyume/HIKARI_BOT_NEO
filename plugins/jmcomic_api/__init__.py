@@ -18,7 +18,7 @@ from core.bot_messages import get_message as msg
 from core.stats_tracker import increment as stats_increment
 from core.temp_media_cleaner import register_temp_media_path
 
-from .config import get_config
+from .config import get_config, parse_cookie_string
 
 try:
     from jmcomic import DirRule
@@ -114,6 +114,16 @@ def load_option():
     logger.info(f"JMComic 下载目录已覆盖为: {DOWNLOAD_DIR.resolve()}")
     logger.info(f"JMComic PDF 输出目录: {PDF_DIR.resolve()}")
     logger.info(f"JMComic dir_rule.rule: {old_rule_dsl}")
+
+    # 从插件配置注入登录 Cookie（浏览器复制的 "k=v; k2=v2" 字符串）
+    cookie_str = (get_config().get("cookies") or "").strip()
+    if cookie_str:
+        cookie_dict = parse_cookie_string(cookie_str)
+        if cookie_dict:
+            option.update_cookies(cookie_dict)
+            logger.info("已从插件配置注入 %d 个 cookies（含 AVS: %s）",
+                        len(cookie_dict),
+                        "AVS" in cookie_dict)
 
     return option
 

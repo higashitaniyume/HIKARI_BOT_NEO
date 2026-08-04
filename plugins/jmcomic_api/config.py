@@ -19,7 +19,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "upload_timeout_seconds": 60.0,
     # 临时文件缓存 TTL（秒），过期后由 temp_media_cleaner 自动清理
     "cache_ttl_seconds": 600,
+    # 登录 18comic.vip 后从浏览器复制的完整 Cookie 字符串
+    # （"k=v; k2=v2" 格式，可选，用于下载仅登录用户可见的本子）
+    "cookies": "",
 }
+
+
+def parse_cookie_string(cookie_str: str) -> dict[str, str]:
+    """
+    把浏览器复制的 "k=v; k2=v2" Cookie 字符串解析成 dict。
+
+    jmcomic 的 postman 要求 meta_data.cookies 是 dict（传给 requests），
+    不能直接放字符串，否则 cookiejar_from_dict 会抛 TypeError。
+    """
+    result: dict[str, str] = {}
+    for part in cookie_str.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        key, _, value = part.partition("=")
+        result[key.strip()] = value.strip()
+    return result
 
 
 def _write_config(data: dict[str, Any]) -> None:
