@@ -1,6 +1,11 @@
+/* Tooling views: sidebar toggle, overview widgets, sticker grids, AI tools. */
+
+/* ── Sidebar toggle icon ───────────────────────────────── */
+
 .sidebar-toggle {
   position: relative;
   overflow: hidden;
+  flex: 0 0 auto;
 }
 
 .sidebar-toggle-icon {
@@ -49,29 +54,17 @@
   transform: translateY(-50%) rotate(135deg);
 }
 
-.small-button {
-  width: auto;
-  min-width: 58px;
-  min-height: 32px;
-  padding: 6px 10px;
-  border-color: var(--border-strong);
-  background: #fff;
-  color: #0f655f;
-  font-size: 13px;
-}
-
-.small-button:hover {
-  border-color: #94a3b8;
-  background: var(--accent-tint);
-}
+/* ── Overview: version / probe panels ──────────────────── */
 
 .overview-version-panel .panel-heading,
-.overview-probe-panel .panel-heading {
-  align-items: start;
+.overview-probe-panel .panel-heading,
+.overview-activities-panel .panel-heading {
+  align-items: flex-start;
 }
 
 .overview-version-panel .ghost,
-.overview-probe-panel .ghost {
+.overview-probe-panel .ghost,
+.overview-activities-panel .ghost {
   width: auto;
 }
 
@@ -91,10 +84,10 @@
 
 .version-current > div {
   display: grid;
-  gap: 6px;
   min-width: 0;
+  gap: 6px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
   padding: 14px;
 }
@@ -114,29 +107,29 @@
 
 .version-history-list {
   display: grid;
-  gap: 8px;
   max-height: 320px;
   overflow: auto;
+  gap: 8px;
   padding-right: 4px;
 }
 
 .version-history-list.empty {
   display: block;
   border: 1px dashed var(--border-strong);
-  border-radius: 8px;
-  padding: 18px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
+  padding: 18px;
 }
 
 .version-history-item {
   display: grid;
   grid-template-columns: 82px 78px minmax(0, 1fr);
-  gap: 10px;
   align-items: baseline;
   min-width: 0;
+  gap: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
   padding: 10px 12px;
 }
 
@@ -146,8 +139,8 @@
 }
 
 .version-history-item code {
-  color: #0f655f;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  color: var(--accent-strong);
+  font-family: var(--mono);
   font-size: 12px;
 }
 
@@ -166,12 +159,13 @@
 
 .probe-card {
   display: grid;
-  gap: 10px;
+  align-content: start;
   min-width: 0;
+  gap: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--panel-soft);
-  padding: 14px;
+  padding: 16px;
 }
 
 .probe-card h3 {
@@ -180,15 +174,15 @@
 
 .probe-card dl {
   display: grid;
-  gap: 9px;
   margin: 0;
+  gap: 9px;
 }
 
 .probe-card dl > div {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr);
-  gap: 10px;
   align-items: start;
+  gap: 10px;
 }
 
 .probe-card dt {
@@ -198,22 +192,22 @@
 
 .probe-card dd {
   display: grid;
-  gap: 2px;
   min-width: 0;
   margin: 0;
+  gap: 2px;
   color: var(--text);
-  font-weight: 760;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
 .probe-card small {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 520;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-/* ── Activities panel (overview) ── */
+/* ── Overview: activities ──────────────────────────────── */
 
 .activities-list {
   display: flex;
@@ -224,10 +218,11 @@
 .activity-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: var(--surface2);
+  padding: 9px 14px;
   font-size: 14px;
   line-height: 1.4;
 }
@@ -238,39 +233,47 @@
   min-width: 10px;
   border-radius: 50%;
   background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(90, 94, 224, 0.15);
   animation: pulse-dot 1.8s ease-in-out infinite;
 }
 
 .activity-card.status-pending .activity-dot {
   background: var(--muted);
+  box-shadow: none;
   animation: none;
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .activity-label {
-  font-weight: 600;
   color: var(--text);
+  font-weight: 650;
   white-space: nowrap;
 }
 
 .activity-detail {
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .activity-elapsed {
+  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  margin-left: auto;
 }
 
 .activities-queues {
@@ -279,56 +282,34 @@
   align-items: center;
   gap: 6px;
   margin-top: 12px;
-  padding-top: 12px;
   border-top: 1px solid var(--border);
+  padding-top: 12px;
 }
 
 .queues-label {
-  font-size: 13px;
-  color: var(--muted);
   margin-right: 4px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .queue-badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   background: var(--surface2);
-  font-size: 12px;
   color: var(--text);
+  padding: 3px 10px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
-.pack-card.is-active-pack {
-  border-color: var(--accent);
-  background: var(--accent-tint);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
-}
-
-.pack-detail-panel {
-  scroll-margin-top: 18px;
-}
-
-.panel-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.panel-actions .ghost {
-  width: auto;
-}
+/* ── Pack sticker grid ─────────────────────────────────── */
 
 .pack-sticker-toolbar {
   display: grid;
   grid-template-columns: minmax(170px, 0.9fr) auto minmax(180px, 1fr) minmax(180px, 1fr) auto auto;
-  gap: 12px;
   align-items: end;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-soft);
-  padding: 14px;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -350,21 +331,22 @@
   grid-template-rows: auto auto auto 1fr;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
   padding: 10px;
-  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  transition: border-color 130ms ease, box-shadow 130ms ease, transform 130ms ease;
 }
 
 .sticker-card:hover {
-  border-color: #a9c9c5;
-  box-shadow: 0 8px 20px rgba(16, 24, 40, 0.08);
+  border-color: #b3bce9;
+  box-shadow: 0 10px 22px rgba(30, 41, 82, 0.1);
+  transform: translateY(-2px);
 }
 
 .sticker-card.is-selected {
   border-color: var(--accent);
   background: var(--accent-tint);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  box-shadow: 0 0 0 3px rgba(90, 94, 224, 0.14);
 }
 
 .pack-sticker-check {
@@ -374,16 +356,18 @@
   z-index: 1;
   width: 20px;
   min-height: 20px;
+  accent-color: var(--accent);
 }
 
 .sticker-frame {
   display: grid;
   aspect-ratio: 1;
-  place-items: center;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background:
+    repeating-conic-gradient(#f1f3fa 0% 25%, #fafbfe 0% 50%) 0 0 / 18px 18px;
+  place-items: center;
 }
 
 .sticker-frame img {
@@ -398,8 +382,8 @@
 }
 
 .sticker-title {
-  font-weight: 760;
   font-size: 13px;
+  font-weight: 700;
   line-height: 1.35;
 }
 
@@ -414,6 +398,8 @@
   width: 100%;
 }
 
+/* ── Push / RSS panels ─────────────────────────────────── */
+
 .push-config-form {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
@@ -425,12 +411,12 @@
 
 #pushJobOptions {
   min-height: 210px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-family: var(--mono);
   font-size: 13px;
 }
 
 .push-job-heading {
-  align-items: end;
+  align-items: flex-end;
   justify-content: space-between;
   border-top: 1px solid var(--border);
   padding-top: 16px;
@@ -440,90 +426,15 @@
   margin-bottom: 0;
 }
 
-.panel-actions .danger-button {
-  width: auto;
-}
-
-@media (max-width: 1180px) {
-  .probe-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .pack-sticker-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .version-current,
-  .probe-grid,
-  .pack-sticker-toolbar,
-  .sticker-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .version-history-item {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
-  .overview-version-panel .ghost,
-  .overview-probe-panel .ghost,
-  .pack-sticker-toolbar .primary,
-  .pack-sticker-toolbar .danger-button,
-  .panel-actions .danger-button,
-  .panel-actions .ghost {
-    width: 100%;
-  }
-}
-
-/* Remove heavy nested control frames; keep focus visible without the harsh boxed look. */
-input:focus,
-select:focus,
-textarea:focus,
-button:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16);
-}
-
-input[type="checkbox"]:focus,
-input[type="checkbox"]:focus-visible {
-  outline: 0;
-  box-shadow: none;
-}
-
-input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
-.upload-form,
-.tg-form,
-.voice-upload-form,
-.keyword-form,
-.voice-keyword-form,
-.inbox-form,
-.access-form,
-.pack-sticker-toolbar {
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  padding: 0;
-}
-
-.settings-form .checkbox-field,
-.pack-sticker-toolbar .checkbox-field {
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
+/* ── AI Agent tools ────────────────────────────────────── */
 
 .aiagent-tools-block {
   display: grid;
-  gap: 14px;
   align-self: stretch;
+  gap: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
   padding: 16px;
 }
 
@@ -539,16 +450,8 @@ input[type="checkbox"] {
 .aiagent-tools-controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 12px;
   align-items: end;
-}
-
-.aiagent-tools-controls .checkbox-field {
-  min-height: 42px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-soft);
-  padding: 0 12px;
+  gap: 12px;
 }
 
 .aiagent-tool-list {
@@ -564,17 +467,19 @@ input[type="checkbox"] {
 
 .aiagent-tool-card {
   display: grid;
-  gap: 10px;
   min-width: 0;
+  gap: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-soft);
-  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 14px;
+  transition: border-color 130ms ease, box-shadow 130ms ease;
 }
 
 .aiagent-tool-card.is-active {
-  border-color: #bfe3df;
+  border-color: #b9c0f2;
   background: var(--accent-tint);
+  box-shadow: 0 0 0 3px rgba(90, 94, 224, 0.1);
 }
 
 .aiagent-tool-card-head {
@@ -585,22 +490,23 @@ input[type="checkbox"] {
 .aiagent-tool-select {
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
+  gap: 8px;
   color: var(--text);
-  font-weight: 760;
+  font-weight: 700;
 }
 
 .aiagent-tool-select input {
   flex: 0 0 auto;
-  width: 18px;
-  min-height: 18px;
+  width: 17px;
+  min-height: 17px;
+  accent-color: var(--accent);
 }
 
 .aiagent-tool-select span {
-  overflow-wrap: anywhere;
   color: var(--text);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .aiagent-tool-badges {
@@ -614,29 +520,29 @@ input[type="checkbox"] {
   align-items: center;
   min-height: 24px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #fff;
-  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--panel);
   color: var(--muted);
+  padding: 2px 9px;
   font-size: 12px;
   line-height: 1.2;
 }
 
 .aiagent-tool-badge.is-active {
-  border-color: #bfe3df;
+  border-color: #b9c0f2;
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
 .aiagent-tool-badge.is-muted {
-  border-color: #e4e7ec;
-  background: #f8fafc;
+  border-color: var(--border);
+  background: var(--panel-soft);
   color: #98a2b3;
 }
 
 .aiagent-tool-description {
-  overflow-wrap: anywhere;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .aiagent-tool-schema {
@@ -644,32 +550,21 @@ input[type="checkbox"] {
 }
 
 .aiagent-tool-schema summary {
-  cursor: pointer;
   color: var(--accent-strong);
   font-size: 13px;
   font-weight: 700;
+  cursor: pointer;
 }
 
 .aiagent-tool-schema pre {
   max-height: 260px;
   overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #111827;
-  color: #e5edf5;
-  padding: 10px;
+  border: 1px solid #232c4a;
+  border-radius: var(--radius-sm);
+  background: #12172e;
+  color: #dbe3f8;
+  padding: 10px 12px;
+  font: 12px/1.45 var(--mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-}
-
-@media (max-width: 720px) {
-  .aiagent-tools-block {
-    padding: 14px;
-  }
-
-  .aiagent-tool-list,
-  .aiagent-tools-controls {
-    grid-template-columns: 1fr;
-  }
 }

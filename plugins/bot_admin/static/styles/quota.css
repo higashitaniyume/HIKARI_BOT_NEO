@@ -1,14 +1,9 @@
 /* AI 配额页面样式 */
 
-/* 单列纵向表单（替代 settings-form 的 3 列网格） */
 .quota-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-soft);
-  padding: 16px;
   margin: 8px 0 0;
 }
 
@@ -18,13 +13,13 @@
 }
 
 .quota-section {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  padding: 16px 18px;
 }
 
 .quota-section-head h3 {
@@ -43,23 +38,22 @@
   gap: 12px;
 }
 
-/* 两个 textarea 并排 */
 .quota-access-row {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  border-bottom: 1px dashed var(--border-strong);
   padding-bottom: 12px;
-  border-bottom: 1px dashed var(--border);
-}
-
-.quota-access-title {
-  font-weight: 600;
-  color: var(--text);
 }
 
 .quota-access-row:last-child {
-  border-bottom: none;
+  border-bottom: 0;
   padding-bottom: 0;
+}
+
+.quota-access-title {
+  color: var(--text);
+  font-weight: 650;
 }
 
 .quota-two-col {
@@ -71,12 +65,6 @@
 .quota-two-col textarea {
   min-height: 84px;
   resize: vertical;
-}
-
-@media (max-width: 720px) {
-  .quota-two-col {
-    grid-template-columns: 1fr;
-  }
 }
 
 .quota-override-list {
@@ -92,8 +80,8 @@
 .quota-override-row {
   display: grid;
   grid-template-columns: 76px minmax(140px, 1fr) 120px 120px auto;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
 }
 
 .quota-override-row input[type="number"] {
@@ -110,22 +98,31 @@
   display: flex;
   gap: 6px;
   margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  padding: 4px;
+  width: fit-content;
 }
 
 .quota-tab {
-  padding: 6px 16px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  width: auto;
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--muted);
+  padding: 5px 18px;
   cursor: pointer;
-  width: auto;
-  min-height: 34px;
+}
+
+.quota-tab:hover {
+  color: var(--text);
 }
 
 .quota-tab.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-grad);
+  box-shadow: 0 3px 10px rgba(90, 94, 224, 0.3);
   color: #fff;
 }
 
@@ -137,16 +134,22 @@
 
 .data-table th,
 .data-table td {
-  text-align: left;
-  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  padding: 9px 12px;
+  text-align: left;
   vertical-align: top;
 }
 
 .data-table th {
   color: var(--muted);
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   white-space: nowrap;
+}
+
+.data-table tbody tr:hover {
+  background: var(--accent-tint);
 }
 
 .quota-cell {
@@ -160,28 +163,28 @@
 
 .quota-bar {
   height: 8px;
-  border-radius: 4px;
-  background: var(--border);
   overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface2);
 }
 
 .quota-bar-fill {
   height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
+  border-radius: 999px;
+  background: var(--accent-grad);
 }
 
 .quota-bar-fill.is-full {
-  background: var(--danger, #e74c3c);
+  background: linear-gradient(90deg, #e0496f, #d1345b);
 }
 
 .badge-exempt {
   display: inline-block;
   margin-left: 6px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-size: 0.78em;
+  border-radius: 999px;
   background: var(--accent-soft);
-  color: var(--muted);
+  color: var(--accent-strong);
+  padding: 2px 9px;
+  font-size: 0.78em;
   vertical-align: middle;
 }
