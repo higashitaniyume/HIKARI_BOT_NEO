@@ -45,6 +45,20 @@
                 <textarea id="accessBlacklistGroups" rows="5" placeholder="987654321"></textarea>
               </label>
 
+              <section id="accessManualParseBlock" class="manual-parse-block" hidden>
+                <hr>
+                <h4>网易云群聊手动解析</h4>
+                <p>开启后，群聊中不再自动解析网易云链接；群成员 @机器人且其消息之前 10 条内有网易云链接/卡片时，才会解析。</p>
+                <label class="checkbox-field">
+                  <input id="accessManualParseEnabled" type="checkbox">
+                  <span>启用手动解析</span>
+                </label>
+                <label>
+                  <span>启用群号（一行一个，或用逗号分隔）</span>
+                  <textarea id="accessManualParseGroups" rows="5" placeholder="987654321"></textarea>
+                </label>
+              </section>
+
               <button type="submit" id="accessSaveBtn" class="primary">保存权限</button>
             </form>
           </section>

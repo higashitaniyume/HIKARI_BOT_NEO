@@ -13,6 +13,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, GroupMessageEvent
@@ -25,6 +26,7 @@ from core.message_pipeline import register_handler
 from .config import get_config
 from .parser import (
     extract_album_ids_from_event,
+    extract_all_urls,
     extract_playlist_ids_from_event,
     extract_program_ids_from_event,
     extract_song_ids_from_event,
@@ -214,8 +216,117 @@ async def _enqueue_playlist_parse_job(
         await _process_single_playlist(bot, event, playlist_id, get_config(), quality)
 
 
+def _manual_parse_enabled(cfg: dict, group_id: str) -> bool:
+    """群是否启用了手动解析（被@bot 触发）。"""
+    manual = cfg.get("manual_parse") if isinstance(cfg.get("manual_parse"), dict) else {}
+    if not manual.get("enable", False):
+        return False
+    groups = [str(g) for g in manual.get("groups", []) if str(g)]
+    return str(group_id) in groups
+
+
+def _is_mentioned_bot(event: MessageEvent, bot_self_id: str) -> bool:
+    """消息是否 @ 了 bot（含 @全体成员）。"""
+    for seg in event.message:
+        if seg.type == "at":
+            qq = seg.data.get("qq", "") if isinstance(seg.data, dict) else ""
+            if str(qq) in (bot_self_id, "all"):
+                return True
+    return False
+
+
+async def _get_group_history(
+    bot: Bot,
+    event: GroupMessageEvent,
+    count: int = 20,
+) -> list[dict]:
+    """获取群最近消息（从最新向前 count 条），返回消息 dict 列表。"""
+    try:
+        resp = await bot.call_api(
+            "get_group_msg_history", group_id=event.group_id, count=count,
+        )
+    except Exception as e:
+        logger.warning("[Netease] 获取群历史消息失败 → %s", e)
+        return []
+    if isinstance(resp, list):
+        return resp
+    if isinstance(resp, dict):
+        messages = resp.get("messages")
+        if isinstance(messages, list):
+            return messages
+    logger.warning("[Netease] 群历史消息响应格式异常 → %r", resp)
+    return []
+
+
+def _history_event(message: dict) -> SimpleNamespace:
+    """历史消息 dict → 可复用的提取事件对象（复用 parser 的提取函数）。"""
+    from nonebot.adapters.onebot.v11 import Message, MessageSegment
+
+    segments = []
+    raw = message.get("message") if isinstance(message, dict) else None
+    if isinstance(raw, list):
+        for seg in raw:
+            try:
+                segments.append(
+                    MessageSegment(type=seg["type"], data=seg.get("data", {}) or {}),
+                )
+            except Exception:
+                continue
+    msg = Message(segments)
+    return SimpleNamespace(message=msg, get_message=lambda: msg)
+
+
+def _history_before_trigger(
+    history: list[dict],
+    event: MessageEvent,
+    limit: int = 10,
+) -> list[dict]:
+    """取被@消息之前的最近 limit 条历史消息（按 time 升序）。"""
+    trigger_time = float(getattr(event, "time", 0) or 0)
+    trigger_id = str(getattr(event, "message_id", "") or "")
+    items = sorted(history, key=lambda m: float(m.get("time", 0) or 0))
+
+    # 定位被@消息：优先按 message_id，其次按 time
+    idx = None
+    for i, m in enumerate(items):
+        if trigger_id and str(m.get("message_id", "")) == trigger_id:
+            idx = i
+            break
+    if idx is None and trigger_time > 0:
+        for i, m in enumerate(items):
+            if float(m.get("time", 0) or 0) >= trigger_time:
+                idx = i
+                break
+    if idx is None:
+        # 完全定位不到被@消息 → 取历史中最早的 limit 条（最贴近“之前”方向）
+        return items[:limit]
+    return items[max(0, idx - limit):idx]
+
+
+def _has_netease_in_history(history: list[dict], event: MessageEvent) -> bool:
+    """被@消息之前 10 条历史中是否含网易云链接（正文 URL 或卡片）。"""
+    for item in _history_before_trigger(history, event):
+        try:
+            text = str(item.get("message", ""))
+            if has_netease_url(text):
+                return True
+            for url in extract_all_urls(_history_event(item)):
+                if has_netease_url(url):
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 class AutoNeteaseHandler:
-    """自动检测网易云音乐歌曲链接并解析的 Handler。"""
+    """
+    网易云链接解析 Handler。
+
+    触发规则：
+    - 私聊：发送链接或小卡片 → 直接解析
+    - 群聊：不自动解析；仅当被@bot 且该群启用了手动解析（manual_parse）时，
+      解析被@消息自身或它之前 10 条消息内的网易云链接/卡片
+    """
 
     name = "NeteaseParser"
 
@@ -228,27 +339,42 @@ class AutoNeteaseHandler:
             logger.debug("[Netease] match ✗ 权限限制 user=%s", event.get_user_id())
             return False
 
-        # 检查正文是否包含网易云链接
-        if has_netease_url(text):
-            logger.debug("[Netease] match ✓ 正文命中 → text=%s...", text[:80])
+        # 检查正文与卡片是否包含网易云链接
+        has_self_link = has_netease_url(text)
+        if not has_self_link:
+            card_urls = extract_all_urls(event)
+            has_self_link = any(has_netease_url(url) for url in card_urls)
+
+        # 私聊：直接解析
+        if not isinstance(event, GroupMessageEvent):
+            return has_self_link
+
+        # 群聊：不自动解析，仅被@ + 群启用手动解析
+        group_id = str(getattr(event, "group_id", "") or "")
+        if not _manual_parse_enabled(cfg, group_id):
+            logger.debug("[Netease] match ✗ 群未启用手动解析 group=%s", group_id)
+            return False
+        try:
+            from nonebot import get_bot
+
+            bot = get_bot()
+            bot_self_id = str(bot.self_id or "")
+        except Exception:
+            return False
+        if not _is_mentioned_bot(event, bot_self_id):
+            logger.debug("[Netease] match ✗ 未被@ group=%s", group_id)
+            return False
+
+        if has_self_link:
+            logger.debug("[Netease] match ✓ 群聊被@且自身含链接 group=%s", group_id)
             return True
 
-        # 检查 QQ 卡片元数据是否包含网易云链接
-        from .parser import extract_all_urls
-
-        card_urls = extract_all_urls(event)
-        if card_urls:
-            logger.debug("[Netease] match 从卡片提取到 %d 个 URL: %s", len(card_urls), card_urls)
-            for url in card_urls:
-                if has_netease_url(url):
-                    logger.debug(
-                        "[Netease] match ✓ 卡片元数据命中 → url=%s", url[:80],
-                    )
-                    return True
-                logger.debug("[Netease] match   URL 非网易云: %s", url[:80])
-        else:
-            logger.debug("[Netease] match 卡片未提取到任何 URL")
-
+        # 被@消息自身无链接 → 查之前 10 条历史
+        history = await _get_group_history(bot, event)
+        if _has_netease_in_history(history, event):
+            logger.info("[Netease] match ✓ 群聊被@，之前 10 条内发现网易云链接 group=%s", group_id)
+            return True
+        logger.debug("[Netease] match ✗ 群聊被@但历史无网易云链接 group=%s", group_id)
         return False
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
@@ -261,6 +387,34 @@ class AutoNeteaseHandler:
         song_ids = (await extract_song_ids_from_event(event))[:max_links]
         album_ids = (await extract_album_ids_from_event(event))[:max_links]
         playlist_ids = (await extract_playlist_ids_from_event(event))[:max_links]
+
+        # 群聊被@且自身无链接 → 从之前 10 条历史消息中提取（match 已确认历史有链接）
+        if (
+            isinstance(event, GroupMessageEvent)
+            and not (playlist_ids or album_ids or song_ids or program_ids)
+        ):
+            history = await _get_group_history(bot, event)
+            for item in _history_before_trigger(history, event):
+                try:
+                    h_event = _history_event(item)
+                except Exception:
+                    continue
+                program_ids.extend(await extract_program_ids_from_event(h_event))
+                song_ids.extend(await extract_song_ids_from_event(h_event))
+                album_ids.extend(await extract_album_ids_from_event(h_event))
+                playlist_ids.extend(await extract_playlist_ids_from_event(h_event))
+
+            def _dedup(ids: list[str]) -> list[str]:
+                return list(dict.fromkeys(ids))[:max_links]
+
+            program_ids = _dedup(program_ids)
+            song_ids = _dedup(song_ids)
+            album_ids = _dedup(album_ids)
+            playlist_ids = _dedup(playlist_ids)
+            logger.info(
+                "[Netease] 历史提取完成 → song=%s album=%s playlist=%s program=%s",
+                song_ids, album_ids, playlist_ids, program_ids,
+            )
 
         # 群聊中专辑/歌单仅提示私聊
         if (album_ids or playlist_ids) and isinstance(event, GroupMessageEvent):

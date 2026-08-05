@@ -350,10 +350,17 @@ function renderAccessRules() {
   $("#accessWhitelistGroups").value = joinIds(whitelist.group);
   $("#accessBlacklistUsers").value = joinIds(blacklist.user);
   $("#accessBlacklistGroups").value = joinIds(blacklist.group);
+
+  // 网易云解析：群聊手动解析配置（@bot 触发）
+  const isNetease = selected.name === "netease_parser.json";
+  $("#accessManualParseBlock").hidden = !isNetease;
+  const manualParse = selected.manualParse || {};
+  $("#accessManualParseEnabled").checked = manualParse.enable === true;
+  $("#accessManualParseGroups").value = joinIds(manualParse.groups || []);
 }
 
 function buildAccessPayload() {
-  return {
+  const payload = {
     plugin: state.selectedAccessPlugin,
     permissions: {
       whitelist: {
@@ -368,6 +375,13 @@ function buildAccessPayload() {
       },
     },
   };
+  if (state.selectedAccessPlugin === "netease_parser.json") {
+    payload.manual_parse = {
+      enable: $("#accessManualParseEnabled").checked,
+      groups: splitIds($("#accessManualParseGroups").value),
+    };
+  }
+  return payload;
 }
 
 async function saveAccessRules(event) {

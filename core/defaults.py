@@ -254,6 +254,10 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "real_ip": "",
     "high_quality": True,
     "quality_switch": True,
+    "manual_parse": {
+        "enable": False,
+        "groups": [],
+    },
     "cookie": "",
     "max_file_mb": 200,
     "send_link_info": True,

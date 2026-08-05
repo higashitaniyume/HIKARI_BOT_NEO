@@ -330,6 +330,17 @@ def _push_run_payload(result: Any) -> dict[str, Any]:
     }
 
 
+def _normalize_manual_parse(value: Any) -> dict[str, Any]:
+    """规范化网易云手动解析配置（群列表 + 开关）。"""
+    src = value if isinstance(value, dict) else {}
+    groups: list[str] = []
+    for g in (src.get("groups") or []):
+        g = str(g or "").strip()
+        if g and g not in groups:
+            groups.append(g)
+    return {"enable": bool(src.get("enable", False)), "groups": groups}
+
+
 def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
@@ -353,12 +364,16 @@ def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
     else:
         permissions = normalize_access_rules(data.get("permissions", {}))
 
-    return {
+    item: dict[str, Any] = {
         "name": name,
         "label": _ACCESS_RULE_PLUGINS.get(name, path.stem),
         "permissions": permissions,
         "mtime": path.stat().st_mtime,
     }
+    if name == "netease_parser.json":
+        # 网易云解析：额外返回群聊手动解析配置（@bot 触发）
+        item["manual_parse"] = _normalize_manual_parse(data.get("manual_parse"))
+    return item
 
 
 def _access_rules_state() -> dict[str, Any]:
@@ -412,6 +427,10 @@ def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
         current["permissions"][platform] = new_permissions
     else:
         current["permissions"] = new_permissions
+
+    if name == "netease_parser.json" and "manual_parse" in data:
+        # 网易云解析：群聊手动解析配置（@bot 触发）
+        current["manual_parse"] = _normalize_manual_parse(data.get("manual_parse"))
 
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
