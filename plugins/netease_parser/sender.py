@@ -47,19 +47,35 @@ def build_info_text(song: NeteaseSongInfo) -> str:
     )
 
 
+def _extract_message_id(result: Any) -> str:
+    """从 bot.send / call_api 返回值中提取 message_id（拿不到时返回空串）。"""
+    if isinstance(result, dict):
+        mid = result.get("message_id") or result.get("msg_id")
+        if mid:
+            return str(mid)
+    if result is None:
+        return ""
+    text = str(result)
+    return text if text.isdigit() else ""
+
+
 async def send_song(
     bot: Bot,
     event: Event,
     song: NeteaseSongInfo,
     audio_path: Path,
     config: dict[str, Any],
-) -> None:
+) -> list[str]:
     """
     发送歌曲信息和音频文件。
 
     1. 先发送歌曲信息文本
     2. 通过 upload_group_file / upload_private_file 发送音频文件
+
+    Returns:
+        本次发送关联的 message_id 列表（供回复换格式匹配用）。
     """
+    message_ids: list[str] = []
     send_link_info = bool(config.get("send_link_info", True))
     file_ext = audio_path.suffix
     file_name = _build_filename(song, file_ext)
@@ -67,11 +83,16 @@ async def send_song(
     # 发送信息文本
     if send_link_info and (song.name or song.artist):
         info_text = build_info_text(song)
+        if bool(config.get("quality_switch", True)):
+            info_text += "\n" + msg("netease.format_hint")
         logger.info(
             "[Netease] 发送信息文本 → 「%s — %s」(%s)",
             song.name, song.artist, song.album,
         )
-        await bot.send(event, Message(info_text))
+        result = await bot.send(event, Message(info_text))
+        mid = _extract_message_id(result)
+        if mid:
+            message_ids.append(mid)
 
     # 发送文件
     file_size_mb = audio_path.stat().st_size / 1024 / 1024 if audio_path.exists() else 0
@@ -81,20 +102,26 @@ async def send_song(
     )
 
     if isinstance(event, GroupMessageEvent):
-        await bot.call_api(
+        resp = await bot.call_api(
             "upload_group_file",
             group_id=event.group_id,
             file=str(audio_path),
             name=file_name,
         )
+        mid = _extract_message_id(resp)
+        if mid:
+            message_ids.append(mid)
         logger.info("[Netease] 群文件上传完成 → %s", file_name)
     elif isinstance(event, PrivateMessageEvent):
-        await bot.call_api(
+        resp = await bot.call_api(
             "upload_private_file",
             user_id=event.user_id,
             file=str(audio_path),
             name=file_name,
         )
+        mid = _extract_message_id(resp)
+        if mid:
+            message_ids.append(mid)
         logger.info("[Netease] 私聊文件上传完成 → %s", file_name)
     else:
         # 未知事件类型，降级为语音消息发送
@@ -102,4 +129,9 @@ async def send_song(
 
         uri = audio_path.resolve().as_uri()
         logger.warning("[Netease] 未知事件类型，降级为语音发送 → %s", audio_path.name)
-        await bot.send(event, Message(MessageSegment.record(uri)))
+        result = await bot.send(event, Message(MessageSegment.record(uri)))
+        mid = _extract_message_id(result)
+        if mid:
+            message_ids.append(mid)
+
+    return message_ids

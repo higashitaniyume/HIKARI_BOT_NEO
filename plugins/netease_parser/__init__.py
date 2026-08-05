@@ -11,6 +11,7 @@ NoneBot 加载此插件时自动注册：
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -45,6 +46,7 @@ class NeteaseQueueItem:
     event: MessageEvent
     item_id: str
     item_type: str  # "song", "program", 或 "album"
+    quality: str = "auto"  # "auto" = 按发送者偏好, "mp3"/"flac" = 指定格式
 
 
 _parse_queue: asyncio.Queue[NeteaseQueueItem] | None = None
@@ -125,6 +127,7 @@ async def _enqueue_parse_jobs(
     event: MessageEvent,
     song_ids: list[str],
     program_ids: list[str],
+    quality: str = "auto",
 ) -> None:
     """将歌曲/播客 ID 加入解析队列。"""
     cfg = get_config()
@@ -133,9 +136,9 @@ async def _enqueue_parse_jobs(
     # 收集所有条目
     items: list[NeteaseQueueItem] = []
     for pid in program_ids:
-        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=pid, item_type="program"))
+        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=pid, item_type="program", quality=quality))
     for sid in song_ids:
-        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=sid, item_type="song"))
+        items.append(NeteaseQueueItem(bot=bot, event=event, item_id=sid, item_type="song", quality=quality))
 
     if not items:
         logger.info("[Netease] 未提取到任何歌曲/播客 ID，跳过处理")
@@ -171,21 +174,22 @@ async def _enqueue_album_parse_job(
     event: MessageEvent,
     album_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """将专辑 ID 加入解析队列。"""
     settings = _queue_settings(cfg)
 
     if settings["enabled"]:
         queue = _ensure_parse_workers(cfg)
-        item = NeteaseQueueItem(bot=bot, event=event, item_id=album_id, item_type="album")
+        item = NeteaseQueueItem(bot=bot, event=event, item_id=album_id, item_type="album", quality=quality)
         if queue.full():
             logger.warning("[Netease] 解析队列已满，专辑 %s 被丢弃", album_id)
             return
         queue.put_nowait(item)
-        logger.info("[Netease] 专辑加入解析队列 → id=%s, 队列大小=%d", album_id, queue.qsize())
+        logger.info("[Netease] 专辑加入解析队列 → id=%s, quality=%s, 队列大小=%d", album_id, quality, queue.qsize())
     else:
         # 队列禁用，直接处理
-        await _process_single_album(bot, event, album_id, get_config())
+        await _process_single_album(bot, event, album_id, get_config(), quality)
 
 
 async def _enqueue_playlist_parse_job(
@@ -193,20 +197,21 @@ async def _enqueue_playlist_parse_job(
     event: MessageEvent,
     playlist_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """将歌单 ID 加入解析队列。"""
     settings = _queue_settings(cfg)
 
     if settings["enabled"]:
         queue = _ensure_parse_workers(cfg)
-        item = NeteaseQueueItem(bot=bot, event=event, item_id=playlist_id, item_type="playlist")
+        item = NeteaseQueueItem(bot=bot, event=event, item_id=playlist_id, item_type="playlist", quality=quality)
         if queue.full():
             logger.warning("[Netease] 解析队列已满，歌单 %s 被丢弃", playlist_id)
             return
         queue.put_nowait(item)
-        logger.info("[Netease] 歌单加入解析队列 → id=%s, 队列大小=%d", playlist_id, queue.qsize())
+        logger.info("[Netease] 歌单加入解析队列 → id=%s, quality=%s, 队列大小=%d", playlist_id, quality, queue.qsize())
     else:
-        await _process_single_playlist(bot, event, playlist_id, get_config())
+        await _process_single_playlist(bot, event, playlist_id, get_config(), quality)
 
 
 class AutoNeteaseHandler:
@@ -263,21 +268,152 @@ class AutoNeteaseHandler:
             await bot.send(event, Message(msg("netease.private_chat_only")))
             return
 
+        # 链接消息内带 mp3/flac 字样 → 本次解析按指定格式（覆盖用户偏好）
+        plain = _plain_text(event)
+        has_mp3 = bool(_MP3_RE.search(plain))
+        has_flac = bool(_FLAC_RE.search(plain))
+        if has_mp3 and not has_flac:
+            quality = "mp3"
+        elif has_flac and not has_mp3:
+            quality = "flac"
+        else:
+            quality = "auto"
+        if quality != "auto":
+            logger.info("[Netease] 链接消息指定格式 → quality=%s user=%s", quality, event.get_user_id())
+
         # 优先级：歌单 > 专辑 > 单曲/播客
         if playlist_ids:
             for pid in playlist_ids:
-                await _enqueue_playlist_parse_job(bot, event, pid, cfg)
+                await _enqueue_playlist_parse_job(bot, event, pid, cfg, quality)
             return
 
         # 专辑优先：如果有专辑链接，将专辑歌曲入队
         if album_ids:
             for album_id in album_ids:
-                await _enqueue_album_parse_job(bot, event, album_id, cfg)
+                await _enqueue_album_parse_job(bot, event, album_id, cfg, quality)
             return
 
-        await _enqueue_parse_jobs(bot, event, song_ids, program_ids)
+        await _enqueue_parse_jobs(bot, event, song_ids, program_ids, quality)
+
+
+# ── 格式偏好声明 / 回复换格式 ──
+
+_MP3_RE = re.compile(r"(?<![a-z])mp3(?![a-z])", re.I)
+_FLAC_RE = re.compile(r"(?<![a-z])flac(?![a-z])", re.I)
+
+
+def _plain_text(event: MessageEvent) -> str:
+    """提取消息中的纯文本（跳过回复/图片/卡片等非文本段）。"""
+    parts = []
+    for seg in event.message:
+        if seg.type == "text":
+            parts.append(str(seg.data.get("text", "")))
+    return "".join(parts)
+
+
+def _get_reply_message_id(event: MessageEvent) -> str:
+    """获取消息引用的回复目标 message_id（无回复时返回空串）。"""
+    for seg in event.message:
+        if seg.type == "reply":
+            mid = seg.data.get("id", "") if isinstance(seg.data, dict) else ""
+            return str(mid or "")
+    return ""
+
+
+async def _enqueue_reconvert(
+    bot: Bot,
+    event: MessageEvent,
+    rec: "SentRecord",
+    target: str,
+) -> None:
+    """按最近发送记录以目标格式重发（单曲/播客/专辑/歌单）。"""
+    cfg = get_config()
+    if rec.item_type == "song":
+        await _enqueue_parse_jobs(bot, event, [rec.item_id], [], quality=target)
+    elif rec.item_type == "program":
+        await _enqueue_parse_jobs(bot, event, [], [rec.item_id], quality=target)
+    elif rec.item_type == "album":
+        await _enqueue_album_parse_job(bot, event, rec.item_id, cfg, quality=target)
+    elif rec.item_type == "playlist":
+        await _enqueue_playlist_parse_job(bot, event, rec.item_id, cfg, quality=target)
+    else:
+        logger.warning("[Netease] 未知发送记录类型，无法重发 → type=%s", rec.item_type)
+
+
+class NeteaseQualityHandler:
+    """
+    处理格式偏好声明与回复换格式。
+
+    - 回复 bot 刚发的网易云消息，内容含 mp3/flac → 按目标格式重发（并记住偏好）
+    - 普通消息（无链接）含 mp3/flac 字样 → 记住偏好，之后解析默认按偏好
+    - 含网易云链接的消息交给 AutoNeteaseHandler（链接消息内带 mp3/flac 由解析流程处理）
+    """
+
+    name = "NeteaseQuality"
+
+    async def match(self, event: MessageEvent, text: str) -> bool:
+        cfg = get_config()
+        if not cfg.get("quality_switch", True):
+            return False
+        if not is_event_allowed(cfg, event):
+            return False
+
+        plain = _plain_text(event)
+        if not _MP3_RE.search(plain) and not _FLAC_RE.search(plain):
+            return False
+        # 含网易云链接（正文或卡片）→ 交给解析流程处理
+        if has_netease_url(plain):
+            return False
+        from .parser import extract_all_urls
+
+        if extract_all_urls(event):
+            return False
+        return True
+
+    async def handle(self, bot: Bot, event: MessageEvent) -> None:
+        from .prefs import (
+            find_recent_by_message_id,
+            set_user_quality,
+        )
+
+        plain = _plain_text(event)
+        if _FLAC_RE.search(plain) and not _MP3_RE.search(plain):
+            target = "flac"
+        else:
+            target = "mp3"
+        user_id = event.get_user_id()
+        reply_id = _get_reply_message_id(event)
+        logger.info(
+            "[Netease] 格式指令 → target=%s user=%s reply=%s text=%r",
+            target, user_id, reply_id or "-", plain[:50],
+        )
+
+        if reply_id:
+            # 回复 bot 消息 → 按被回复内容换格式重发
+            rec = find_recent_by_message_id(user_id, reply_id)
+            if rec is not None:
+                if rec.quality == target:
+                    await bot.send(event, Message(
+                        msg("netease.reconvert_same", quality=target.upper()),
+                    ))
+                    return
+                set_user_quality(user_id, target)
+                await _enqueue_reconvert(bot, event, rec, target)
+                return
+            # 未命中记录（可能已过太久）：仍记住偏好，并提示直接发链接
+            set_user_quality(user_id, target)
+            await bot.send(event, Message(
+                msg("netease.reconvert_not_found", quality=target.upper()),
+            ))
+            return
+
+        # 非回复消息 → 偏好声明
+        set_user_quality(user_id, target)
+        key = "netease.pref_set_mp3" if target == "mp3" else "netease.pref_set_flac"
+        await bot.send(event, Message(msg(key)))
 
 
 # 注册到消息处理管道
 register_handler(AutoNeteaseHandler())
+register_handler(NeteaseQualityHandler())
 logger.info("网易云音乐解析器已注册 → music.163.com / 163cn.tv")

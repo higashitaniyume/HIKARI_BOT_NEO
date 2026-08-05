@@ -253,6 +253,7 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "api_timeout": 30,
     "real_ip": "",
     "high_quality": True,
+    "quality_switch": True,
     "cookie": "",
     "max_file_mb": 200,
     "send_link_info": True,

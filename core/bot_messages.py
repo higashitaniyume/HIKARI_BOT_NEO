@@ -339,6 +339,11 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "pack_info": "📦 打包完成 → {name}（{count} 首）",
         "pack_failed": "❌ 打包失败，没有可用的音频文件。",
         "private_chat_only": "专辑/歌单解析仅支持私聊，请私聊机器人发送链接。",
+        "format_hint": "（回复 mp3 换 MP3 版 / 回复 flac 换回 FLAC）",
+        "pref_set_mp3": "已记住：以后默认发 MP3。回复 flac 可换回 FLAC。",
+        "pref_set_flac": "已记住：以后默认发 FLAC。回复 mp3 可换 MP3。",
+        "reconvert_same": "这条已经是 {quality} 版了～",
+        "reconvert_not_found": "没找到对应的网易云发送记录（可能已过太久），已记住以后默认发 {quality}，直接发链接即可解析。",
     },
     "bandcamp": {
         "search_header": "🔍 Bandcamp 搜索结果 — \"{query}\":",

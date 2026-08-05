@@ -29,6 +29,7 @@ from .api import (
     fetch_song_url,
 )
 from .packer import pack_to_zip
+from .prefs import record_send
 from .sender import send_song
 from . import NeteaseQueueItem, _sanitize_filename
 
@@ -68,7 +69,14 @@ async def _notify_final_failure(
 
 async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
     """执行单个队列条目（歌曲或播客），带重试。"""
-    label = f"{item.item_type}_{item.item_id}"
+    # 条目未显式指定格式时，按发送者偏好决定（无偏好 → 默认 FLAC）
+    quality = item.quality if item.quality in ("mp3", "flac") else "auto"
+    if quality == "auto":
+        from .prefs import get_user_quality
+
+        quality = get_user_quality(item.event.get_user_id())
+
+    label = f"{item.item_type}_{item.item_id} (quality={quality})"
     retry_count = max(0, int(cfg.get("parse_retry_count", 2)))
     retry_delay = max(0.0, float(cfg.get("parse_retry_delay_seconds", 2.0)))
     max_attempts = retry_count + 1
@@ -79,16 +87,16 @@ async def _process_queue_item(item: NeteaseQueueItem, cfg: dict) -> None:
                 "netease_parser",
                 "parsing",
                 f"解析网易云{item.item_type}",
-                description=f"{item.item_type}={item.item_id}",
+                description=f"{item.item_type}={item.item_id} quality={quality}",
             ):
                 if item.item_type == "program":
-                    await _process_single_program(item.bot, item.event, item.item_id, cfg)
+                    await _process_single_program(item.bot, item.event, item.item_id, cfg, quality)
                 elif item.item_type == "album":
-                    await _process_single_album(item.bot, item.event, item.item_id, cfg)
+                    await _process_single_album(item.bot, item.event, item.item_id, cfg, quality)
                 elif item.item_type == "playlist":
-                    await _process_single_playlist(item.bot, item.event, item.item_id, cfg)
+                    await _process_single_playlist(item.bot, item.event, item.item_id, cfg, quality)
                 else:
-                    await _process_single_song(item.bot, item.event, item.item_id, cfg)
+                    await _process_single_song(item.bot, item.event, item.item_id, cfg, quality)
             stats_increment(item.event, "netease_parsed", 1)
             return  # 成功，不重试
         except asyncio.CancelledError:
@@ -119,13 +127,14 @@ async def _process_single_program(
     event: MessageEvent,
     program_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """处理播客/电台节目：获取节目详情 → 提取 mainSong ID → 获取音频 URL → 下载 → 发送。"""
     session_start = time.time()
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
-    high_quality = bool(cfg.get("high_quality", True))
+    high_quality = _resolve_high_quality(quality, cfg)
     cookie = str(cfg.get("cookie", "")).strip()
     cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
     max_file_mb = int(cfg.get("max_file_mb", 50))
@@ -209,7 +218,15 @@ async def _process_single_program(
     step_start = time.time()
     logger.info("[Netease] ▶ 步骤 4/4: 发送音频 → id=%s", song_id)
     try:
-        await send_song(bot, event, program, audio_path, cfg)
+        message_ids = await send_song(bot, event, program, audio_path, cfg)
+        record_send(
+            event.get_user_id(),
+            item_type="program",
+            item_id=program_id,
+            title=program.name,
+            quality=_sent_quality(high_quality),
+            message_ids=message_ids,
+        )
     except Exception as e:
         elapsed = time.time() - step_start
         logger.error("[Netease] ✗ 步骤 4/4 失败 (%.1fs) → %s | %s", elapsed, e, log_extra)
@@ -228,32 +245,66 @@ async def _upload_file_via_bot(
     event: MessageEvent,
     file_path: Path,
     file_name: str,
-) -> None:
-    """通过 Bot API 上传文件（通用方法）。"""
+) -> str:
+    """通过 Bot API 上传文件（通用方法），返回 message_id（拿不到时为空串）。"""
     if isinstance(event, GroupMessageEvent):
-        await bot.call_api(
+        resp = await bot.call_api(
             "upload_group_file",
             group_id=event.group_id,
             file=str(file_path),
             name=file_name,
         )
+        return _extract_message_id(resp)
     elif isinstance(event, PrivateMessageEvent):
-        await bot.call_api(
+        resp = await bot.call_api(
             "upload_private_file",
             user_id=event.user_id,
             file=str(file_path),
             name=file_name,
         )
+        return _extract_message_id(resp)
     else:
         from nonebot.adapters.onebot.v11 import MessageSegment
+
         uri = file_path.resolve().as_uri()
-        await bot.send(event, Message(MessageSegment.record(uri)))
+        result = await bot.send(event, Message(MessageSegment.record(uri)))
+        return _extract_message_id(result)
+
+
+def _extract_message_id(result: Any) -> str:
+    """从 bot.send / call_api 返回值中提取 message_id（拿不到时返回空串）。"""
+    if isinstance(result, dict):
+        mid = result.get("message_id") or result.get("msg_id")
+        if mid:
+            return str(mid)
+    if result is None:
+        return ""
+    text = str(result)
+    return text if text.isdigit() else ""
+
+
+def _resolve_high_quality(quality: str, cfg: dict) -> bool:
+    """解析格式参数为 high_quality 布尔值。
+
+    quality: "mp3" → False（320k）; "flac" → True（999k）; 其它 → 回退配置。
+    """
+    if quality == "mp3":
+        return False
+    if quality == "flac":
+        return True
+    return bool(cfg.get("high_quality", True))
+
+
+def _sent_quality(high_quality: bool) -> str:
+    """high_quality → 记录用格式名。"""
+    return "flac" if high_quality else "mp3"
 
 
 async def _download_single_song_for_batch(
     song_info: "NeteaseSongInfo",
     album_name: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> tuple[Optional[Path], str]:
     """
     下载单首歌曲，返回 (本地路径, 展示文件名)。
@@ -265,7 +316,7 @@ async def _download_single_song_for_batch(
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
-    high_quality = bool(cfg.get("high_quality", True))
+    high_quality = _resolve_high_quality(quality, cfg)
     cookie = str(cfg.get("cookie", "")).strip()
     cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
     max_file_mb = int(cfg.get("max_file_mb", 200))
@@ -312,6 +363,7 @@ async def _process_multi_file_sequential(
     songs: list,
     cfg: dict,
     item_type: str = "album",
+    quality: str = "auto",
 ) -> None:
     """
     顺序逐首处理多文件：每首歌 → 发信息 → 上传文件 → 下一首。
@@ -319,6 +371,7 @@ async def _process_multi_file_sequential(
     保证顺序：信息-文件-信息-文件-... 不会乱序。
     """
     session_start = time.time()
+    high_quality = _resolve_high_quality(quality, cfg)
     max_links = max(1, int(cfg.get("max_links_per_message", 5)))
     songs_to_process = [s for s in songs if s.id][:max_links]
     total = len(songs_to_process)
@@ -332,19 +385,34 @@ async def _process_multi_file_sequential(
 
         try:
             audio_path, display_name = await _download_single_song_for_batch(
-                song_info, title, cfg,
+                song_info, title, cfg, quality,
             )
             if audio_path is None:
                 fail_count += 1
                 continue
 
             # 发送信息文本
-            await bot.send(event, Message(
-                msg("netease.info", name=song_info.name, artist=song_info.artist, album=title)
-            ))
+            info_text = msg(
+                "netease.info",
+                name=song_info.name, artist=song_info.artist, album=title,
+            )
+            if bool(cfg.get("quality_switch", True)):
+                info_text += "\n" + msg("netease.format_hint")
+            result = await bot.send(event, Message(info_text))
+            message_ids = [m for m in [_extract_message_id(result)] if m]
 
             # 上传文件
-            await _upload_file_via_bot(bot, event, audio_path, display_name)
+            mid = await _upload_file_via_bot(bot, event, audio_path, display_name)
+            if mid:
+                message_ids.append(mid)
+            record_send(
+                event.get_user_id(),
+                item_type="song",
+                item_id=song_info.id,
+                title=song_info.name,
+                quality=_sent_quality(high_quality),
+                message_ids=message_ids,
+            )
             logger.info("[Netease]   ✓ %s 上传完成 → %s", label, display_name)
             ok_count += 1
 
@@ -366,11 +434,14 @@ async def _process_multi_file_zip(
     songs: list,
     cfg: dict,
     item_type: str = "album",
+    item_id: str = "",
+    quality: str = "auto",
 ) -> None:
     """
     多文件 ZIP 模式：下载所有歌曲 → 打包 ZIP → 发送 ZIP。
     """
     session_start = time.time()
+    high_quality = _resolve_high_quality(quality, cfg)
     max_links = max(1, int(cfg.get("max_links_per_message", 100)))
     send_strategy = cfg.get("send_strategy", {})
     zip_max_files = int(send_strategy.get("zip_max_files", 50))
@@ -396,7 +467,7 @@ async def _process_multi_file_zip(
         nonlocal download_ok, download_fail
         async with sem:
             audio_path, display_name = await _download_single_song_for_batch(
-                song_info, title, cfg,
+                song_info, title, cfg, quality,
             )
             if audio_path is not None:
                 downloaded.append((audio_path, display_name))
@@ -428,13 +499,30 @@ async def _process_multi_file_zip(
     )
 
     # 发送 ZIP 文件
+    message_ids: list[str] = []
     for zip_path in zip_paths:
         zip_display = f"{zip_name}.zip" if len(zip_paths) == 1 else zip_path.name
         pack_msg = Message(MessageSegment.reply(event.message_id)) + msg(
             "netease.pack_info", name=zip_display, count=len(downloaded),
         )
-        await bot.send(event, pack_msg)
-        await _upload_file_via_bot(bot, event, zip_path, zip_path.name)
+        if bool(cfg.get("quality_switch", True)):
+            pack_msg += Message("\n" + msg("netease.format_hint"))
+        result = await bot.send(event, pack_msg)
+        mid = _extract_message_id(result)
+        if mid:
+            message_ids.append(mid)
+        mid = await _upload_file_via_bot(bot, event, zip_path, zip_path.name)
+        if mid:
+            message_ids.append(mid)
+
+    record_send(
+        event.get_user_id(),
+        item_type=item_type,
+        item_id=item_id,
+        title=title,
+        quality=_sent_quality(high_quality),
+        message_ids=message_ids,
+    )
 
     total_elapsed = time.time() - session_start
     logger.info(
@@ -448,6 +536,7 @@ async def _process_single_album(
     event: MessageEvent,
     album_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """
     处理专辑：
@@ -495,9 +584,13 @@ async def _process_single_album(
     songs_to_process = [s for s in songs if s.id][:max_links]
 
     if multi_file_mode == "zip":
-        await _process_multi_file_zip(bot, event, album_name, songs_to_process, cfg, "album")
+        await _process_multi_file_zip(
+            bot, event, album_name, songs_to_process, cfg, "album", album_id, quality,
+        )
     else:
-        await _process_multi_file_sequential(bot, event, album_name, songs_to_process, cfg, "album")
+        await _process_multi_file_sequential(
+            bot, event, album_name, songs_to_process, cfg, "album", quality,
+        )
 
     total_elapsed = time.time() - session_start
     logger.info(
@@ -511,6 +604,7 @@ async def _process_single_playlist(
     event: MessageEvent,
     playlist_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """
     处理歌单：
@@ -564,9 +658,13 @@ async def _process_single_playlist(
     ))
 
     if multi_file_mode == "zip":
-        await _process_multi_file_zip(bot, event, playlist_name, songs_to_process, cfg, "playlist")
+        await _process_multi_file_zip(
+            bot, event, playlist_name, songs_to_process, cfg, "playlist", playlist_id, quality,
+        )
     else:
-        await _process_multi_file_sequential(bot, event, playlist_name, songs_to_process, cfg, "playlist")
+        await _process_multi_file_sequential(
+            bot, event, playlist_name, songs_to_process, cfg, "playlist", quality,
+        )
 
     total_elapsed = time.time() - session_start
     logger.info(
@@ -580,13 +678,14 @@ async def _process_single_song(
     event: MessageEvent,
     song_id: str,
     cfg: dict,
+    quality: str = "auto",
 ) -> None:
     """处理单个歌曲 ID 的完整流程：获取详情 → 获取 URL → 下载 → 发送。"""
     session_start = time.time()
     api_base = str(cfg.get("api_base_url", "http://127.0.0.1:3000"))
     api_timeout = int(cfg.get("api_timeout", 30))
     real_ip = str(cfg.get("real_ip", "")).strip()
-    high_quality = bool(cfg.get("high_quality", True))
+    high_quality = _resolve_high_quality(quality, cfg)
     cookie = str(cfg.get("cookie", "")).strip()
     cache_dir = str(cfg.get("cache_dir", "/tmp/hikari_bot/netease"))
     max_file_mb = int(cfg.get("max_file_mb", 50))
@@ -685,7 +784,15 @@ async def _process_single_song(
     step_start = time.time()
     logger.info("[Netease] ▶ 步骤 4/4: 发送音频 → id=%s", song_id)
     try:
-        await send_song(bot, event, song, audio_path, cfg)
+        message_ids = await send_song(bot, event, song, audio_path, cfg)
+        record_send(
+            event.get_user_id(),
+            item_type="song",
+            item_id=song_id,
+            title=song.name,
+            quality=_sent_quality(high_quality),
+            message_ids=message_ids,
+        )
     except Exception as e:
         elapsed = time.time() - step_start
         logger.error(

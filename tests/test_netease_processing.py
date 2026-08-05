@@ -10,12 +10,13 @@ from nonebot.adapters.onebot.v11 import NetworkError
 from plugins.netease_parser.processing import _is_upload_timeout, _process_queue_item
 
 
-def _make_item(item_type: str = "song", item_id: str = "1"):
+def _make_item(item_type: str = "song", item_id: str = "1", quality: str = "auto"):
     return SimpleNamespace(
         bot=AsyncMock(),
-        event=SimpleNamespace(),
+        event=SimpleNamespace(get_user_id=lambda: "10001"),
         item_type=item_type,
         item_id=item_id,
+        quality=quality,
     )
 
 
