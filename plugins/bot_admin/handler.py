@@ -47,11 +47,11 @@ from .parsing import _json_bytes, _parse_float, _parse_str
 from .settings import _aiagent_config_state, _tts_config_state, _update_aiagent_config, _update_tts_config
 from .stickers import (
     _add_trigger_keyword,
-    _collect_page_has_sticker,
-    _collect_page_state,
     _inbox_state,
     _pack_detail_state,
     _pack_state,
+    _public_pack_has_sticker,
+    _public_pack_state,
     _remove_trigger_keyword,
     _split_keywords,
     _voice_state,
@@ -349,25 +349,25 @@ class BotAdminHandler(
         self._write_body(body)
 
     def _handle_public_collect_page(self, user_id: str) -> None:
-        """公开的定向收集表情包页面（无需登录）。"""
-        safe_user_id = Path(unquote(user_id or "")).name
-        if not safe_user_id or safe_user_id != unquote(user_id or ""):
+        """公开贴纸包页面（无需登录）。user_id 为定向目标 QQ 号或贴纸包名。"""
+        safe_key = Path(unquote(user_id or "")).name
+        if not safe_key or safe_key != unquote(user_id or ""):
             self._send_html(_html_page("页面不存在。"), 404)
             return
-        state = _collect_page_state(safe_user_id)
+        state = _public_pack_state(safe_key)
         if state is None:
             self._send_html(_html_page("页面不存在或已停止收集。"), 404)
             return
         self._send_html(_public_collect_page(state))
 
     def _handle_public_collect_sticker(self, user_id: str, sticker_id: str) -> None:
-        """公开的定向收集贴纸图片端点（无需登录，仅限该目标贴纸包内的贴纸）。"""
-        safe_user_id = Path(unquote(user_id or "")).name
+        """公开贴纸图片端点（无需登录，仅限该贴纸包内的贴纸）。"""
+        safe_key = Path(unquote(user_id or "")).name
         safe_sticker_id = Path(unquote(sticker_id or "")).name
         if (
-            not safe_user_id or safe_user_id != unquote(user_id or "")
+            not safe_key or safe_key != unquote(user_id or "")
             or not safe_sticker_id or safe_sticker_id != unquote(sticker_id or "")
-            or not _collect_page_has_sticker(safe_user_id, safe_sticker_id)
+            or not _public_pack_has_sticker(safe_key, safe_sticker_id)
         ):
             self._send_json({"error": "贴纸不存在。"}, 404)
             return
