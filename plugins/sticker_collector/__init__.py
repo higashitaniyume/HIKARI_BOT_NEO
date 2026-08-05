@@ -154,9 +154,9 @@ def _is_animated_image(path: Path) -> bool:
         # APNG 动画：PNG 头之后有 acTL chunk（IHDR 后紧跟，前 64 字节内）
         return b"acTL" in header
     if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
-        # 动画 WebP：VP8X chunk 的 animation flag（bit 1）
+        # 动画 WebP：VP8X chunk 的 animation flag（bit 6 = 0x40，bit 1 是 Alpha 会误判）
         # RIFF(4) + size(4) + WEBP(4) + "VP8X"(4) + chunk size(4) + flags(1)
-        return header[12:16] == b"VP8X" and len(header) > 20 and bool(header[20] & 0x02)
+        return header[12:16] == b"VP8X" and len(header) > 20 and bool(header[20] & 0x40)
     return False
 
 
@@ -219,7 +219,13 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
 
             # 下载后按文件头复核（NapCat 后缀不可靠）：GIF/APNG/动画 WebP 才收。
             if target is not None and not _is_animated_image(raw_path):
-                logger.info("[StickerCollector] 定向收集跳过非动态内容: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
+                header_hex = raw_path.read_bytes()[:16].hex()
+                logger.info(
+                    "[StickerCollector] 定向收集跳过非动态内容: user=%s file=%s head=%s",
+                    target["user_id"],
+                    str(image_data.get("file") or url),
+                    header_hex,
+                )
                 return
 
             gif_path = temp_root / f"gif_{uuid.uuid4().hex}.gif"

@@ -75,6 +75,18 @@ def setup_logging(config: dict[str, Any]) -> Path:
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
+    # 过滤 NoneBot Matcher 生命周期噪音日志（"Event will be handled by Matcher..."）
+    class _MatcherNoiseFilter(logging.Filter):
+        _NOISE_MARKERS = ("Event will be handled by Matcher", "running complete")
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            message = record.getMessage()
+            return not any(marker in message for marker in self._NOISE_MARKERS)
+
+    _matcher_noise_filter = _MatcherNoiseFilter()
+    console_handler.addFilter(_matcher_noise_filter)
+    file_handler.addFilter(_matcher_noise_filter)
+
     logger = logging.getLogger("HikariBot")
     logger.info("日志系统初始化完成")
     logger.info("控制台日志级别: %s", log_level_str)
