@@ -98,6 +98,11 @@ logger.info(
     log_level,
 )
 
+# 过滤 NoneBot Matcher 生命周期噪音日志（"Event will be handled by Matcher..."）
+from core.logger_setup import suppress_nonebot_matcher_noise
+
+suppress_nonebot_matcher_noise()
+
 # ---- Step 5: 注册适配器 ----
 
 # 导入 OneBot V11 Adapter 类

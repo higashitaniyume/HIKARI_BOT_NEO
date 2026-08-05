@@ -93,3 +93,33 @@ def setup_logging(config: dict[str, Any]) -> Path:
     logger.info("文件日志级别: DEBUG")
     logger.info("日志文件: %s", log_file)
     return log_file
+
+
+def suppress_nonebot_matcher_noise() -> None:
+    """过滤 NoneBot Matcher 生命周期噪音日志。
+
+    NoneBot 的日志走 loguru（不经过标准 logging），因此需要在 loguru
+    handler 上套一层 filter。必须在 nonebot.init() 之后调用（init 只
+    configure extra/patcher，不重置 handler）。
+    """
+    import sys
+
+    from nonebot.log import default_filter, default_format, logger
+
+    def _noise_filter(record) -> bool:
+        if not default_filter(record):
+            return False
+        message = str(record.get("message") or "")
+        return (
+            "Event will be handled by Matcher" not in message
+            and "running complete" not in message
+        )
+
+    logger.remove()
+    logger.add(
+        sys.stdout,
+        level=0,
+        diagnose=False,
+        filter=_noise_filter,
+        format=default_format,
+    )
