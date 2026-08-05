@@ -505,7 +505,7 @@ BotData/plugin_configs/sticker_inbox.json
 
 定向收集命中时直接调用 `sticker_library.save_gifs_to_pack()`（`source="qq_collect"`），与静默收集共用下载、转 GIF、大小限制等逻辑。定向收集是显式指定的目标，不受 `collect_group` / `collect_private` / `allowed_groups` 开关限制（但仍遵守全局 `enabled` 与 `ignored_users`）。
 
-**只收动画表情：** 定向收集只收 QQ 表情面板的动画表情。NapCat 对表情消息带 `summary="[动画表情]"` 标记，普通图片与静态表情包无此标记（summary 为空）且无法从协议层区分——所以定向收集按 `summary` 标记过滤：非 `[动画表情]` 的消息在下载前直接跳过；标记命中后下载，再按文件头复核（GIF / APNG / 动画 WebP，NapCat 的 file 后缀不可靠）。静默收集（收件箱）行为不变，仍收所有图片。
+**只收动画表情：** 定向收集只收 QQ 表情面板的动画表情。NapCat 对表情消息带 `summary="[动画表情]"` 标记，普通图片与静态表情包无此标记（summary 为空）且无法从协议层区分——所以定向收集按 `summary` 标记过滤：非 `[动画表情]` 的消息在下载前直接跳过，不下载不存储；标记命中的消息下载后转 GIF 入库（部分标记为动画表情的表情内容实际为静态 JPEG，仍按标记收集）。静默收集（收件箱）行为不变，仍收所有图片。
 
 **公开页面（无需登录）：**
 
