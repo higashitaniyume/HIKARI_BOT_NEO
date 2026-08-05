@@ -207,6 +207,44 @@ class ResponsesEndpointTests(unittest.TestCase):
         self.assertEqual(aiagent_config.api_protocol({"api": {"protocol": "nonsense"}}), "responses")
 
 
+class ToolFormatConversionTests(unittest.TestCase):
+    def test_function_tool_is_flattened_to_responses_format(self) -> None:
+        chat_tool = {
+            "type": "function",
+            "function": {
+                "name": "bot_help",
+                "description": "查询帮助文档。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        converted = responses_client._to_responses_tool(chat_tool)
+        self.assertEqual(
+            converted,
+            {
+                "type": "function",
+                "name": "bot_help",
+                "description": "查询帮助文档。",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        )
+
+    def test_non_function_tool_passes_through(self) -> None:
+        builtin = {"type": "web_search"}
+        self.assertEqual(responses_client._to_responses_tool(builtin), builtin)
+
+    def test_tool_choice_chat_wrapper_is_flattened(self) -> None:
+        legacy = {"type": "function", "function": {"name": "bot_help"}}
+        self.assertEqual(
+            responses_client._to_responses_tool_choice(legacy),
+            {"type": "function", "name": "bot_help"},
+        )
+        self.assertEqual(
+            responses_client._to_responses_tool_choice({"type": "web_search"}),
+            {"type": "web_search"},
+        )
+        self.assertEqual(responses_client._to_responses_tool_choice("auto"), "auto")
+
+
 class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_plain_chat_sends_instructions_and_input_items(self) -> None:
         PlainResponsesAsyncClient.post_payloads = []
@@ -283,6 +321,16 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         tools = first["tools"]
         assert isinstance(tools, list)
         self.assertIn({"type": "web_search"}, tools)
+        # function 工具必须是扁平格式（顶层 name），而非 Chat Completions 的
+        # function 嵌套包装，否则 Responses API 返回 missing field `name`
+        function_tools = [tool for tool in tools if tool.get("type") == "function"]
+        self.assertTrue(function_tools)
+        for function_tool in function_tools:
+            self.assertIn("name", function_tool)
+            self.assertNotIn("function", function_tool)
+            self.assertIn("description", function_tool)
+            self.assertIn("parameters", function_tool)
+        self.assertIn("bot_help", [tool["name"] for tool in function_tools])
 
         second = ToolLoopResponsesAsyncClient.post_payloads[1]
         input_items = second["input"]

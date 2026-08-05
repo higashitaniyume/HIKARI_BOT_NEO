@@ -52,6 +52,35 @@ def _message_item(message: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _to_responses_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """Chat Completions 工具定义 → Responses API 工具定义。
+
+    Responses API 的 function 工具把 name/description/parameters 放在顶层，
+    没有 `function` 嵌套包装；非 function 工具（如 {"type": "web_search"}）原样返回。
+    """
+    function = tool.get("function") if isinstance(tool.get("function"), dict) else None
+    if not function:
+        return tool
+    converted: dict[str, Any] = {"type": "function"}
+    for key in ("name", "description", "parameters", "strict"):
+        if key in function:
+            converted[key] = function[key]
+    return converted
+
+
+def _to_responses_tool_choice(value: Any) -> Any:
+    """兼容旧 Chat Completions 写法的 tool_choice。
+
+    Responses API 指定函数用 {"type": "function", "name": "..."}；
+    旧写法 {"type": "function", "function": {"name": "..."}} 需扁平化。
+    """
+    if isinstance(value, dict) and value.get("type") == "function":
+        function = value.get("function")
+        if isinstance(function, dict) and "name" in function and "name" not in value:
+            return {"type": "function", "name": function["name"]}
+    return value
+
+
 def _split_instructions(messages: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
     """把聊天格式消息拆成 instructions（首条 system）+ input items。
 
@@ -88,11 +117,13 @@ def _build_payload(
     }
     tool_choice = model_cfg.get("tool_choice")
     if tools:
-        payload["tools"] = tools
+        # Chat Completions 嵌套 function 包装在 Responses API 会 400
+        # （missing field name），发送前转为扁平 Responses 格式
+        payload["tools"] = [_to_responses_tool(tool) for tool in tools]
         # 默认不传 tool_choice（auto）：内置 web_search 由模型按需触发。
         # 用户可在 config 中设为 "auto" / "none" / "required" 或 {"type": "web_search"}。
         if tool_choice is not None:
-            payload["tool_choice"] = tool_choice
+            payload["tool_choice"] = _to_responses_tool_choice(tool_choice)
 
     # 思考模式：Responses API 用 reasoning.effort（而非 Chat Completions 的
     # thinking 字段）。关闭时直接不传 reasoning，由模型自身默认行为决定。
