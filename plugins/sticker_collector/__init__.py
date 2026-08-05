@@ -135,15 +135,28 @@ def _event_metadata(event: MessageEvent, image_data: dict[str, Any]) -> dict[str
     }
 
 
-def _explicit_non_gif_suffix(image_data: dict[str, Any], url: str) -> bool:
-    """file/URL 后缀明确存在且不是 .gif 时返回 True。
+def _is_animated_image(path: Path) -> bool:
+    """按文件头判断是否为动态图片（GIF / APNG / 动画 WebP）。
 
-    用于定向收集提前跳过静态图片（jpg/png 等），避免不必要的下载。
+    NapCat 上报的 image 段 file 后缀不可靠（动态表情也常为 .png/.jpg），
+    必须看实际内容。静态 PNG/JPEG 返回 False。
     """
-    for candidate in (str(image_data.get("file") or ""), urlparse(url).path):
-        suffix = Path(candidate).suffix.lower()
-        if suffix in STICKER_INPUT_EXTS:
-            return suffix != ".gif"
+    try:
+        with path.open("rb") as f:
+            header = f.read(64)
+    except OSError:
+        return False
+
+    if header.startswith(b"GIF8"):
+        # GIF（QQ 动画表情多为 GIF；单帧 GIF 罕见，一并收集）
+        return True
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        # APNG 动画：PNG 头之后有 acTL chunk（IHDR 后紧跟，前 64 字节内）
+        return b"acTL" in header
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        # 动画 WebP：VP8X chunk 的 animation flag（bit 1）
+        # RIFF(4) + size(4) + WEBP(4) + "VP8X"(4) + chunk size(4) + flags(1)
+        return header[12:16] == b"VP8X" and len(header) > 20 and bool(header[20] & 0x02)
     return False
 
 
@@ -183,24 +196,20 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
         if not url:
             return
 
-        # 定向收集只收动画表情（GIF）：file/URL 后缀明确非 .gif 的静态图直接跳过，不下载。
-        if target is not None and _explicit_non_gif_suffix(image_data, url):
-            logger.info("[StickerCollector] 定向收集跳过静态图片: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
-            return
-
         raw_path: Path | None = None
         gif_path: Path | None = None
         try:
             raw_path = temp_root / f"raw_{uuid.uuid4().hex}.bin"
             content_type = await _download_image(url, raw_path, timeout_seconds, max_bytes)
             suffix = _guess_suffix(image_data, url, content_type)
-            # 无法从 file/URL 判断扩展名时，下载后按 content-type 复核。
-            if target is not None and suffix != ".gif":
-                logger.info("[StickerCollector] 定向收集跳过非动画表情: user=%s suffix=%s file=%s", target["user_id"], suffix, str(image_data.get("file") or url))
-                return
             typed_path = raw_path.with_suffix(suffix)
             raw_path.replace(typed_path)
             raw_path = typed_path
+
+            # 定向收集只收动态表情：NapCat 后缀不可靠，按文件头判断 GIF/APNG/动画 WebP。
+            if target is not None and not _is_animated_image(raw_path):
+                logger.info("[StickerCollector] 定向收集跳过静态图片: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
+                return
 
             gif_path = temp_root / f"gif_{uuid.uuid4().hex}.gif"
             await ensure_sticker_gif(raw_path, gif_path)
