@@ -7,16 +7,28 @@ from typing import Any
 from core.ai_tool_registry import AIToolContext, execute_ai_tool, iter_ai_tools
 from core.config_loader import load_main_config
 
-from . import files, help, search
+from ..config import api_protocol
 from ..utils import safe_bool
 
+from . import files, help, search
+
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
+
+
+def _use_builtin_search(cfg: dict[str, Any]) -> bool:
+    """Responses 协议 + mode=builtin 时使用服务端内置 web_search 工具。"""
+    return api_protocol(cfg) == "responses" and search.mode(cfg) == "builtin"
 
 
 def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     if search.enabled(cfg):
-        tools.append(search.definition())
+        if _use_builtin_search(cfg):
+            # DeepSeek Responses API 服务端内置搜索：模型发出 web_search_call，
+            # 服务端执行搜索并自动注入结果，无需本地函数工具。
+            tools.append(search.builtin_definition())
+        else:
+            tools.append(search.definition())
     if files.enabled(cfg):
         tools.extend(files.definitions())
     if help.enabled(cfg):
@@ -43,11 +55,18 @@ async def execute_tool_call(
         arguments = {}
 
     if name == search.TOOL_NAME and search.enabled(cfg):
-        try:
-            content = await search.execute(cfg, arguments)
-        except Exception as e:
-            logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
-            content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
+        if _use_builtin_search(cfg):
+            # 内置搜索由服务端执行，不应出现函数调用；防御模型误调用
+            content = json.dumps(
+                {"error": "web_search 由服务端内置执行，无需函数调用"},
+                ensure_ascii=False,
+            )
+        else:
+            try:
+                content = await search.execute(cfg, arguments)
+            except Exception as e:
+                logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
+                content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
     elif files.can_handle(name) and files.enabled(cfg):
         try:
             content = files.execute(name, cfg, arguments)

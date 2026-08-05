@@ -241,6 +241,9 @@ function buildTtsPayload() {
 function buildAiAgentPayload() {
   return {
     enabled: $("#aiagentEnabled").checked,
+    api: {
+      protocol: $("#aiagentProtocol").value === "chat_completions" ? "chat_completions" : "responses",
+    },
     model: {
       base_url: $("#aiagentBaseUrl").value.trim(),
       api_key: $("#aiagentApiKey").value.trim(),
@@ -265,6 +268,9 @@ function buildAiAgentPayload() {
     },
     tools: {
       max_tool_rounds: Number($("#aiagentMaxToolRounds").value),
+      search: {
+        mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
+      },
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
   };

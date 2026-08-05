@@ -10,6 +10,7 @@ import httpx
 from core.ai_tool_registry import AIToolContext
 from core.bot_messages import get_message as msg
 
+from .config import api_protocol
 from .tools import available_tools, execute_tool_call
 from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
 from .wiki import _latest_user_text, _prefetch_wiki_priority_tools
@@ -165,6 +166,16 @@ async def request_chat_completion(
     messages: list[dict[str, str]],
     tool_context: AIToolContext | None = None,
 ) -> str:
+    """AI Agent 对话入口。
+
+    按配置的 API 协议分发：`responses` 走 DeepSeek Responses API（服务端内置
+    web_search），`chat_completions` 走 OpenAI Chat Completions 兼容协议。
+    """
+    if api_protocol(cfg) == "responses":
+        from .responses_client import request_response_completion
+
+        return await request_response_completion(cfg, messages, tool_context)
+
     plain_request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     all_tools = available_tools(cfg, tool_context)

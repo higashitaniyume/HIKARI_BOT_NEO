@@ -170,6 +170,8 @@ class ToolUnsupportedAsyncClient:
 
 def base_cfg(*, search_enabled: bool = True, files_enabled: bool = False) -> dict[str, object]:
     return {
+        # 本文件测试 Chat Completions 协议路径（Responses API 见 test_aiagent_responses.py）
+        "api": {"protocol": "chat_completions"},
         "model": {
             "base_url": "https://api.example.test/v1",
             "api_key": "",

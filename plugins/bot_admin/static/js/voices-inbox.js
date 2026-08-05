@@ -643,12 +643,14 @@ function renderAiAgentTools(useDraft = false) {
 
 function renderAiAgentConfig() {
   const cfg = state.aiagentConfig || {};
+  const api = cfg.api || {};
   const model = cfg.model || {};
   const persona = cfg.persona || {};
   const chat = cfg.chat || {};
   $("#aiagentEnabled").checked = cfg.enabled === true;
-  $("#aiagentBaseUrl").value = model.base_url || "https://api.deepseek.com/v1";
-  $("#aiagentModel").value = model.model || "deepseek-chat";
+  $("#aiagentProtocol").value = api.protocol === "chat_completions" ? "chat_completions" : "responses";
+  $("#aiagentBaseUrl").value = model.base_url || "https://api.deepseek.com";
+  $("#aiagentModel").value = model.model || "deepseek-v4-flash";
   $("#aiagentApiKey").value = "";
   $("#aiagentApiKeyHint").textContent = model.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
   $("#aiagentProxy").value = model.proxy || "";
@@ -676,6 +678,8 @@ function renderAiAgentConfig() {
   select.value = (state.aiagentPersonas || []).some((item) => item.path === personaPath) ? personaPath : "";
 
   const tools = cfg.tools || {};
+  const search = tools.search || {};
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
+  $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
 }

@@ -235,6 +235,7 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
 
 def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current = get_aiagent_config()
+    current_api = current.get("api") if isinstance(current.get("api"), dict) else {}
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
@@ -244,6 +245,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
+    input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
@@ -265,8 +267,16 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     if not model_name:
         raise ValueError("模型名称不能为空。")
 
+    api_protocol = _parse_str(input_api.get("protocol", current_api.get("protocol", "responses")), max_length=32).strip().lower()
+    if api_protocol not in {"responses", "chat_completions"}:
+        api_protocol = "responses"
+    search_mode = _parse_str(input_search.get("mode", current_search.get("mode", "builtin")), max_length=16).strip().lower()
+    if search_mode not in {"builtin", "searxng"}:
+        search_mode = "builtin"
+
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
+        "api": {"protocol": api_protocol},
         "model": {
             "base_url": base_url,
             "api_key": api_key,
@@ -310,6 +320,7 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
         "tools": {
             "search": {
                 "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
+                "mode": search_mode,
                 "base_url": _parse_str(input_search.get("base_url", current_search.get("base_url", "http://searxng-core:8080")), max_length=512),
                 "timeout_seconds": _parse_int(input_search.get("timeout_seconds", current_search.get("timeout_seconds", 15)), 15, minimum=1, maximum=120),
                 "max_results": _parse_int(input_search.get("max_results", current_search.get("max_results", 5)), 5, minimum=1, maximum=10),

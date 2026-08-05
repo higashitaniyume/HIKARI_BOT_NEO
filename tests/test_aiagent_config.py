@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from plugins.aiagent import config as aiagent_config
+from plugins.aiagent.persona import load_persona_prompt
 
 
 @contextmanager
@@ -43,7 +44,7 @@ class AIAgentPersonaConfigTests(unittest.TestCase):
             (persona / "tone.md").write_text("Use a warm but concise tone.", encoding="utf-8")
 
             with temporary_cwd(root):
-                prompt = aiagent_config.load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
+                prompt = load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
 
         self.assertIn("# Nuwa", prompt)
         self.assertIn("引用资源: BotData/agent_personas/nuwa/tone.md", prompt)
@@ -60,7 +61,7 @@ class AIAgentPersonaConfigTests(unittest.TestCase):
             (outside / "secret.md").write_text("secret content", encoding="utf-8")
 
             with temporary_cwd(root):
-                prompt = aiagent_config.load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
+                prompt = load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
 
         self.assertIn("Read [secret]", prompt)
         self.assertNotIn("secret content", prompt)
@@ -75,12 +76,12 @@ class AIAgentPersonaConfigTests(unittest.TestCase):
             (persona / "second.md").write_text("Second layer.", encoding="utf-8")
 
             with temporary_cwd(root):
-                depth_one = aiagent_config.load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
+                depth_one = load_persona_prompt(self._base_cfg("BotData/agent_personas/nuwa"))
                 cfg = self._base_cfg("BotData/agent_personas/nuwa")
                 persona_cfg = cfg["persona"]
                 assert isinstance(persona_cfg, dict)
                 persona_cfg["reference_max_depth"] = 2
-                depth_two = aiagent_config.load_persona_prompt(cfg)
+                depth_two = load_persona_prompt(cfg)
 
         self.assertIn("First layer.", depth_one)
         self.assertNotIn("Second layer.", depth_one)

@@ -3,7 +3,7 @@
         <div class="panel-heading">
           <div>
             <h2>AI Agent</h2>
-            <p>配置兼容 OpenAI Chat Completions 的模型；未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
+            <p>支持 DeepSeek Responses API（服务端内置 web_search）与 OpenAI Chat Completions 兼容接口；未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
           </div>
         </div>
 
@@ -14,13 +14,21 @@
           </label>
 
           <label>
+            <span>API 协议</span>
+            <select id="aiagentProtocol">
+              <option value="responses">Responses API（DeepSeek 新架构，内置 web_search）</option>
+              <option value="chat_completions">Chat Completions（兼容旧接口）</option>
+            </select>
+          </label>
+
+          <label>
             <span>API 地址</span>
-            <input id="aiagentBaseUrl" placeholder="https://api.deepseek.com/v1" required>
+            <input id="aiagentBaseUrl" placeholder="https://api.deepseek.com" required>
           </label>
 
           <label>
             <span>模型名称</span>
-            <input id="aiagentModel" placeholder="deepseek-chat" required>
+            <input id="aiagentModel" placeholder="deepseek-v4-flash" required>
           </label>
 
           <label>
@@ -114,6 +122,13 @@
                 <label class="checkbox-field">
                   <input id="aiagentAllowSideEffectTools" type="checkbox">
                   <span>允许副作用 Tools</span>
+                </label>
+                <label>
+                  <span>网页搜索</span>
+                  <select id="aiagentSearchMode">
+                    <option value="builtin">DeepSeek 内置搜索（服务端执行）</option>
+                    <option value="searxng">自建 SearXNG</option>
+                  </select>
                 </label>
                 <label>
                   <span>选择模式</span>

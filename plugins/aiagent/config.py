@@ -15,8 +15,15 @@ CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": False,
+    # API 协议：
+    #   "responses" — DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式，
+    #                 支持服务端内置 web_search 工具）
+    #   "chat_completions" — OpenAI Chat Completions 兼容协议（旧接口）
+    "api": {
+        "protocol": "responses",
+    },
     "model": {
-        "base_url": "https://api.deepseek.com/v1",
+        "base_url": "https://api.deepseek.com",
         "api_key": "",
         "model": "deepseek-v4-flash",
         "temperature": 0.7,
@@ -83,6 +90,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "search": {
             "enabled": True,
+            # "builtin": 用 DeepSeek Responses API 服务端内置 web_search（无需自建搜索）；
+            # "searxng": 用自建 SearXNG 的函数工具（兼容任意 OpenAI 兼容端点）。
+            # Responses 协议下默认内置搜索；Chat Completions 协议下自动退回 SearXNG。
+            "mode": "builtin",
             "base_url": "http://searxng-core:8080",
             "timeout_seconds": 30,
             "max_results": 5,
@@ -190,6 +201,15 @@ def save_config(data: dict[str, Any]) -> dict[str, Any]:
             logger.warning("读取现有 AI Agent 配置失败（继续写入）: %s", e)
     _write_config(cfg)
     return copy.deepcopy(cfg)
+
+
+def api_protocol(cfg: dict[str, Any]) -> str:
+    """当前配置使用的 API 协议：`responses`（默认）或 `chat_completions`。"""
+    api_cfg = cfg.get("api") if isinstance(cfg.get("api"), dict) else {}
+    protocol = str(api_cfg.get("protocol") or "").strip().lower()
+    if protocol not in {"responses", "chat_completions"}:
+        return "responses"
+    return protocol
 
 
 def _safe_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:

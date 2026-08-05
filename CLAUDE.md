@@ -118,7 +118,7 @@ Each capability is a self-contained NoneBot plugin under `plugins/<name>/`:
 | [`sticker_collector`](plugins/sticker_collector) | Silent collection of chat images into inbox for manual review |
 | [`voice_trigger`](plugins/voice_trigger) | Local voice keyword matching |
 | [`tts_speaker`](plugins/tts_speaker) | Fish Audio TTS — `说话`, `音色列表`, `切换音色` commands |
-| [`aiagent`](plugins/aiagent) | AI chat — lowest-priority fallback, OpenAI-compatible API, persona skills, persistent memory, search/file/plugin tools |
+| [`aiagent`](plugins/aiagent) | AI chat — lowest-priority fallback, DeepSeek Responses API (with built-in server-side `web_search`) or OpenAI-compatible Chat Completions fallback, persona skills, persistent memory, file/plugin tools |
 | [`bot_admin`](plugins/bot_admin) | Web admin panel at `:54213` — sticker/voice/TTS/AI Agent/push/config management |
 | [`bot_help`](plugins/bot_help) | `帮助` / `关于` commands |
 | [`push_framework`](plugins/push_framework) | Generic timed push skeleton — register sources via `register_push_source()`, schedule jobs in config |

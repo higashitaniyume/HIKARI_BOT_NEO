@@ -26,6 +26,19 @@ def enabled(cfg: dict[str, Any]) -> bool:
     return safe_bool(config(cfg).get("enabled"), True)
 
 
+def mode(cfg: dict[str, Any]) -> str:
+    """搜索模式: `builtin`（服务端内置 web_search，需 Responses API）或 `searxng`。"""
+    value = str(config(cfg).get("mode") or "builtin").strip().lower()
+    if value not in {"builtin", "searxng"}:
+        return "builtin"
+    return value
+
+
+def builtin_definition() -> dict[str, Any]:
+    """DeepSeek Responses API 服务端内置 web_search 工具定义（无需自建搜索实例）。"""
+    return {"type": "web_search"}
+
+
 def definition() -> dict[str, Any]:
     return {
         "type": "function",

@@ -177,20 +177,12 @@ def _tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, 
     }
 
 
-async def _prefetch_wiki_priority_tools(
-    cfg: dict[str, Any],
-    request_messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]],
-    tool_context: AIToolContext | None,
-) -> None:
-    user_text = _latest_user_text(request_messages)
-    if not user_text:
-        return
-
+def _wiki_prefetch_calls(user_text: str, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """计算 wiki 优先预取的工具调用（聊天格式），含伴随的 web_search 调用。"""
     names = _tool_names(tools)
     wiki_tools = _wiki_priority_tool_names(user_text, names)
     if not wiki_tools:
-        return
+        return []
 
     calls: list[dict[str, Any]] = []
     for index, tool_name in enumerate(wiki_tools, start=1):
@@ -203,6 +195,21 @@ async def _prefetch_wiki_priority_tools(
         )
     if _WEB_SEARCH_TOOL in names:
         calls.append(_tool_call("auto_web_search_after_wiki", _WEB_SEARCH_TOOL, {"query": user_text}))
+    return calls
+
+
+async def _prefetch_wiki_priority_tools(
+    cfg: dict[str, Any],
+    request_messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    tool_context: AIToolContext | None,
+) -> None:
+    """Chat Completions 协议：把预取结果以 assistant tool_calls + tool 消息注入。"""
+    user_text = _latest_user_text(request_messages)
+    if not user_text:
+        return
+
+    calls = _wiki_prefetch_calls(user_text, tools)
     if not calls:
         return
 
@@ -215,3 +222,39 @@ async def _prefetch_wiki_priority_tools(
     )
     for tool_call in calls:
         request_messages.append(await execute_tool_call(cfg, tool_call, tool_context))
+
+
+async def _prefetch_wiki_priority_items(
+    cfg: dict[str, Any],
+    input_items: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    tool_context: AIToolContext | None,
+) -> None:
+    """Responses API 协议：把预取结果以 function_call / function_call_output
+    input item 注入。内置 web_search 由服务端按需触发，不在此强制。"""
+    user_text = _latest_user_text(input_items)
+    if not user_text:
+        return
+
+    for tool_call in _wiki_prefetch_calls(user_text, tools):
+        function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
+        call_id = str(tool_call.get("id") or f"auto_{len(input_items)}")
+        name = str(function.get("name") or "").strip()
+        if not name:
+            continue
+        input_items.append(
+            {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": name,
+                "arguments": str(function.get("arguments") or "{}"),
+            }
+        )
+        result = await execute_tool_call(cfg, tool_call, tool_context)
+        input_items.append(
+            {
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": str(result.get("content") or ""),
+            }
+        )
