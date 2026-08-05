@@ -164,6 +164,65 @@ class TestGroupParseTrigger(unittest.TestCase):
             self.assertTrue(asyncio.run(self._match(event)))
 
 
+class TestGroupHandle(unittest.TestCase):
+    def test_history_picks_latest_link_only(self):
+        """历史含专辑(早)+单曲(晚)，@ 应只解析最近的单曲，不提示私聊。"""
+        event = _make_group("帮我解析")
+        history = [
+            _history_item(10, 1000, "https://music.163.com/album?id=379731879"),
+            _history_item(11, 1100, "https://music.163.com/song?id=3389394581"),
+        ]
+        with patch(
+            "plugins.netease_parser._get_group_history",
+            new=AsyncMock(return_value=history),
+        ), patch(
+            "plugins.netease_parser._enqueue_parse_jobs", new=AsyncMock(),
+        ) as enqueue, patch(
+            "plugins.netease_parser._enqueue_album_parse_job", new=AsyncMock(),
+        ) as album_enqueue:
+            bot = AsyncMock()
+            asyncio.run(AutoNeteaseHandler().handle(bot, event))
+            # 只入队单曲，专辑不入队、不提示私聊
+            enqueue.assert_awaited_once()
+            call = enqueue.call_args
+            self.assertEqual(call.args[2], ["3389394581"])  # song_ids
+            self.assertEqual(call.args[3], [])  # program_ids
+            album_enqueue.assert_not_awaited()
+            bot.send.assert_not_awaited()
+
+    def test_history_only_album_prompts_private(self):
+        """历史只含专辑 → 提示仅支持私聊。"""
+        event = _make_group("帮我解析")
+        history = [
+            _history_item(10, 1000, "https://music.163.com/album?id=379731879"),
+        ]
+        with patch(
+            "plugins.netease_parser._get_group_history",
+            new=AsyncMock(return_value=history),
+        ):
+            bot = AsyncMock()
+            asyncio.run(AutoNeteaseHandler().handle(bot, event))
+            bot.send.assert_awaited_once()
+
+    def test_history_only_song_enqueued(self):
+        """历史只含单曲 → 正常入队解析。"""
+        event = _make_group("帮我解析")
+        history = [
+            _history_item(10, 1000, "https://music.163.com/song?id=3389394581"),
+        ]
+        with patch(
+            "plugins.netease_parser._get_group_history",
+            new=AsyncMock(return_value=history),
+        ), patch(
+            "plugins.netease_parser._enqueue_parse_jobs", new=AsyncMock(),
+        ) as enqueue:
+            bot = AsyncMock()
+            asyncio.run(AutoNeteaseHandler().handle(bot, event))
+            enqueue.assert_awaited_once()
+            self.assertEqual(enqueue.call_args.args[2], ["3389394581"])
+            bot.send.assert_not_awaited()
+
+
 class TestHistoryHelpers(unittest.TestCase):
     def test_history_before_trigger_by_message_id(self):
         history = [_history_item(i, 1000 + i, f"m{i}") for i in range(1, 21)]

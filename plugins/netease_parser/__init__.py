@@ -421,33 +421,31 @@ class AutoNeteaseHandler:
         album_ids = (await extract_album_ids_from_event(event))[:max_links]
         playlist_ids = (await extract_playlist_ids_from_event(event))[:max_links]
 
-        # 群聊被@且自身无链接 → 从之前 10 条历史消息中提取（match 已确认历史有链接）
+        # 群聊被@且自身无链接 → 从之前 10 条历史消息中提取（match 已确认历史有链接）。
+        # 只取最近一条含网易云链接的消息处理：避免历史中专辑+单曲混杂时，
+        # 专辑的存在导致 album 分支提前 return 吞掉单曲（@ 时用户意图是最近那条链接）。
         if (
             isinstance(event, GroupMessageEvent)
             and not (playlist_ids or album_ids or song_ids or program_ids)
         ):
             history = await _get_group_history(bot, event)
-            for item in _history_before_trigger(history, event):
+            for item in reversed(_history_before_trigger(history, event)):
                 try:
                     h_event = _history_event(item)
                 except Exception:
                     continue
-                program_ids.extend(await extract_program_ids_from_event(h_event))
-                song_ids.extend(await extract_song_ids_from_event(h_event))
-                album_ids.extend(await extract_album_ids_from_event(h_event))
-                playlist_ids.extend(await extract_playlist_ids_from_event(h_event))
-
-            def _dedup(ids: list[str]) -> list[str]:
-                return list(dict.fromkeys(ids))[:max_links]
-
-            program_ids = _dedup(program_ids)
-            song_ids = _dedup(song_ids)
-            album_ids = _dedup(album_ids)
-            playlist_ids = _dedup(playlist_ids)
-            logger.info(
-                "[Netease] 历史提取完成 → song=%s album=%s playlist=%s program=%s",
-                song_ids, album_ids, playlist_ids, program_ids,
-            )
+                p_ids = (await extract_program_ids_from_event(h_event))[:max_links]
+                s_ids = (await extract_song_ids_from_event(h_event))[:max_links]
+                a_ids = (await extract_album_ids_from_event(h_event))[:max_links]
+                pl_ids = (await extract_playlist_ids_from_event(h_event))[:max_links]
+                if p_ids or s_ids or a_ids or pl_ids:
+                    program_ids, song_ids = p_ids, s_ids
+                    album_ids, playlist_ids = a_ids, pl_ids
+                    logger.info(
+                        "[Netease] 历史最近链接 → song=%s album=%s playlist=%s program=%s",
+                        song_ids, album_ids, playlist_ids, program_ids,
+                    )
+                    break
 
         # 群聊中专辑/歌单仅提示私聊
         if (album_ids or playlist_ids) and isinstance(event, GroupMessageEvent):
