@@ -473,6 +473,37 @@ BotData/plugin_configs/sticker_inbox.json
 | `allowed_groups` | 允许收集的群号（空 = 所有群） |
 | `ignored_users` | 忽略的 QQ 用户 |
 | `max_pending` | 收集箱最大待整理数 |
+| `target_packs` | 定向收集目标：QQ 号 → `{pack, name, groups, enabled}` |
+
+### 定向收集
+
+配置 `target_packs` 可指定收集某个群友的表情包，直接进入正式贴纸库的新贴纸包（自动建包、按 GIF 哈希去重），不再进收件箱：
+
+```json
+"target_packs": {
+  "123456789": {
+    "pack": "某人的表情包",
+    "name": "昵称",
+    "groups": [],
+    "enabled": true
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `pack` | 目标贴纸包名（不存在时自动创建，同名时合并） |
+| `name` | 昵称，仅用于列表展示 |
+| `groups` | 限定收集的群号，空 = 全部群 |
+| `enabled` | 是否启用该目标 |
+
+也可以直接用群内命令管理（仅超级管理员或群 owner/admin 可用）：
+
+- `收集 @某人 [包名]` — 开始收集；包名不填默认用群内昵称
+- `停止收集 @某人` — 停止收集，已收集内容保留
+- `收集列表` — 查看当前收集目标及已收数量
+
+定向收集命中时直接调用 `sticker_library.save_gifs_to_pack()`（`source="qq_collect"`），与静默收集共用下载、转 GIF、大小限制等逻辑。
 
 ---
 

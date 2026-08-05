@@ -12,17 +12,22 @@ from urllib.parse import urlparse
 
 import httpx
 from nonebot import on_message
-from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, PrivateMessageEvent
 
-from plugins import sticker_inbox
+from core.bot_messages import get_message as msg
+from core.command_router import CommandContext, command
+from core.config_loader import load_main_config
+from plugins import sticker_inbox, sticker_library
 from plugins.media_transcoder import STICKER_INPUT_EXTS, TranscodeError, ensure_sticker_gif
 
-from .config import get_config
+from .config import get_config, get_target, get_targets, remove_target, set_target
 
 logger = logging.getLogger("HikariBot.StickerCollector")
 
 collector_matcher = on_message(priority=80, block=False)
 _collect_sem = asyncio.Semaphore(1)
+
+_PLACEHOLDER_SUPERUSER = {"", "你的QQ号"}
 
 
 def _as_str_set(value: Any) -> set[str]:
@@ -126,8 +131,32 @@ def _event_metadata(event: MessageEvent, image_data: dict[str, Any]) -> dict[str
     }
 
 
+def _target_for_event(event: MessageEvent, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """命中定向收集目标时返回目标信息，否则返回 None。"""
+    targets = cfg.get("target_packs") or {}
+    if not isinstance(targets, dict):
+        return None
+    user_id = str(event.get_user_id())
+    raw = targets.get(user_id)
+    if not isinstance(raw, dict):
+        return None
+    pack = str(raw.get("pack") or "").strip()
+    if not pack or not raw.get("enabled", True):
+        return None
+    if isinstance(event, GroupMessageEvent):
+        groups = raw.get("groups") or []
+        if groups and str(event.group_id) not in {str(item) for item in groups}:
+            return None
+    return {
+        "pack": pack,
+        "name": str(raw.get("name") or "").strip(),
+        "user_id": user_id,
+    }
+
+
 async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]) -> None:
     cfg = get_config()
+    target = _target_for_event(event, cfg)
     async with _collect_sem:
         temp_root = Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_collector")))
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -151,15 +180,22 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
 
             gif_path = temp_root / f"gif_{uuid.uuid4().hex}.gif"
             await ensure_sticker_gif(raw_path, gif_path)
-            added, reason = sticker_inbox.add_gif(
-                gif_path,
-                metadata=_event_metadata(event, image_data),
-                max_pending=max_pending,
-            )
-            if added:
-                logger.info("[StickerCollector] 已静默收集贴纸 → %s", reason)
+
+            if target is not None:
+                # 定向收集：直接入库到目标贴纸包（按哈希自动去重），不进收件箱。
+                saved = sticker_library.save_gifs_to_pack(target["pack"], [gif_path], source="qq_collect")
+                if saved:
+                    logger.info("[StickerCollector] 定向收集贴纸 → %s (%s)", target["pack"], saved[0].name)
             else:
-                logger.debug("[StickerCollector] 跳过贴纸收集: %s", reason)
+                added, reason = sticker_inbox.add_gif(
+                    gif_path,
+                    metadata=_event_metadata(event, image_data),
+                    max_pending=max_pending,
+                )
+                if added:
+                    logger.info("[StickerCollector] 已静默收集贴纸 → %s", reason)
+                else:
+                    logger.debug("[StickerCollector] 跳过贴纸收集: %s", reason)
         except TranscodeError as e:
             logger.debug("[StickerCollector] 图片转 GIF 失败，已跳过: %s", e)
         except Exception as e:
@@ -188,3 +224,152 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
 
     # 静默后台收集，不阻塞聊天消息处理。
     asyncio.create_task(_collect_message(bot, event, images))
+
+
+# =========================
+# 定向收集命令
+# =========================
+
+def _superuser_id() -> str:
+    try:
+        cfg = load_main_config()
+        return str(cfg.get("bot", {}).get("superuser_id") or "").strip()
+    except Exception as e:
+        logger.warning("[StickerCollector] 读取超级管理员配置失败: %s", e)
+        return ""
+
+
+async def _is_authorized(bot: Bot, event: MessageEvent) -> bool:
+    """仅超级管理员或群内 owner/admin 可以使用收集命令。"""
+    user_id = str(event.get_user_id())
+    superuser_id = _superuser_id()
+    if superuser_id and superuser_id not in _PLACEHOLDER_SUPERUSER and user_id == superuser_id:
+        return True
+    if isinstance(event, GroupMessageEvent):
+        try:
+            info = await bot.get_group_member_info(group_id=event.group_id, user_id=event.get_user_id())
+            return str(info.get("role") or "") in {"owner", "admin"}
+        except Exception as e:
+            logger.debug("[StickerCollector] 查询群成员角色失败: %s", e)
+            return False
+    return False
+
+
+def _extract_at_ids(event: MessageEvent) -> list[str]:
+    ids: list[str] = []
+    for segment in event.get_message():
+        if getattr(segment, "type", "") != "at":
+            continue
+        data = getattr(segment, "data", {}) or {}
+        qq = str(data.get("qq") or "").strip()
+        if qq and qq != "all":
+            ids.append(qq)
+    return ids
+
+
+def _resolve_user_id(ctx: CommandContext) -> str:
+    """优先取 @ 的 QQ 号，否则取参数中第一个纯数字 token。"""
+    at_ids = _extract_at_ids(ctx.event)
+    if at_ids:
+        return at_ids[0]
+    parts = ctx.args.split()
+    if parts and parts[0].isdigit():
+        return parts[0]
+    return ""
+
+
+def _pack_name_from_args(ctx: CommandContext, user_id: str) -> str:
+    """包名 = 参数去掉目标 QQ 号后的剩余文本。"""
+    parts = ctx.args.split()
+    if _extract_at_ids(ctx.event):
+        return " ".join(parts).strip()
+    if parts and parts[0] == user_id:
+        parts = parts[1:]
+    return " ".join(parts).strip()
+
+
+async def _fetch_group_nickname(bot: Bot, event: MessageEvent, user_id: str) -> str:
+    if isinstance(event, GroupMessageEvent):
+        try:
+            info = await bot.get_group_member_info(group_id=event.group_id, user_id=int(user_id))
+            return str(info.get("card") or info.get("nickname") or "").strip()
+        except Exception as e:
+            logger.debug("[StickerCollector] 获取群成员昵称失败: %s", e)
+    return ""
+
+
+async def _default_pack_name(bot: Bot, event: MessageEvent, user_id: str) -> str:
+    nickname = await _fetch_group_nickname(bot, event, user_id)
+    return nickname or user_id
+
+
+async def _deny_if_unauthorized(ctx: CommandContext) -> bool:
+    if not await _is_authorized(ctx.bot, ctx.event):
+        await ctx.send(Message(msg("sticker.collect_permission_denied")))
+        return True
+    return False
+
+
+@command("收集", aliases=("开始收集",), description="收集指定群友的表情包到贴纸包", usage="收集 @某人 [包名]")
+async def cmd_start_collect(ctx: CommandContext) -> None:
+    if await _deny_if_unauthorized(ctx):
+        return
+
+    user_id = _resolve_user_id(ctx)
+    if not user_id:
+        await ctx.send(Message(msg("sticker.collect_no_target")))
+        return
+    if user_id == str(ctx.bot.self_id):
+        await ctx.send(Message(msg("sticker.collect_bot_not_allowed")))
+        return
+
+    pack_name = _pack_name_from_args(ctx, user_id) or await _default_pack_name(ctx.bot, ctx.event, user_id)
+    nickname = await _fetch_group_nickname(ctx.bot, ctx.event, user_id)
+    set_target(user_id, pack=pack_name, name=nickname)
+    logger.info("[StickerCollector] 开始定向收集 %s (%s) → 贴纸包 %s", nickname or user_id, user_id, pack_name)
+    await ctx.send(Message(msg("sticker.collect_added", name=nickname or user_id, user_id=user_id, pack=pack_name)))
+
+
+@command("停止收集", description="停止收集指定群友的表情包", usage="停止收集 @某人")
+async def cmd_stop_collect(ctx: CommandContext) -> None:
+    if await _deny_if_unauthorized(ctx):
+        return
+
+    user_id = _resolve_user_id(ctx)
+    if not user_id:
+        await ctx.send(Message(msg("sticker.collect_no_target")))
+        return
+
+    target = get_target(user_id)
+    if target is None:
+        await ctx.send(Message(msg("sticker.collect_remove_not_found", user_id=user_id)))
+        return
+
+    remove_target(user_id)
+    logger.info("[StickerCollector] 停止定向收集 %s (%s) → 贴纸包 %s", target["name"] or user_id, user_id, target["pack"])
+    await ctx.send(Message(msg("sticker.collect_removed", name=target["name"] or user_id, user_id=user_id)))
+
+
+@command("收集列表", description="查看定向收集目标", usage="收集列表")
+async def cmd_collect_list(ctx: CommandContext) -> None:
+    if await _deny_if_unauthorized(ctx):
+        return
+
+    targets = get_targets()
+    if not targets:
+        await ctx.send(Message(msg("sticker.collect_list_empty")))
+        return
+
+    lines = [msg("sticker.collect_list_header")]
+    for user_id, target in sorted(targets.items()):
+        count = sticker_library.count_pack(target["pack"])
+        groups = "、".join(target["groups"]) or msg("sticker.collect_groups_all")
+        lines.append(msg(
+            "sticker.collect_list_row",
+            name=target["name"] or user_id,
+            user_id=user_id,
+            pack=target["pack"],
+            count=count,
+            groups=groups,
+        ))
+    await ctx.send(Message("\n".join(lines)))
