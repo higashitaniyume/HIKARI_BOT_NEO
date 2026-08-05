@@ -196,6 +196,17 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
         if not url:
             return
 
+        # 定向收集只收 QQ 表情面板的动画表情：NapCat 对表情带 summary="[动画表情]" 标记，
+        # 普通图片和静态表情包无标记（summary 空），下载前直接跳过。
+        if target is not None and str(image_data.get("summary") or "").strip() != "[动画表情]":
+            logger.info(
+                "[StickerCollector] 定向收集跳过非动画表情消息: user=%s file=%s summary=%r",
+                target["user_id"],
+                str(image_data.get("file") or url),
+                str(image_data.get("summary") or ""),
+            )
+            return
+
         raw_path: Path | None = None
         gif_path: Path | None = None
         try:
@@ -206,9 +217,9 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
             raw_path.replace(typed_path)
             raw_path = typed_path
 
-            # 定向收集只收动态表情：NapCat 后缀不可靠，按文件头判断 GIF/APNG/动画 WebP。
+            # 下载后按文件头复核（NapCat 后缀不可靠）：GIF/APNG/动画 WebP 才收。
             if target is not None and not _is_animated_image(raw_path):
-                logger.info("[StickerCollector] 定向收集跳过静态图片: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
+                logger.info("[StickerCollector] 定向收集跳过非动态内容: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
                 return
 
             gif_path = temp_root / f"gif_{uuid.uuid4().hex}.gif"
@@ -267,15 +278,6 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
                 [getattr(segment, "type", "?") for segment in event.get_message()],
             )
         return
-
-    # 临时调试：打印定向目标消息 image 段的完整字段（用于区分图片/表情包）
-    if target is not None:
-        import json as _json
-        logger.info(
-            "[StickerCollector] 定向目标 image 段字段: user=%s data=%s",
-            target["user_id"],
-            _json.dumps(images, ensure_ascii=False),
-        )
 
     # 静默后台收集，不阻塞聊天消息处理。
     asyncio.create_task(_collect_message(bot, event, images, target))
