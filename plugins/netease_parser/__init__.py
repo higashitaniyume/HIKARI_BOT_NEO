@@ -253,13 +253,21 @@ async def _get_group_history(
         logger.warning("[Netease] 获取群历史消息失败 → %s", e)
         return []
     if isinstance(resp, list):
-        return resp
-    if isinstance(resp, dict):
-        messages = resp.get("messages")
-        if isinstance(messages, list):
-            return messages
-    logger.warning("[Netease] 群历史消息响应格式异常 → %r", resp)
-    return []
+        messages = resp
+    elif isinstance(resp, dict) and isinstance(resp.get("messages"), list):
+        messages = resp["messages"]
+    else:
+        logger.warning("[Netease] 群历史消息响应格式异常 → %r", resp)
+        return []
+    if messages:
+        first = messages[0]
+        logger.info(
+            "[Netease] 群历史消息 → %d 条, 首条结构 keys=%s message字段类型=%s",
+            len(messages),
+            list(first.keys()) if isinstance(first, dict) else type(first).__name__,
+            type(first.get("message")).__name__ if isinstance(first, dict) else "-",
+        )
+    return messages
 
 
 def _history_event(message: dict) -> SimpleNamespace:
@@ -338,10 +346,10 @@ class AutoNeteaseHandler:
     async def match(self, event: MessageEvent, text: str) -> bool:
         cfg = get_config()
         if not cfg.get("auto_parse", True):
-            logger.debug("[Netease] match ✗ auto_parse=False, 跳过")
+            logger.info("[Netease] match ✗ auto_parse=False, 跳过")
             return False
         if not is_event_allowed(cfg, event):
-            logger.debug("[Netease] match ✗ 权限限制 user=%s", event.get_user_id())
+            logger.info("[Netease] match ✗ 权限限制 user=%s", event.get_user_id())
             return False
 
         # 检查正文与卡片是否包含网易云链接
@@ -360,27 +368,35 @@ class AutoNeteaseHandler:
             return has_self_link
 
         # 默认手动解析群：仅被@时解析（自身链接 或 之前 10 条历史）
+        logger.info("[Netease] match 群聊手动解析判定 → group=%s self_link=%s", group_id, has_self_link)
         try:
             from nonebot import get_bot
 
             bot = get_bot()
             bot_self_id = str(bot.self_id or "")
-        except Exception:
+        except Exception as e:
+            logger.warning("[Netease] match get_bot 失败 → %s", e)
             return False
         if not _is_mentioned_bot(event, bot_self_id):
-            logger.debug("[Netease] match ✗ 未被@ group=%s", group_id)
+            logger.info("[Netease] match ✗ 未被@ → group=%s bot_self_id=%s", group_id, bot_self_id)
             return False
 
         if has_self_link:
-            logger.debug("[Netease] match ✓ 群聊被@且自身含链接 group=%s", group_id)
+            logger.info("[Netease] match ✓ 群聊被@且自身含链接 group=%s", group_id)
             return True
 
         # 被@消息自身无链接 → 查之前 10 条历史
         history = await _get_group_history(bot, event)
         if _has_netease_in_history(history, event):
-            logger.info("[Netease] match ✓ 群聊被@，之前 10 条内发现网易云链接 group=%s", group_id)
+            logger.info(
+                "[Netease] match ✓ 群聊被@，之前 10 条内发现网易云链接 group=%s history=%d",
+                group_id, len(history),
+            )
             return True
-        logger.debug("[Netease] match ✗ 群聊被@但历史无网易云链接 group=%s", group_id)
+        logger.info(
+            "[Netease] match ✗ 群聊被@但历史无网易云链接 → group=%s history=%d",
+            group_id, len(history),
+        )
         return False
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
