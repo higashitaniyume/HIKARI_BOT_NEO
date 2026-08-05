@@ -185,7 +185,7 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
 
         # 定向收集只收动画表情（GIF）：file/URL 后缀明确非 .gif 的静态图直接跳过，不下载。
         if target is not None and _explicit_non_gif_suffix(image_data, url):
-            logger.debug("[StickerCollector] 定向收集跳过静态图片: %s", Path(str(image_data.get("file") or url)).name)
+            logger.info("[StickerCollector] 定向收集跳过静态图片: user=%s file=%s", target["user_id"], str(image_data.get("file") or url))
             return
 
         raw_path: Path | None = None
@@ -196,7 +196,7 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
             suffix = _guess_suffix(image_data, url, content_type)
             # 无法从 file/URL 判断扩展名时，下载后按 content-type 复核。
             if target is not None and suffix != ".gif":
-                logger.debug("[StickerCollector] 定向收集跳过非动画表情: %s", suffix)
+                logger.info("[StickerCollector] 定向收集跳过非动画表情: user=%s suffix=%s file=%s", target["user_id"], suffix, str(image_data.get("file") or url))
                 return
             typed_path = raw_path.with_suffix(suffix)
             raw_path.replace(typed_path)
@@ -221,9 +221,15 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
                 else:
                     logger.debug("[StickerCollector] 跳过贴纸收集: %s", reason)
         except TranscodeError as e:
-            logger.debug("[StickerCollector] 图片转 GIF 失败，已跳过: %s", e)
+            if target is not None:
+                logger.info("[StickerCollector] 定向收集转 GIF 失败: user=%s err=%s", target["user_id"], e)
+            else:
+                logger.debug("[StickerCollector] 图片转 GIF 失败，已跳过: %s", e)
         except Exception as e:
-            logger.debug("[StickerCollector] 静默收集图片失败，已跳过: %s", e)
+            if target is not None:
+                logger.info("[StickerCollector] 定向收集失败: user=%s err=%s", target["user_id"], e)
+            else:
+                logger.debug("[StickerCollector] 静默收集图片失败，已跳过: %s", e)
         finally:
             if raw_path is not None:
                 raw_path.unlink(missing_ok=True)
@@ -245,6 +251,12 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
 
     images = _image_segments(event)
     if not images:
+        if target is not None:
+            logger.info(
+                "[StickerCollector] 定向目标消息无 image 段，跳过: user=%s segs=%s",
+                target["user_id"],
+                [getattr(segment, "type", "?") for segment in event.get_message()],
+            )
         return
 
     # 静默后台收集，不阻塞聊天消息处理。
