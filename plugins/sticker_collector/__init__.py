@@ -268,6 +268,15 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
             )
         return
 
+    # 临时调试：打印定向目标消息 image 段的完整字段（用于区分图片/表情包）
+    if target is not None:
+        import json as _json
+        logger.info(
+            "[StickerCollector] 定向目标 image 段字段: user=%s data=%s",
+            target["user_id"],
+            _json.dumps(images, ensure_ascii=False),
+        )
+
     # 静默后台收集，不阻塞聊天消息处理。
     asyncio.create_task(_collect_message(bot, event, images, target))
 
