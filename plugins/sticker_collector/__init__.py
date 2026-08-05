@@ -135,6 +135,18 @@ def _event_metadata(event: MessageEvent, image_data: dict[str, Any]) -> dict[str
     }
 
 
+def _explicit_non_gif_suffix(image_data: dict[str, Any], url: str) -> bool:
+    """file/URL 后缀明确存在且不是 .gif 时返回 True。
+
+    用于定向收集提前跳过静态图片（jpg/png 等），避免不必要的下载。
+    """
+    for candidate in (str(image_data.get("file") or ""), urlparse(url).path):
+        suffix = Path(candidate).suffix.lower()
+        if suffix in STICKER_INPUT_EXTS:
+            return suffix != ".gif"
+    return False
+
+
 def _target_for_event(event: MessageEvent, cfg: dict[str, Any]) -> dict[str, Any] | None:
     """命中定向收集目标时返回目标信息，否则返回 None。"""
     targets = cfg.get("target_packs") or {}
@@ -171,12 +183,21 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
         if not url:
             return
 
+        # 定向收集只收动画表情（GIF）：file/URL 后缀明确非 .gif 的静态图直接跳过，不下载。
+        if target is not None and _explicit_non_gif_suffix(image_data, url):
+            logger.debug("[StickerCollector] 定向收集跳过静态图片: %s", Path(str(image_data.get("file") or url)).name)
+            return
+
         raw_path: Path | None = None
         gif_path: Path | None = None
         try:
             raw_path = temp_root / f"raw_{uuid.uuid4().hex}.bin"
             content_type = await _download_image(url, raw_path, timeout_seconds, max_bytes)
             suffix = _guess_suffix(image_data, url, content_type)
+            # 无法从 file/URL 判断扩展名时，下载后按 content-type 复核。
+            if target is not None and suffix != ".gif":
+                logger.debug("[StickerCollector] 定向收集跳过非动画表情: %s", suffix)
+                return
             typed_path = raw_path.with_suffix(suffix)
             raw_path.replace(typed_path)
             raw_path = typed_path
