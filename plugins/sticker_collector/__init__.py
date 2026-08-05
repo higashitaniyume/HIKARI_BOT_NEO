@@ -25,7 +25,17 @@ from .config import get_config, get_target, get_targets, remove_target, set_targ
 logger = logging.getLogger("HikariBot.StickerCollector")
 
 collector_matcher = on_message(priority=80, block=False)
-_collect_sem = asyncio.Semaphore(1)
+# 有限并发下载+转码（3 路），避免全串行导致队列拖久后 QQ 图片 URL(rkey) 过期；
+# 贴纸库/收件箱写入均有线程锁保护，并发安全。
+_collect_sem = asyncio.Semaphore(3)
+# 保存后台任务引用，防止挂起任务被垃圾回收器静默回收（丢失收集）。
+_collect_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_collect(bot: Bot, event: MessageEvent, images: list[dict[str, Any]], target: dict[str, Any] | None) -> None:
+    task = asyncio.create_task(_collect_message(bot, event, images, target))
+    _collect_tasks.add(task)
+    task.add_done_callback(_collect_tasks.discard)
 
 _PLACEHOLDER_SUPERUSER = {"", "你的QQ号"}
 
@@ -249,8 +259,8 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
             )
         return
 
-    # 静默后台收集，不阻塞聊天消息处理。
-    asyncio.create_task(_collect_message(bot, event, images, target))
+    # 静默后台收集，不阻塞聊天消息处理。引用保存在 _collect_tasks 中防 GC 回收。
+    _spawn_collect(bot, event, images, target)
 
 
 # =========================
