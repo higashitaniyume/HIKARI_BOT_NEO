@@ -36,7 +36,11 @@ def _inbox_state() -> dict[str, Any]:
 
 
 def _collect_page_state(user_id: str) -> dict[str, Any] | None:
-    """定向收集公开页面数据。未配置/已禁用/贴纸包不存在时返回 None。"""
+    """定向收集公开页面数据。未配置/已禁用时返回 None。
+
+    目标已配置但贴纸包还不存在（尚未收集到表情包）时返回空状态，
+    页面显示"还没有收集到表情包"而不是 404。
+    """
     from plugins.sticker_collector.config import get_target
 
     target = get_target(user_id)
@@ -44,7 +48,13 @@ def _collect_page_state(user_id: str) -> dict[str, Any] | None:
         return None
     detail = sticker_library.get_pack_detail(target["pack"])
     if detail is None:
-        return None
+        return {
+            "user_id": user_id,
+            "name": str(target.get("name") or "").strip() or user_id,
+            "pack": str(target.get("pack") or "").strip(),
+            "count": 0,
+            "stickers": [],
+        }
 
     stickers = [sticker for sticker in detail.get("stickers") or [] if not sticker.get("missing")]
     stickers.sort(key=lambda sticker: int(sticker.get("created_at") or 0), reverse=True)

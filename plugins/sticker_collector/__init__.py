@@ -36,7 +36,7 @@ def _as_str_set(value: Any) -> set[str]:
     return {str(item) for item in value}
 
 
-def _event_allowed(event: MessageEvent, cfg: dict[str, Any], bot: Bot) -> bool:
+def _event_allowed(event: MessageEvent, cfg: dict[str, Any], bot: Bot, target: dict[str, Any] | None = None) -> bool:
     if not cfg.get("enabled", True):
         return False
 
@@ -45,6 +45,10 @@ def _event_allowed(event: MessageEvent, cfg: dict[str, Any], bot: Bot) -> bool:
         return False
     if user_id in _as_str_set(cfg.get("ignored_users")):
         return False
+
+    # 定向收集是显式指定的目标，不受群聊/私聊收集开关限制。
+    if target is not None:
+        return True
 
     if isinstance(event, GroupMessageEvent):
         if not cfg.get("collect_group", True):
@@ -154,9 +158,8 @@ def _target_for_event(event: MessageEvent, cfg: dict[str, Any]) -> dict[str, Any
     }
 
 
-async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]) -> None:
+async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any], target: dict[str, Any] | None) -> None:
     cfg = get_config()
-    target = _target_for_event(event, cfg)
     async with _collect_sem:
         temp_root = Path(str(cfg.get("temp_root", "/tmp/hikari_bot/sticker_collector")))
         temp_root.mkdir(parents=True, exist_ok=True)
@@ -207,15 +210,16 @@ async def _collect_one(bot: Bot, event: MessageEvent, image_data: dict[str, Any]
                 gif_path.unlink(missing_ok=True)
 
 
-async def _collect_message(bot: Bot, event: MessageEvent, images: list[dict[str, Any]]) -> None:
+async def _collect_message(bot: Bot, event: MessageEvent, images: list[dict[str, Any]], target: dict[str, Any] | None) -> None:
     for image_data in images:
-        await _collect_one(bot, event, image_data)
+        await _collect_one(bot, event, image_data, target)
 
 
 @collector_matcher.handle()
 async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
     cfg = get_config()
-    if not _event_allowed(event, cfg, bot):
+    target = _target_for_event(event, cfg)
+    if not _event_allowed(event, cfg, bot, target):
         return
 
     images = _image_segments(event)
@@ -223,7 +227,7 @@ async def handle_collect_stickers(bot: Bot, event: MessageEvent) -> None:
         return
 
     # 静默后台收集，不阻塞聊天消息处理。
-    asyncio.create_task(_collect_message(bot, event, images))
+    asyncio.create_task(_collect_message(bot, event, images, target))
 
 
 # =========================

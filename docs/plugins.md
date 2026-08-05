@@ -503,7 +503,7 @@ BotData/plugin_configs/sticker_inbox.json
 - `停止收集 @某人` — 停止收集，已收集内容保留
 - `收集列表` — 查看当前收集目标及已收数量
 
-定向收集命中时直接调用 `sticker_library.save_gifs_to_pack()`（`source="qq_collect"`），与静默收集共用下载、转 GIF、大小限制等逻辑。
+定向收集命中时直接调用 `sticker_library.save_gifs_to_pack()`（`source="qq_collect"`），与静默收集共用下载、转 GIF、大小限制等逻辑。定向收集是显式指定的目标，不受 `collect_group` / `collect_private` / `allowed_groups` 开关限制（但仍遵守全局 `enabled` 与 `ignored_users`）。
 
 **公开页面（无需登录）：**
 
