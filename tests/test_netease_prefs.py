@@ -58,8 +58,13 @@ class TestQualityPrefs(unittest.TestCase):
                 item_type="song", item_id=str(i), title="t", quality="flac",
                 message_ids=[f"m{i}"],
             )
-        self.assertIsNone(prefs.find_recent_by_message_id("123", "m0"))
-        self.assertIsNotNone(prefs.find_recent_by_message_id("123", "m9"))
+        # 禁用兜底窗口，仅验证精确匹配：旧记录 m0 已被逐出，m9 保留
+        self.assertIsNone(
+            prefs.find_recent_by_message_id("123", "m0", fallback_seconds=0),
+        )
+        self.assertIsNotNone(
+            prefs.find_recent_by_message_id("123", "m9", fallback_seconds=0),
+        )
 
     def test_find_recent_scoped_to_user(self):
         prefs.record_send(
@@ -70,8 +75,13 @@ class TestQualityPrefs(unittest.TestCase):
             "userB", item_type="song", item_id="2", title="b",
             quality="flac", message_ids=["m2"],
         )
-        self.assertIsNone(prefs.find_recent_by_message_id("userA", "m2"))
-        self.assertIsNotNone(prefs.find_recent_by_message_id("userB", "m2"))
+        # 禁用兜底窗口：跨用户的 message_id 不命中
+        self.assertIsNone(
+            prefs.find_recent_by_message_id("userA", "m2", fallback_seconds=0),
+        )
+        self.assertIsNotNone(
+            prefs.find_recent_by_message_id("userB", "m2", fallback_seconds=0),
+        )
 
     def test_record_without_message_ids_not_found(self):
         prefs.record_send(
@@ -79,7 +89,34 @@ class TestQualityPrefs(unittest.TestCase):
             item_type="song", item_id="42", title="t", quality="flac",
             message_ids=[],
         )
-        self.assertIsNone(prefs.find_recent_by_message_id("123", "m1"))
+        # 精确匹配拿不到（无 id），禁用兜底 → None
+        self.assertIsNone(
+            prefs.find_recent_by_message_id("123", "m1", fallback_seconds=0),
+        )
+
+    def test_find_recent_fallback_by_time_window(self):
+        """精确匹配失败时回退到最近一条时间窗内的记录。"""
+        prefs.record_send(
+            "123",
+            item_type="song", item_id="42", title="t", quality="flac",
+            message_ids=["111"],
+        )
+        # 用户回复的消息 id 不在记录里（如文件消息未回传 id）
+        rec = prefs.find_recent_by_message_id("123", "999")
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.item_id, "42")
+
+    def test_find_recent_fallback_respects_window(self):
+        """时间窗外的旧记录不作为兜底。"""
+        import time as _time
+
+        prefs.record_send(
+            "123",
+            item_type="song", item_id="42", title="t", quality="flac",
+            message_ids=["111"],
+        )
+        prefs._recent["123"][0].sent_at = _time.time() - 3600
+        self.assertIsNone(prefs.find_recent_by_message_id("123", "999", fallback_seconds=1800))
 
 
 if __name__ == "__main__":

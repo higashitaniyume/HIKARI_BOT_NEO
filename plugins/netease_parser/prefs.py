@@ -117,13 +117,37 @@ def record_send(
     )
 
 
-def find_recent_by_message_id(user_id: str, message_id: str) -> Optional[SentRecord]:
-    """按 bot 发出的消息 ID 查找该用户最近的发送记录。"""
+def find_recent_by_message_id(
+    user_id: str,
+    message_id: str,
+    fallback_seconds: int = 30 * 60,
+) -> Optional[SentRecord]:
+    """按 bot 发出的消息 ID 查找该用户最近的发送记录。
+
+    精确匹配失败时回退到该用户最近一条时间窗内的记录：
+    - 文件消息的 message_id 可能未回传（upload_group_file 响应无标准字段）
+    - 用户可能回复的是自己发的链接消息而不是 bot 的消息
+    两种情况都拿不到可精确匹配的 id，但用户几乎总是回复刚发的那条。
+    """
     mid = str(message_id)
-    if not mid:
-        return None
     with _lock:
-        for rec in _recent.get(str(user_id), []):
+        lst = list(_recent.get(str(user_id), []))
+
+    if mid:
+        for rec in lst:
             if mid in rec.message_ids:
+                return rec
+
+    if fallback_seconds > 0:
+        # 时间窗兜底（fallback_seconds=0 表示禁用，仅精确匹配）。
+        # 注意：Windows 下 time.time() 同一毫秒内两次调用差值可能为 0.0，
+        # 因此必须要求 fallback_seconds > 0 才启用，避免误命中。
+        for rec in lst:
+            if time.time() - rec.sent_at <= fallback_seconds:
+                logger.info(
+                    "[Netease] 回复匹配兜底 → message_id=%s 未精确命中，"
+                    "使用最近记录 type=%s id=%s title=%s",
+                    mid, rec.item_type, rec.item_id, rec.title,
+                )
                 return rec
     return None
