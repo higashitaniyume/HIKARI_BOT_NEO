@@ -36,11 +36,18 @@ def _make_group(
     *,
     group_id: int = 111,
     at_self: bool = True,
+    at_mid_message: bool = False,
     message_id: int = 500,
     time: int = 2000,
 ) -> GroupMessageEvent:
+    """构造群聊事件。
+
+    at_self=True：模拟适配器处理后的"@开头"场景 —— to_me=True 且 at 段
+    已被适配器从 message 中移除（_check_at_me 的行为）。
+    at_mid_message=True：@ 在消息中间 —— to_me=False 但 at 段保留。
+    """
     segments = []
-    if at_self:
+    if at_mid_message:
         segments.append(MessageSegment.at("10000"))
     if text:
         segments.append(MessageSegment.text(text))
@@ -49,6 +56,7 @@ def _make_group(
         time=time, self_id="10000", post_type="message", message_type="group",
         sub_type="normal", group_id=group_id, user_id=10001, message_id=message_id,
         message=msg, raw_message=str(msg), font=0, sender=Sender(user_id=10001),
+        to_me=at_self,
     )
 
 
@@ -104,8 +112,16 @@ class TestGroupParseTrigger(unittest.TestCase):
         self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=True))))
 
     def test_default_manual_group_at_with_link_matches(self):
-        # 默认手动解析群：@ + 自身带链接 → 解析
+        # 默认手动解析群：@ 开头（适配器已移除 at 段，to_me=True）+ 自身带链接 → 解析
         event = _make_group("https://music.163.com/song/33894312")
+        self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
+
+    def test_manual_group_at_mid_message_matches(self):
+        # @ 在消息中间：to_me=False 但 at 段保留 → 段遍历兜底命中
+        event = _make_group(
+            "https://music.163.com/song/33894312",
+            at_self=False, at_mid_message=True,
+        )
         self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
     def test_group_at_no_link_history_has_link_matches(self):

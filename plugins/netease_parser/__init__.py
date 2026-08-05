@@ -230,7 +230,14 @@ def _is_auto_parse_group(cfg: dict, group_id: str) -> bool:
 
 
 def _is_mentioned_bot(event: MessageEvent, bot_self_id: str) -> bool:
-    """消息是否 @ 了 bot（含 @全体成员）。"""
+    """消息是否 @ 了 bot（含 @全体成员）。
+
+    注意：OneBot V11 适配器在事件分发前会把消息开头/结尾的 @bot 段
+    从 event.message 中移除并置 event.to_me=True，因此优先用 to_me；
+    消息中间位置的 @ 段仍保留，遍历段兜底。
+    """
+    if getattr(event, "to_me", False):
+        return True
     for seg in event.message:
         if seg.type == "at":
             qq = seg.data.get("qq", "") if isinstance(seg.data, dict) else ""
@@ -378,7 +385,11 @@ class AutoNeteaseHandler:
             logger.warning("[Netease] match get_bot 失败 → %s", e)
             return False
         if not _is_mentioned_bot(event, bot_self_id):
-            logger.info("[Netease] match ✗ 未被@ → group=%s bot_self_id=%s", group_id, bot_self_id)
+            logger.info(
+                "[Netease] match ✗ 未被@ → group=%s bot_self_id=%s to_me=%s segs=%s",
+                group_id, bot_self_id, getattr(event, "to_me", None),
+                [(s.type, s.data) for s in event.message][:6],
+            )
             return False
 
         if has_self_link:
