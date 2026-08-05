@@ -217,7 +217,7 @@ async def _enqueue_playlist_parse_job(
 
 
 def _manual_parse_enabled(cfg: dict, group_id: str) -> bool:
-    """群是否启用了手动解析（被@bot 触发）。"""
+    """该群是否处于手动解析模式（启用后群聊不自动解析，仅被@bot 触发）。"""
     manual = cfg.get("manual_parse") if isinstance(cfg.get("manual_parse"), dict) else {}
     if not manual.get("enable", False):
         return False
@@ -324,8 +324,8 @@ class AutoNeteaseHandler:
 
     触发规则：
     - 私聊：发送链接或小卡片 → 直接解析
-    - 群聊：不自动解析；仅当被@bot 且该群启用了手动解析（manual_parse）时，
-      解析被@消息自身或它之前 10 条消息内的网易云链接/卡片
+    - 群聊：默认自动解析；启用了手动解析（manual_parse 群列表）的群，
+      改为仅在被@bot 时解析被@消息自身或它之前 10 条消息内的网易云链接/卡片
     """
 
     name = "NeteaseParser"
@@ -349,11 +349,12 @@ class AutoNeteaseHandler:
         if not isinstance(event, GroupMessageEvent):
             return has_self_link
 
-        # 群聊：不自动解析，仅被@ + 群启用手动解析
+        # 群聊：未启用手动解析的群 → 照常自动解析
         group_id = str(getattr(event, "group_id", "") or "")
         if not _manual_parse_enabled(cfg, group_id):
-            logger.debug("[Netease] match ✗ 群未启用手动解析 group=%s", group_id)
-            return False
+            return has_self_link
+
+        # 手动解析群：仅被@时解析（自身链接 或 之前 10 条历史）
         try:
             from nonebot import get_bot
 
