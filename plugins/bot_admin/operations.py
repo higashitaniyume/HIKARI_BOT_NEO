@@ -330,8 +330,12 @@ def _push_run_payload(result: Any) -> dict[str, Any]:
     }
 
 
-def _normalize_manual_parse(value: Any) -> dict[str, Any]:
-    """规范化网易云手动解析配置（群列表 + 开关）。"""
+def _normalize_auto_parse_groups(value: Any) -> dict[str, Any]:
+    """规范化网易云群聊自动解析配置（群列表 + 开关）。
+
+    默认群聊为手动解析（仅被@bot 触发）；启用并填写群号后，
+    列表内的群自动解析链接。
+    """
     src = value if isinstance(value, dict) else {}
     groups: list[str] = []
     for g in (src.get("groups") or []):
@@ -371,8 +375,8 @@ def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
         "mtime": path.stat().st_mtime,
     }
     if name == "netease_parser.json":
-        # 网易云解析：额外返回群聊手动解析配置（@bot 触发）
-        item["manual_parse"] = _normalize_manual_parse(data.get("manual_parse"))
+        # 网易云解析：额外返回群聊自动解析配置（默认手动解析，列表内群自动）
+        item["auto_parse_groups"] = _normalize_auto_parse_groups(data.get("auto_parse_groups"))
     return item
 
 
@@ -428,9 +432,9 @@ def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
     else:
         current["permissions"] = new_permissions
 
-    if name == "netease_parser.json" and "manual_parse" in data:
-        # 网易云解析：群聊手动解析配置（@bot 触发）
-        current["manual_parse"] = _normalize_manual_parse(data.get("manual_parse"))
+    if name == "netease_parser.json" and "auto_parse_groups" in data:
+        # 网易云解析：群聊自动解析配置（默认手动解析，列表内群自动）
+        current["auto_parse_groups"] = _normalize_auto_parse_groups(data.get("auto_parse_groups"))
 
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -254,7 +254,7 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "real_ip": "",
     "high_quality": True,
     "quality_switch": True,
-    "manual_parse": {
+    "auto_parse_groups": {
         "enable": False,
         "groups": [],
     },

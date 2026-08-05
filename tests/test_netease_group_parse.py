@@ -52,10 +52,11 @@ def _make_group(
     )
 
 
-def _cfg(manual_enable: bool = True, groups=("111",)) -> dict:
+def _cfg(auto_enable: bool = False, groups=("111",)) -> dict:
+    """auto_enable=True 且群在 groups 内 → 该群自动解析；否则手动解析（@触发）。"""
     return {
         "auto_parse": True,
-        "manual_parse": {"enable": manual_enable, "groups": list(groups)},
+        "auto_parse_groups": {"enable": auto_enable, "groups": list(groups)},
         "permissions": {},
     }
 
@@ -87,30 +88,25 @@ class TestGroupParseTrigger(unittest.TestCase):
         event = _make_private("你好")
         self.assertFalse(asyncio.run(self._match(event)))
 
-    def test_group_link_no_at_auto_parses(self):
-        # 手动解析完全关闭（默认配置）：群聊有链接直接自动解析，无需 @
+    def test_group_link_no_at_default_manual_not_matched(self):
+        # 默认（未配置自动解析）：群聊有链接但无人 @ → 不解析
         event = _make_group("https://music.163.com/song/33894312", at_self=False)
-        self.assertTrue(asyncio.run(self._match(event, _cfg(manual_enable=False))))
+        self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
-    def test_group_manual_disabled_auto_parses(self):
-        # 手动解析开关关闭 → 照常自动解析
+    def test_auto_parse_group_link_no_at_matches(self):
+        # 管理员配置的自动解析群：有链接直接自动解析，无需 @
         event = _make_group("https://music.163.com/song/33894312", at_self=False)
-        self.assertTrue(asyncio.run(self._match(event, _cfg(manual_enable=False))))
+        self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=True))))
 
-    def test_group_not_in_manual_list_auto_parses(self):
-        # 群不在手动解析列表 → 照常自动解析
+    def test_group_not_in_auto_list_stays_manual(self):
+        # 自动解析列表里有别的群 → 本群仍为手动解析（无 @ 不解析）
         event = _make_group("https://music.163.com/song/33894312", group_id=222, at_self=False)
-        self.assertTrue(asyncio.run(self._match(event, _cfg(groups=("111",)))))
+        self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=True))))
 
-    def test_manual_group_link_no_at_not_matched(self):
-        # 手动解析群：有链接但不 @ → 不解析
-        event = _make_group("https://music.163.com/song/33894312", at_self=False)
-        self.assertFalse(asyncio.run(self._match(event)))
-
-    def test_manual_group_at_with_link_matches(self):
-        # 手动解析群：@ + 自身带链接 → 解析
+    def test_default_manual_group_at_with_link_matches(self):
+        # 默认手动解析群：@ + 自身带链接 → 解析
         event = _make_group("https://music.163.com/song/33894312")
-        self.assertTrue(asyncio.run(self._match(event)))
+        self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
     def test_group_at_no_link_history_has_link_matches(self):
         event = _make_group("帮我解析")

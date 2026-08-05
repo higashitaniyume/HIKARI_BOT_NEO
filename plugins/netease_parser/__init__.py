@@ -216,12 +216,16 @@ async def _enqueue_playlist_parse_job(
         await _process_single_playlist(bot, event, playlist_id, get_config(), quality)
 
 
-def _manual_parse_enabled(cfg: dict, group_id: str) -> bool:
-    """该群是否处于手动解析模式（启用后群聊不自动解析，仅被@bot 触发）。"""
-    manual = cfg.get("manual_parse") if isinstance(cfg.get("manual_parse"), dict) else {}
-    if not manual.get("enable", False):
+def _is_auto_parse_group(cfg: dict, group_id: str) -> bool:
+    """该群是否为管理员配置的自动解析群。
+
+    默认群聊为手动解析（仅被@bot 触发）；只有启用 auto_parse_groups 且
+    群号在列表内的群才会自动解析链接。
+    """
+    auto = cfg.get("auto_parse_groups") if isinstance(cfg.get("auto_parse_groups"), dict) else {}
+    if not auto.get("enable", False):
         return False
-    groups = [str(g) for g in manual.get("groups", []) if str(g)]
+    groups = [str(g) for g in auto.get("groups", []) if str(g)]
     return str(group_id) in groups
 
 
@@ -324,8 +328,9 @@ class AutoNeteaseHandler:
 
     触发规则：
     - 私聊：发送链接或小卡片 → 直接解析
-    - 群聊：默认自动解析；启用了手动解析（manual_parse 群列表）的群，
-      改为仅在被@bot 时解析被@消息自身或它之前 10 条消息内的网易云链接/卡片
+    - 群聊：默认手动解析 —— 仅在被@bot 时解析被@消息自身或它之前 10 条
+      消息内的网易云链接/卡片；管理员把群配置进 auto_parse_groups 后，
+      该群恢复自动解析
     """
 
     name = "NeteaseParser"
@@ -349,12 +354,12 @@ class AutoNeteaseHandler:
         if not isinstance(event, GroupMessageEvent):
             return has_self_link
 
-        # 群聊：未启用手动解析的群 → 照常自动解析
+        # 群聊：管理员配置的自动解析群 → 照常自动解析
         group_id = str(getattr(event, "group_id", "") or "")
-        if not _manual_parse_enabled(cfg, group_id):
+        if _is_auto_parse_group(cfg, group_id):
             return has_self_link
 
-        # 手动解析群：仅被@时解析（自身链接 或 之前 10 条历史）
+        # 默认手动解析群：仅被@时解析（自身链接 或 之前 10 条历史）
         try:
             from nonebot import get_bot
 

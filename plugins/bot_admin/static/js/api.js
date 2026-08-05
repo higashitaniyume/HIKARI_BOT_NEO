@@ -351,12 +351,12 @@ function renderAccessRules() {
   $("#accessBlacklistUsers").value = joinIds(blacklist.user);
   $("#accessBlacklistGroups").value = joinIds(blacklist.group);
 
-  // 网易云解析：群聊手动解析配置（@bot 触发）
+  // 网易云解析：群聊自动解析配置（默认手动解析，列表内群自动）
   const isNetease = selected.name === "netease_parser.json";
-  $("#accessManualParseBlock").hidden = !isNetease;
-  const manualParse = selected.manualParse || {};
-  $("#accessManualParseEnabled").checked = manualParse.enable === true;
-  $("#accessManualParseGroups").value = joinIds(manualParse.groups || []);
+  $("#accessAutoParseBlock").hidden = !isNetease;
+  const autoParseGroups = selected.auto_parse_groups || {};
+  $("#accessAutoParseEnabled").checked = autoParseGroups.enable === true;
+  $("#accessAutoParseGroups").value = joinIds(autoParseGroups.groups || []);
 }
 
 function buildAccessPayload() {
@@ -376,9 +376,9 @@ function buildAccessPayload() {
     },
   };
   if (state.selectedAccessPlugin === "netease_parser.json") {
-    payload.manual_parse = {
-      enable: $("#accessManualParseEnabled").checked,
-      groups: splitIds($("#accessManualParseGroups").value),
+    payload.auto_parse_groups = {
+      enable: $("#accessAutoParseEnabled").checked,
+      groups: splitIds($("#accessAutoParseGroups").value),
     };
   }
   return payload;
