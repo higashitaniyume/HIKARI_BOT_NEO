@@ -35,6 +35,33 @@ def _inbox_state() -> dict[str, Any]:
     return {"items": sticker_inbox.list_items()}
 
 
+def _collect_page_state(user_id: str) -> dict[str, Any] | None:
+    """定向收集公开页面数据。未配置/已禁用/贴纸包不存在时返回 None。"""
+    from plugins.sticker_collector.config import get_target
+
+    target = get_target(user_id)
+    if target is None or not target.get("enabled", True):
+        return None
+    detail = sticker_library.get_pack_detail(target["pack"])
+    if detail is None:
+        return None
+
+    stickers = [sticker for sticker in detail.get("stickers") or [] if not sticker.get("missing")]
+    stickers.sort(key=lambda sticker: int(sticker.get("created_at") or 0), reverse=True)
+    return {
+        "user_id": user_id,
+        "name": str(target.get("name") or "").strip() or user_id,
+        "pack": detail["name"],
+        "count": len(stickers),
+        "stickers": stickers,
+    }
+
+
+def _collect_page_has_sticker(user_id: str, sticker_id: str) -> bool:
+    state = _collect_page_state(user_id)
+    return bool(state and any(sticker.get("id") == sticker_id for sticker in state["stickers"]))
+
+
 def _voice_state() -> dict[str, Any]:
     return voice_library.get_state()
 

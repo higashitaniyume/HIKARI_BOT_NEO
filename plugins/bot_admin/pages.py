@@ -42,6 +42,73 @@ def _html_page(message: str = "") -> bytes:
     page = page.replace("{{ bot_name }}", bot_name)
     return page.encode("utf-8")
 
+def _public_collect_page(state: dict) -> bytes:
+    """公开的定向收集表情包页面（无需登录）。"""
+    name = html.escape(str(state.get("name") or "某人"))
+    pack = html.escape(str(state.get("pack") or ""))
+    user_id = html.escape(str(state.get("user_id") or ""))
+    count = int(state.get("count") or 0)
+    bot_name = html.escape(get_bot_name())
+
+    cards: list[str] = []
+    for sticker in state.get("stickers") or []:
+        sticker_id = str(sticker.get("id") or "")
+        if not sticker_id:
+            continue
+        title = html.escape(str(sticker.get("original_name") or "贴纸"))
+        url = f"/collect/{user_id}/sticker/{html.escape(sticker_id)}"
+        cards.append(
+            f'<a class="collect-card" href="{url}" target="_blank" title="{title}">'
+            f'<img src="{url}" alt="贴纸" loading="lazy"></a>'
+        )
+
+    if cards:
+        grid_html = '<section class="collect-grid">' + "".join(cards) + "</section>"
+    else:
+        grid_html = '<p class="collect-empty">还没有收集到表情包。</p>'
+
+    page = f'''<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#12152b">
+  <title>{name} 的表情包 · {pack}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .collect-shell {{ max-width: 1080px; margin: 0 auto; padding: 40px 20px 56px; }}
+    .collect-head {{ display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }}
+    .collect-title {{ margin: 0; font-size: 26px; font-weight: 700; }}
+    .collect-sub {{ margin: 0 0 26px; color: var(--muted); }}
+    .collect-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }}
+    .collect-card {{ display: block; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      overflow: hidden; background: var(--panel); box-shadow: var(--shadow-soft);
+      transition: transform .15s ease, box-shadow .15s ease; }}
+    .collect-card:hover {{ transform: translateY(-2px); box-shadow: var(--shadow); }}
+    .collect-card img {{ display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: contain;
+      background: var(--panel-soft); }}
+    .collect-empty {{ color: var(--muted); padding: 40px 0; text-align: center; }}
+    .collect-foot {{ margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }}
+  </style>
+</head>
+<body>
+<main class="collect-shell">
+  <header>
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
+    </span>
+    <p class="eyebrow">{bot_name} Sticker Collection</p>
+  </header>
+  <h1 class="collect-title">{name} 的表情包</h1>
+  <p class="collect-sub">贴纸包「{pack}」 · 共 {count} 张 · 自动收集</p>
+  {grid_html}
+  <footer class="collect-foot">由 {bot_name} 自动收集，仅供内部使用</footer>
+</main>
+</body>
+</html>'''
+    return page.encode("utf-8")
+
+
 def _login_page(message: str = "") -> bytes:
     escaped = html.escape(message)
     bot_name = html.escape(get_bot_name())

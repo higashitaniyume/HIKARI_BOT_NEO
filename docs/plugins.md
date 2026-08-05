@@ -505,6 +505,15 @@ BotData/plugin_configs/sticker_inbox.json
 
 定向收集命中时直接调用 `sticker_library.save_gifs_to_pack()`（`source="qq_collect"`），与静默收集共用下载、转 GIF、大小限制等逻辑。
 
+**公开页面（无需登录）：**
+
+每个定向收集目标有一个公开页面（挂载在 Bot 后台原端口，`auth=False`）：
+
+- `GET /collect/<QQ号>` — 该目标的全部表情包网格预览
+- `GET /collect/<QQ号>/sticker/<贴纸ID>` — 单张 GIF 图片（仅限该目标贴纸包内的贴纸）
+
+未配置/已禁用/贴纸包不存在时返回 404。图片端点校验贴纸归属，不会泄露其他贴纸包内容。
+
 ---
 
 ## 定时推送框架

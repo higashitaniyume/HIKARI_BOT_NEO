@@ -42,11 +42,13 @@ from .operations import (
     _write_push_config,
     _write_rss_config,
 )
-from .pages import _html_page, _login_page
+from .pages import _html_page, _login_page, _public_collect_page
 from .parsing import _json_bytes, _parse_float, _parse_str
 from .settings import _aiagent_config_state, _tts_config_state, _update_aiagent_config, _update_tts_config
 from .stickers import (
     _add_trigger_keyword,
+    _collect_page_has_sticker,
+    _collect_page_state,
     _inbox_state,
     _pack_detail_state,
     _pack_state,
@@ -343,6 +345,43 @@ class BotAdminHandler(
         self.send_response(200)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self._write_body(body)
+
+    def _handle_public_collect_page(self, user_id: str) -> None:
+        """公开的定向收集表情包页面（无需登录）。"""
+        safe_user_id = Path(unquote(user_id or "")).name
+        if not safe_user_id or safe_user_id != unquote(user_id or ""):
+            self._send_html(_html_page("页面不存在。"), 404)
+            return
+        state = _collect_page_state(safe_user_id)
+        if state is None:
+            self._send_html(_html_page("页面不存在或已停止收集。"), 404)
+            return
+        self._send_html(_public_collect_page(state))
+
+    def _handle_public_collect_sticker(self, user_id: str, sticker_id: str) -> None:
+        """公开的定向收集贴纸图片端点（无需登录，仅限该目标贴纸包内的贴纸）。"""
+        safe_user_id = Path(unquote(user_id or "")).name
+        safe_sticker_id = Path(unquote(sticker_id or "")).name
+        if (
+            not safe_user_id or safe_user_id != unquote(user_id or "")
+            or not safe_sticker_id or safe_sticker_id != unquote(sticker_id or "")
+            or not _collect_page_has_sticker(safe_user_id, safe_sticker_id)
+        ):
+            self._send_json({"error": "贴纸不存在。"}, 404)
+            return
+
+        path = sticker_library.get_sticker_path(safe_sticker_id)
+        if path is None:
+            self._send_json({"error": "贴纸不存在。"}, 404)
+            return
+
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/gif")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
         self.end_headers()
         self._write_body(body)
 

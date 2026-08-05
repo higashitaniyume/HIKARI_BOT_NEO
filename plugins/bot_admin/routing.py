@@ -38,6 +38,9 @@ class RouteEntry:
 ROUTE_DEFS: list[RouteEntry] = [
     # ===== Public (auth=False) ==========================================
     RouteEntry({"GET"}, "/static/<path:relative>", "static", "_handle_static", auth=False),
+    # 公开的定向收集表情包页面（无需登录）
+    RouteEntry({"GET"}, "/collect/<user_id>/sticker/<sticker_id>", "public_collect_sticker", "_handle_public_collect_sticker", auth=False),
+    RouteEntry({"GET"}, "/collect/<user_id>", "public_collect_page", "_handle_public_collect_page", auth=False),
     RouteEntry({"GET"}, "/login", "login_page", "_handle_login_page", auth=False),
     RouteEntry({"POST"}, "/login", "login_action", "_handle_login_action", auth=False),
     RouteEntry({"GET"}, "/logout", "logout", "_handle_logout", auth=False),
