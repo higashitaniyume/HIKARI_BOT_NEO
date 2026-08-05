@@ -4,6 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workflow
 
+- **Branch policy (Git Flow)**: `main` is the stable branch — never commit to it directly, it only receives merges from `dev`. Daily development happens on `dev`. New feature/fix work branches off `dev` as `feat/<name>` / `fix/<name>` (etc.). Merge a work branch into `dev`, and merge `dev` into `main`, ONLY when the user explicitly commands it.
 - After each completed task, commit the changes to the repository. Stage only files that belong to the current task, leave unrelated dirty files alone, and use a descriptive commit message ending with `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - Before changing code or docs, inspect the relevant project structure and current implementation. Ground answers in the repo's actual behavior, runtime paths, logs, and README rather than generic assumptions.
 - **Never guess API response formats, parameter names, or endpoint paths.** When working with an external API (Fish Audio, DeepSeek, or any other service), always look up the official documentation via web search before writing code that reads or sends data. Guessing field names leads to silent "?" values or broken integrations.
