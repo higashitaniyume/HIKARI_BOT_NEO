@@ -243,7 +243,7 @@ Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -Foregro
 if ($AllServices) {
     Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot hikari-ai"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot napcat cobalt searxng searxng-valkey --remove-orphans && docker compose restart hikaribot hikari-ai"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot napcat astrbot cobalt searxng searxng-valkey --remove-orphans && docker compose restart hikaribot hikari-ai"
 }
 
 Write-Host ""
