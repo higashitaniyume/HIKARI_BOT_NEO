@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw, ImageOps
 from core.bot_identity import bot_user_agent
 from core.rendering import draw_text, load_font, text_size
 
+from core.concurrency import run_blocking
+
 from .api import SteamDeal
 
 BG = (16, 28, 39)
@@ -49,6 +51,28 @@ async def render_report(
             timeout=float(render_cfg.get("cover_timeout") or 10),
         )
 
+    # 绘制段是同步 CPU 密集操作，移出事件循环
+    return await run_blocking(
+        _render_report_sync,
+        deals,
+        mode=mode,
+        config=config,
+        generated_at=generated_at,
+        cover_paths=cover_paths,
+        cache_dir=cache_dir,
+    )
+
+
+def _render_report_sync(
+    deals: list[SteamDeal],
+    *,
+    mode: str,
+    config: dict[str, Any],
+    generated_at: datetime | None,
+    cover_paths: dict[int, Path],
+    cache_dir: Path,
+) -> Path:
+    render_cfg = config.get("render") or {}
     width = 1160
     header_h = 184
     row_h = 172

@@ -23,5 +23,8 @@
   },
   "media": {
     "send_path_prefix": "file://"
+  },
+  "runtime": {
+    "max_workers": 8
   }
 }

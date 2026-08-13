@@ -11,6 +11,8 @@ from PIL import Image, ImageDraw
 from core.bot_identity import get_bot_name
 from core.rendering import draw_text, load_font, text_size
 
+from core.concurrency import run_blocking
+
 from .ai_summary import AiDigestSummary
 from .feed import NewsItem
 
@@ -31,6 +33,23 @@ ACCENTS = [
 
 
 async def render_digest(
+    items: list[NewsItem],
+    *,
+    config: dict[str, Any],
+    generated_at: datetime | None = None,
+    ai_summary: AiDigestSummary | None = None,
+) -> Path:
+    # 整段绘制是同步 CPU 密集操作，移出事件循环，避免卡住其他用户消息
+    return await run_blocking(
+        _render_digest_sync,
+        items,
+        config=config,
+        generated_at=generated_at,
+        ai_summary=ai_summary,
+    )
+
+
+def _render_digest_sync(
     items: list[NewsItem],
     *,
     config: dict[str, Any],
