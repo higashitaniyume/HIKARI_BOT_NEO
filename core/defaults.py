@@ -68,11 +68,13 @@ DEFAULT_PIXIV_CONFIG: dict[str, Any] = {
     "cache_ttl_seconds": 600,
     "proxy": "",
     # 每会话解析队列：把串行下载移出消息链，避免阻塞用户
+    # max_concurrent 默认 1（与旧串行节奏一致，约 1 作品/秒/会话，防账号限流）
     "parse_queue": {
         "enabled": True,
         "max_size": 50,
-        "max_concurrent": 2,
+        "max_concurrent": 1,
         "delay_seconds": 1.0,
+        "idle_ttl_seconds": 300,
     },
     "send_strategy": {
         "prefer_forward_message": True,

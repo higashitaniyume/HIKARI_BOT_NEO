@@ -42,11 +42,9 @@ class RunBlockingTests(unittest.IsolatedAsyncioTestCase):
 
     def test_executor_is_bounded_and_reused(self):
         pool = configure_executor(4)
-        try:
-            self.assertEqual(pool._max_workers, 4)
-            self.assertIs(executor(), pool)
-        finally:
-            pool.shutdown(wait=False)
+        self.assertEqual(pool._max_workers, 4)
+        self.assertIs(executor(), pool)
+        # 不要直接 shutdown 全局池（会破坏后续用例共享的 executor）
 
 
 if __name__ == "__main__":

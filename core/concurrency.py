@@ -44,7 +44,11 @@ def _create_pool_locked(workers: int) -> ThreadPoolExecutor:
     )
     _pool = pool
     if old is not None:
-        old.shutdown(wait=False, cancel_futures=True)
+        # 不用 cancel_futures：排队未开始的任务仍会在旧池上跑完，
+        # 等待中的 run_blocking 协程不会抛 CancelledError。
+        # 注意：本函数目前只在启动时调用一次、无在途任务；
+        # 若未来支持运行时热重载，需评估旧池替换瞬间的语义。
+        old.shutdown(wait=False)
     logger.info("[Concurrency] 有界线程池已配置 max_workers=%d", workers)
     return pool
 
@@ -58,9 +62,10 @@ def configure_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
     global _pool_max_workers
     workers = max(1, int(max_workers) if max_workers else DEFAULT_MAX_WORKERS)
 
-    # 注意：threading.Lock 不可重入，锁内绝不能再调用会加锁的函数
+    # 注意：threading.Lock 不可重入，锁内绝不能再调用会加锁的函数。
+    # _pool 始终指向存活池（旧池替换时才 shutdown），无需检查私有 _shutdown 标志
     with _pool_lock:
-        if _pool is not None and not _pool._shutdown and _pool_max_workers == workers:
+        if _pool is not None and _pool_max_workers == workers:
             return _pool
         _pool_max_workers = workers
         return _create_pool_locked(workers)
@@ -69,7 +74,7 @@ def configure_executor(max_workers: int | None = None) -> ThreadPoolExecutor:
 def executor() -> ThreadPoolExecutor:
     """返回当前有界线程池（未配置时按上次配置值懒创建）。"""
     with _pool_lock:
-        if _pool is None or _pool._shutdown:
+        if _pool is None:
             return _create_pool_locked(_pool_max_workers)
         return _pool
 

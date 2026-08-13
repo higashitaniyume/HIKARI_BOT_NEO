@@ -123,7 +123,6 @@ register_temp_media_cleaner(driver)
 # 把事件循环默认 executor 设为有界线程池（须在运行中的循环里设置）
 from core.concurrency import setup_default_executor
 
-
 @driver.on_startup
 async def _bind_concurrency_executor() -> None:
     setup_default_executor()
