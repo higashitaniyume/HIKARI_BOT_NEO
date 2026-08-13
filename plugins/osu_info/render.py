@@ -529,6 +529,7 @@ async def render_beatmap(beatmap: dict[str, Any], cache_dir: Path, *, proxy: str
 
 
 def _draw_beatmap(beatmap: dict[str, Any], cache_dir: Path, cover: Image.Image | None) -> Path:
+    beatmapset = beatmap.get("beatmapset") or {}
     canvas = Canvas(940, 610)
     if cover:
         cover = cover.resize((940, 240), Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(1.2))

@@ -171,7 +171,7 @@ async def _parse_worker(key: str) -> None:
             if delay > 0:
                 await asyncio.sleep(delay)
         except asyncio.CancelledError:
-            queue.task_done()
+            # 不在此处 task_done()：finally 中已调用一次，避免取消路径双重计数
             break
         except Exception as e:
             logger.exception("[Pixiv] 队列任务处理失败 → id=%s: %s", item.illust_id, e)
