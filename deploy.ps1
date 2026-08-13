@@ -150,7 +150,7 @@ if ($Local) {
         New-Item -ItemType Directory -Force -Path $localRuntimeRoot | Out-Null
         Move-Item -LiteralPath $legacyTmpPath -Destination $runtimeTmpPath
     }
-    $localDirs = @("BotData", "UserData", "runtime\shared", "runtime\tmp\hikari_bot")
+    $localDirs = @("BotData", "UserData", "runtime\shared", "runtime\tmp\hikari_bot", "astrbot\data")
     foreach ($dir in $localDirs) {
         New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot $dir) | Out-Null
     }
@@ -179,7 +179,7 @@ Write-Host "准备服务器目录..." -ForegroundColor Yellow
 if ($DeployPath -eq "/opt/hikaribot-docker") {
     Run-Remote "if [ ! -d $quotedDeployPath ] && [ -d $quotedLegacyPath ]; then cd $quotedLegacyPath && docker compose stop hikaribot || true; mv $quotedLegacyPath $quotedDeployPath; fi"
 }
-Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/searxng/core-config $quotedDeployPath/legacy/pixiv_cache"
+Run-Remote "if [ -d $quotedLegacySharedPath ] && [ ! -e $quotedRuntimeSharedPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacySharedPath $quotedRuntimeSharedPath; fi; if [ -d $quotedLegacyTmpPath ] && [ ! -e $quotedRuntimeTmpPath ]; then mkdir -p $quotedRuntimePath && mv $quotedLegacyTmpPath $quotedRuntimeTmpPath; fi; mkdir -p $quotedAppPath $quotedDeployPath/BotData $quotedDeployPath/UserData $quotedRuntimeSharedPath $quotedRuntimeTmpPath/hikari_bot $quotedDeployPath/napcat/config $quotedDeployPath/napcat/ntqq $quotedDeployPath/searxng/core-config $quotedDeployPath/legacy/pixiv_cache $quotedDeployPath/astrbot/data"
 
 Write-Host "打包源码..." -ForegroundColor Yellow
 Write-VersionFile
@@ -241,9 +241,12 @@ Run-Remote "cd $quotedDeployPath && docker compose config -q"
 
 Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -ForegroundColor Yellow
 if ($AllServices) {
+    # 全栈部署：新服务器首次部署或需要重建全部服务时使用（会拉取 napcat/astrbot/cobalt/searxng 等镜像）
     Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot hikari-ai"
 } else {
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot napcat cobalt searxng searxng-valkey --remove-orphans && docker compose restart hikaribot hikari-ai"
+    # 默认只管理机器人本体（与 -l 本地模式一致），不会拉取 napcat 等镜像；
+    # --no-deps 阻止 depends_on 链（napcat/cobalt/searxng）被自动拉起；已运行的服务不受影响
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot --remove-orphans && docker compose restart hikaribot hikari-ai"
 }
 
 Write-Host ""

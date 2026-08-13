@@ -142,6 +142,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "r18_blocked": "Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。",
         "no_images": "Pixiv 作品 {illust_id} 没有可发送的图片。",
         "download_failed": "Pixiv 作品 {illust_id} 下载失败，没有可发送图片。",
+        "queue_full": "⚠️ Pixiv 解析队列已满，{dropped} 个作品未处理，请稍后再试。",
         "info": "Pixiv 解析成功\n标题：{title}\n作者：{author}\nPID：{illust_id}\n图片数量：{page_count}\n链接：https://www.pixiv.net/artworks/{illust_id}{r18}{ai}{tags}",
     },
     "cobalt": {

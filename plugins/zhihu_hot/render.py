@@ -12,6 +12,8 @@ from PIL import Image, ImageDraw
 from core.bot_identity import get_bot_name
 from core.rendering import draw_text, load_font, text_size
 
+from core.concurrency import run_blocking
+
 from .api import ZhihuHotItem
 
 BG = (245, 247, 250)
@@ -33,6 +35,21 @@ class _ItemLayout:
 
 
 async def render_hot_list(
+    items: list[ZhihuHotItem],
+    *,
+    config: dict[str, Any],
+    generated_at: datetime | None = None,
+) -> Path:
+    # 整段绘制是同步 CPU 密集操作，移出事件循环，避免卡住其他用户消息
+    return await run_blocking(
+        _render_hot_list_sync,
+        items,
+        config=config,
+        generated_at=generated_at,
+    )
+
+
+def _render_hot_list_sync(
     items: list[ZhihuHotItem],
     *,
     config: dict[str, Any],

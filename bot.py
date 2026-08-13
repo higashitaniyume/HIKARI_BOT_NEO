@@ -36,6 +36,11 @@ from core.logger_setup import setup_logging
 
 _log_file = setup_logging(_config)
 
+# ---- Step 3.5: 配置有界线程池（run_blocking / asyncio.to_thread 的全局并发上限）----
+from core.concurrency import configure_executor
+
+configure_executor(_config.get("runtime", {}).get("max_workers", 8))
+
 # ---- Step 4: 初始化 NoneBot ----
 import logging
 
@@ -114,6 +119,13 @@ register_driver_lifecycle_logs(driver, _startup_started_at)
 from core.temp_media_cleaner import register_temp_media_cleaner
 
 register_temp_media_cleaner(driver)
+
+# 把事件循环默认 executor 设为有界线程池（须在运行中的循环里设置）
+from core.concurrency import setup_default_executor
+
+@driver.on_startup
+async def _bind_concurrency_executor() -> None:
+    setup_default_executor()
 driver.register_adapter(OneBotV11Adapter)
 logger.info("[Startup] OneBot V11 适配器已注册，将在 Driver 就绪后连接 NapCat")
 

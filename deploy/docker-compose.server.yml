@@ -60,6 +60,21 @@ services:
       - ./legacy/pixiv_cache:/opt/HIKARI_BOT/data/pixiv_cache
       - ./runtime/tmp/hikari_bot:/tmp/hikari_bot
 
+  # ── AstrBot: 独立 AstrBot 服务（WebUI :6185；NapCat 反向 WS 连容器内 :6199） ──
+  astrbot:
+    image: ${ASTRBOT_IMAGE:-soulter/astrbot:latest}
+    container_name: astrbot
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${ASTRBOT_PORT:-6185}:6185"
+      - "${ASTRBOT_ONEBOT_PORT:-6199}:6199"
+    volumes:
+      - ./astrbot/data:/AstrBot/data
+      # 与 NapCat 共享同一文件夹（napcat 的 /app/sharedFolder），AstrBot 落盘的文件 NapCat 可直接发送
+      - ./runtime/shared:/app/sharedFolder
+
   cobalt:
     image: ghcr.io/imputnet/cobalt:11
     container_name: cobalt

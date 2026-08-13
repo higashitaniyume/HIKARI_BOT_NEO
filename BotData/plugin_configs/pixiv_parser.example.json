@@ -9,6 +9,13 @@
   "cache_dir": "/tmp/hikari_bot",
   "cache_ttl_seconds": 600,
   "proxy": "",
+  "parse_queue": {
+    "enabled": true,
+    "max_size": 50,
+    "max_concurrent": 1,
+    "delay_seconds": 1.0,
+    "idle_ttl_seconds": 300
+  },
   "send_strategy": {
     "prefer_forward_message": true,
     "fallback_to_separate_images": true

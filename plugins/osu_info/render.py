@@ -14,6 +14,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from core.rendering import draw_text, load_font
 
+from core.concurrency import run_blocking
+
 from .api import mode_label
 
 BG = (23, 25, 35)
@@ -283,10 +285,23 @@ async def render_user_card(
     proxy: str = "",
     recent_scores: list[dict[str, Any]] | None = None,
 ) -> Path:
+    avatar = await fetch_avatar(user, cache_dir / "images", proxy=proxy)
+    return await run_blocking(
+        _draw_user_card, user, mode, cache_dir, avatar, title, recent_scores
+    )
+
+
+def _draw_user_card(
+    user: dict[str, Any],
+    mode: str,
+    cache_dir: Path,
+    avatar: Image.Image | None,
+    title: str,
+    recent_scores: list[dict[str, Any]] | None,
+) -> Path:
     visible_scores = (recent_scores or [])[:3]
     score_rows = max(0, len(visible_scores))
     canvas = Canvas(900, 620 + score_rows * 88)
-    avatar = await fetch_avatar(user, cache_dir / "images", proxy=proxy)
     _draw_header(canvas, user, mode, avatar)
     stats = user.get("statistics") or {}
     level = stats.get("level") or {}
@@ -362,12 +377,24 @@ async def render_dashboard(
     *,
     proxy: str = "",
 ) -> Path:
+    avatar = await fetch_avatar(user, cache_dir / "images", proxy=proxy)
+    return await run_blocking(
+        _draw_dashboard, user, scores, mode, cache_dir, avatar
+    )
+
+
+def _draw_dashboard(
+    user: dict[str, Any],
+    scores: list[dict[str, Any]],
+    mode: str,
+    cache_dir: Path,
+    avatar: Image.Image | None,
+) -> Path:
     visible_scores = scores[:5]
     score_rows = max(1, len(visible_scores))
     score_start_y = 604
     height = score_start_y + score_rows * 98 + 42
     canvas = Canvas(940, height)
-    avatar = await fetch_avatar(user, cache_dir / "images", proxy=proxy)
     _draw_header(canvas, user, mode, avatar)
     stats = user.get("statistics") or {}
     level = stats.get("level") or {}
@@ -430,6 +457,18 @@ async def render_scores(
     score_type: str,
     cache_dir: Path,
 ) -> Path:
+    return await run_blocking(
+        _draw_scores, user, scores, mode, score_type, cache_dir
+    )
+
+
+def _draw_scores(
+    user: dict[str, Any],
+    scores: list[dict[str, Any]],
+    mode: str,
+    score_type: str,
+    cache_dir: Path,
+) -> Path:
     height = 260 + max(1, len(scores)) * 104
     canvas = Canvas(980, height)
     canvas.title(38, 34, f"osu! {'最好成绩' if score_type == 'best' else '最近成绩'}", f"{user.get('username')} · {mode_label(mode)}")
@@ -452,6 +491,12 @@ async def render_scores(
 
 
 async def render_ranking(ranking: dict[str, Any], mode: str, cache_dir: Path, *, country: str | None = None, limit: int = 10) -> Path:
+    return await run_blocking(
+        _draw_ranking, ranking, mode, cache_dir, country=country, limit=limit
+    )
+
+
+def _draw_ranking(ranking: dict[str, Any], mode: str, cache_dir: Path, *, country: str | None = None, limit: int = 10) -> Path:
     entries = list(ranking.get("ranking") or [])[:limit]
     canvas = Canvas(920, 190 + max(1, len(entries)) * 76)
     title = f"osu! 排行榜 · {mode_label(mode)}"
@@ -480,6 +525,11 @@ async def render_beatmap(beatmap: dict[str, Any], cache_dir: Path, *, proxy: str
     beatmapset = beatmap.get("beatmapset") or {}
     cover_url = (beatmapset.get("covers") or {}).get("cover@2x") or (beatmapset.get("covers") or {}).get("cover")
     cover = await fetch_image(cover_url, cache_dir / "images", suffix=".jpg", proxy=proxy)
+    return await run_blocking(_draw_beatmap, beatmap, cache_dir, cover)
+
+
+def _draw_beatmap(beatmap: dict[str, Any], cache_dir: Path, cover: Image.Image | None) -> Path:
+    beatmapset = beatmap.get("beatmapset") or {}
     canvas = Canvas(940, 610)
     if cover:
         cover = cover.resize((940, 240), Image.Resampling.LANCZOS).filter(ImageFilter.GaussianBlur(1.2))
@@ -515,6 +565,12 @@ async def render_beatmap(beatmap: dict[str, Any], cache_dir: Path, *, proxy: str
 
 
 async def render_beatmap_search(result: dict[str, Any], query: str, mode: str, cache_dir: Path, *, limit: int = 5) -> Path:
+    return await run_blocking(
+        _draw_beatmap_search, result, query, mode, cache_dir, limit=limit
+    )
+
+
+def _draw_beatmap_search(result: dict[str, Any], query: str, mode: str, cache_dir: Path, *, limit: int = 5) -> Path:
     sets = list(result.get("beatmapsets") or [])[:limit]
     canvas = Canvas(980, 190 + max(1, len(sets)) * 100)
     canvas.title(38, 34, "osu! 谱面搜索", f"{mode_label(mode)} · {query}")
@@ -539,6 +595,10 @@ async def render_beatmap_search(result: dict[str, Any], query: str, mode: str, c
 
 
 async def render_notice(title: str, lines: list[str], cache_dir: Path) -> Path:
+    return await run_blocking(_draw_notice, title, lines, cache_dir)
+
+
+def _draw_notice(title: str, lines: list[str], cache_dir: Path) -> Path:
     height = 180 + max(1, len(lines)) * 34
     canvas = Canvas(820, height)
     canvas.title(38, 34, title, "osu! 信息查询")

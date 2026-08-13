@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main
 irm https://raw.githubusercontent.com/higashitaniyume/HIKARI_BOT_NEO/main/install.ps1 | iex
 ```
 
-脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部 5 个服务。
+脚本会拉取源码到 `/opt/hikaribot-docker/app/`、创建持久化数据目录和 `.env`，然后执行 `docker compose up -d` 启动全部 7 个服务。
 
 支持自定义仓库地址和部署目录：
 ```bash
@@ -118,6 +118,7 @@ NAPCAT_ACCOUNT=你的QQ号
 | 媒体详情 Web | `http://服务器IP:53123/` |
 | NapCat WebUI | `http://服务器IP:3000/` |
 | Cobalt API | `http://服务器IP:54257/` |
+| AstrBot WebUI | `http://服务器IP:6185/` |
 
 ## 常用维护命令
 
