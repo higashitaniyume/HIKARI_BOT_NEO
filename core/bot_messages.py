@@ -364,9 +364,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "tts": {
         "usage": "用法：说话 <文本>",
-        "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>",
+        "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>（仅对本会话生效，群聊全群共享）",
         "switch_usage": "用法：切换音色 <名称>。发送“音色列表”查看可用音色。",
-        "switch_success": "已切换到音色：{voice}。",
+        "switch_success": "已将本会话音色切换为：{voice}。",
         "voice_not_found": "没有找到音色“{voice}”。发送“音色列表”查看可用音色。",
         "disabled": "语音合成功能当前已关闭。",
         "too_long": "文本太长啦，最多 {max_chars} 个字符。",
