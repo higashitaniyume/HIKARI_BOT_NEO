@@ -74,6 +74,28 @@ class PushRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([str(item.message) for item in messages], ["hello", "world"])
 
+    async def test_build_push_messages_preserves_event_data(self) -> None:
+        seen: list[dict | None] = []
+
+        async def provider(ctx: PushContext):
+            seen.append(ctx.event_data)
+            return "ok"
+
+        register_push_source("unit_test_event_data_source", provider)
+        ctx = PushContext(
+            bot=None,
+            job_id="job",
+            source="unit_test_event_data_source",
+            target=PushTarget("private", 42),
+            options={},
+            now=datetime(2026, 6, 30, tzinfo=SHANGHAI_TZ),
+            event_data={"user_id": 7},
+        )
+
+        await build_push_messages("unit_test_event_data_source", ctx)
+
+        self.assertEqual(seen, [{"user_id": 7}])
+
 
 class PushSchedulerTests(unittest.TestCase):
     def test_due_respects_time_weekday_and_late_grace(self) -> None:
@@ -208,6 +230,67 @@ class PushRunTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([result.job_id for result in results], ["startup_job"])
         self.assertEqual([group_id for group_id, _ in bot.group_messages], [100])
+
+    async def test_run_jobs_by_source_fires_matching_event_jobs_with_event_data(self) -> None:
+        async def provider(ctx: PushContext):
+            return f"好友添加通知 user={ctx.event_data['user_id']} job={ctx.job_id}"
+
+        register_push_source("unit_test_event_source", provider)
+        config = {
+            "enabled": True,
+            "send_retry_attempts": 1,
+            "jobs": [
+                {
+                    "id": "event_job",
+                    "enabled": True,
+                    "trigger": "event",
+                    "source": "unit_test_event_source",
+                    "targets": {"group_ids": [], "private_user_ids": [200]},
+                },
+                {
+                    "id": "disabled_event_job",
+                    "enabled": False,
+                    "trigger": "event",
+                    "source": "unit_test_event_source",
+                    "targets": {"group_ids": [], "private_user_ids": [201]},
+                },
+                {
+                    "id": "schedule_job",
+                    "enabled": True,
+                    "trigger": "schedule",
+                    "source": "unit_test_event_source",
+                    "targets": {"group_ids": [], "private_user_ids": [202]},
+                },
+                {
+                    "id": "other_source_job",
+                    "enabled": True,
+                    "trigger": "event",
+                    "source": "unit_test_other_event_source",
+                    "targets": {"group_ids": [], "private_user_ids": [203]},
+                },
+            ],
+        }
+
+        with patch.object(push_scheduler, "get_config", Mock(return_value=config)):
+            bot = FakeBot()
+            results = await push_scheduler.run_jobs_by_source(
+                bot,
+                "unit_test_event_source",
+                event_data={"user_id": 12345},
+                now=datetime(2026, 6, 30, 9, 0, tzinfo=SHANGHAI_TZ),
+            )
+
+        self.assertEqual([result.job_id for result in results], ["event_job"])
+        self.assertEqual([user_id for user_id, _ in bot.private_messages], [200])
+        self.assertIn("12345", str(bot.private_messages[0][1]))
+        self.assertEqual(results[0].sent, 1)
+
+    async def test_run_jobs_by_source_returns_empty_when_no_job_matches(self) -> None:
+        with patch.object(push_scheduler, "get_config", Mock(return_value={"enabled": True, "jobs": []})):
+            bot = FakeBot()
+            results = await push_scheduler.run_jobs_by_source(bot, "unit_test_missing_source")
+
+        self.assertEqual(results, [])
 
     async def test_media_timeout_is_not_retried_to_avoid_duplicate_images(self) -> None:
         async def provider(ctx: PushContext):

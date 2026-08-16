@@ -34,6 +34,7 @@ class PushContext:
     options: dict[str, Any]
     now: datetime
     force: bool = False
+    event_data: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +114,7 @@ async def build_push_messages(source_name: str, context: PushContext) -> list[Pu
         options=options,
         now=context.now,
         force=context.force,
+        event_data=context.event_data,
     )
 
     result = source.handler(context)

@@ -532,7 +532,7 @@ BotData/plugin_configs/sticker_inbox.json
 | `startup_delay_seconds` | 启动后等待秒数再开始检查 |
 | `check_interval_seconds` | 检查间隔，默认 60 秒 |
 | `jobs[].id` | 任务 ID，手动测试时使用 |
-| `jobs[].trigger` | 触发器：`schedule` / `startup` / `shutdown` / `manual` |
+| `jobs[].trigger` | 触发器：`schedule` / `startup` / `shutdown` / `manual` / `event`（由插件事件触发，如好友添加通知） |
 | `jobs[].source` | 消息源名称 |
 | `jobs[].time` / `times` | 推送时间（`HH:MM`，`times` 支持多点） |
 | `jobs[].days` | 星期限制 |
@@ -557,6 +557,7 @@ BotData/plugin_configs/sticker_inbox.json
 | `ai_news` | 发送 AI 最新资讯图片 |
 | `zhihu_hot` | 发送知乎热搜图片 |
 | `rss_feed` | 发送 RSS/Atom 订阅更新 |
+| `friend_add` | 新好友添加通知（需 `trigger: event`，内容来自事件数据） |
 
 **最小配置示例：**
 ```json
@@ -573,6 +574,20 @@ BotData/plugin_configs/sticker_inbox.json
   }]
 }
 ```
+
+**事件触发示例（好友添加通知）：** `trigger: "event"` 的任务不会参与定时轮询，由对应插件在事件发生时触发（如 `friend_manager` 在收到好友添加通知时触发 `friend_add` 消息源），`targets` 建议填超级管理员的私聊 QQ：
+```json
+{
+  "jobs": [{
+    "id": "notify_friend_add",
+    "enabled": true,
+    "trigger": "event",
+    "source": "friend_add",
+    "targets": {"group_ids": [], "private_user_ids": [3433559280]}
+  }]
+}
+```
+若未配置任何 `friend_add` 任务，`friend_manager` 会直接私聊超级管理员作为兜底。
 
 **自定义消息源：**
 ```python
@@ -905,11 +920,16 @@ jm 123456
 
 **配置文件：** `BotData/plugin_configs/friend_manager.json`
 
-监听好友请求通知，自动通过好友申请并向新好友发送欢迎消息。支持白名单/黑名单控制。
+监听好友请求通知，自动通过好友申请并向新好友发送欢迎消息。支持白名单/黑名单控制；好友添加成功后会通知超级管理员。
 
 | 字段 | 说明 |
 |------|------|
 | `enabled` | 是否启用自动通过好友请求 |
-| `welcome_message` | 通过好友后发送的欢迎文本 |
+| `auto_approve` | 是否自动通过好友请求 |
+| `comment_keyword` | 验证消息关键词：留空不检查，填关键词则要求验证消息包含该词 |
+| `allowed_users` | 白名单用户列表（非空时只接受白名单用户） |
 | `blocked_users` | 黑名单用户列表（自动拒绝） |
-| `whitelist_mode` | 非空时只接受白名单用户 |
+| `welcome_enabled` | 通过后是否向新好友发送欢迎消息 |
+| `notify_superuser` | 添加好友后是否通知超级管理员（默认开启） |
+
+**新好友通知：** `notify_superuser` 开启时，优先通过 push_framework 的 `friend_add` 消息源发送（需在 `push_framework.json` 配置一个 `trigger: "event"` 的任务，见上文示例）；若未配置任何有效任务，则直接私聊超级管理员兜底。`notify_superuser: false` 可完全关闭通知。

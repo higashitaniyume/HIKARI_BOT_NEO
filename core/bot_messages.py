@@ -364,9 +364,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "tts": {
         "usage": "用法：说话 <文本>",
-        "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>",
+        "voice_list": "可用音色：{voices}\n当前音色：{current}\n切换用法：切换音色 <名称>（仅对本会话生效，群聊全群共享）",
         "switch_usage": "用法：切换音色 <名称>。发送“音色列表”查看可用音色。",
-        "switch_success": "已切换到音色：{voice}。",
+        "switch_success": "已将本会话音色切换为：{voice}。",
         "voice_not_found": "没有找到音色“{voice}”。发送“音色列表”查看可用音色。",
         "disabled": "语音合成功能当前已关闭。",
         "too_long": "文本太长啦，最多 {max_chars} 个字符。",
@@ -377,6 +377,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "friend_manager": {
         "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
+        "superuser_notify": "新好友添加通知\nQQ：{user_id}\n昵称：{nickname}\n时间：{time}",
     },
     "aiagent": {
         "usage": "用法：私聊直接发送文本；群聊 @机器人。发送“重置”可清空当前会话上下文和持久化记忆。",

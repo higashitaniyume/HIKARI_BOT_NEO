@@ -16,7 +16,8 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 from core.stats_tracker import increment as stats_increment
 
-from .config import get_config, save_config
+from .config import get_config
+from .session_voices import get_session_voice, session_key, set_session_voice
 
 logger = logging.getLogger("HikariBot.TTSSpeaker")
 
@@ -100,9 +101,26 @@ def _cleanup_cache(cache_dir: Path, ttl_minutes: Any) -> None:
             continue
 
 
-def _selected_voice(cfg: dict[str, Any]) -> dict[str, str]:
+def _voice_names(cfg: dict[str, Any]) -> set[str]:
     voices = cfg.get("voices") if isinstance(cfg.get("voices"), list) else []
-    selected_name = str(cfg.get("selected_voice") or "").strip()
+    return {
+        str(voice.get("name") or "").strip()
+        for voice in voices
+        if isinstance(voice, dict) and str(voice.get("name") or "").strip()
+    }
+
+
+def _effective_voice(cfg: dict[str, Any], key: str) -> str:
+    """解析会话实际使用的音色：会话音色优先，未设置或已失效时回退全局默认。"""
+    session_name = get_session_voice(key)
+    if session_name in _voice_names(cfg):
+        return session_name
+    return str(cfg.get("selected_voice") or "").strip()
+
+
+def _selected_voice(cfg: dict[str, Any], voice_name: str | None = None) -> dict[str, str]:
+    voices = cfg.get("voices") if isinstance(cfg.get("voices"), list) else []
+    selected_name = str(voice_name or cfg.get("selected_voice") or "").strip()
     for voice in voices:
         if not isinstance(voice, dict):
             continue
@@ -198,13 +216,13 @@ async def _request_fish_audio(
     raise last_error
 
 
-async def _render_fish_tts(text: str, cfg: dict[str, Any], cache_dir: Path) -> Path:
+async def _render_fish_tts(text: str, cfg: dict[str, Any], cache_dir: Path, voice_name: str | None = None) -> Path:
     fish_cfg = cfg.get("fish_audio") if isinstance(cfg.get("fish_audio"), dict) else {}
     api_key = str(fish_cfg.get("api_key") or "").strip()
     if not api_key:
         raise RuntimeError("Fish Audio API Key 未配置。")
 
-    voice = _selected_voice(cfg)
+    voice = _selected_voice(cfg, voice_name)
     fmt = _safe_fish_format(fish_cfg.get("format"))
     output_path = _cache_path(cache_dir, text, cfg, voice, f".{fmt}")
     if output_path.is_file() and output_path.stat().st_size > 0:
@@ -305,7 +323,8 @@ async def _handle_tts_command(ctx: CommandContext) -> None:
         cache_dir = Path(str(cfg.get("cache_dir") or "/tmp/hikari_bot/tts"))
         cache_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_cache(cache_dir, cfg.get("cache_ttl_minutes", 60))
-        output_path = await _render_fish_tts(text, cfg, cache_dir)
+        voice_name = _effective_voice(cfg, session_key(ctx.event))
+        output_path = await _render_fish_tts(text, cfg, cache_dir, voice_name)
         await ctx.send(Message(MessageSegment.record(output_path.resolve().as_uri())))
         stats_increment(ctx.event, "tts_generated", 1)
     except FishAudioRequestError as e:
@@ -331,10 +350,16 @@ async def cmd_voice_list(ctx: CommandContext) -> None:
     cfg = get_config()
     voices = cfg.get("voices") if isinstance(cfg.get("voices"), list) else []
     names = [str(item.get("name") or "").strip() for item in voices if isinstance(item, dict)]
-    await ctx.send(Message(msg("tts.voice_list", voices="、".join(name for name in names if name), current=cfg.get("selected_voice") or "未选择")))
+    key = session_key(ctx.event)
+    current_name = _effective_voice(cfg, key)
+    if get_session_voice(key) and current_name != str(cfg.get("selected_voice") or "").strip():
+        current = f"{current_name}（本会话）"
+    else:
+        current = f"{current_name or '未选择'}（默认）"
+    await ctx.send(Message(msg("tts.voice_list", voices="、".join(name for name in names if name), current=current)))
 
 
-@command("切换音色", aliases=("换音色",), description="切换当前 Fish Audio 音色", usage="切换音色 <名称>")
+@command("切换音色", aliases=("换音色",), description="切换本会话的 Fish Audio 音色", usage="切换音色 <名称>")
 async def cmd_switch_voice(ctx: CommandContext) -> None:
     target = _normalize_text(ctx.args)
     if not target:
@@ -347,6 +372,5 @@ async def cmd_switch_voice(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("tts.voice_not_found", voice=target)))
         return
     selected_name = str(matched.get("name") or "").strip()
-    cfg["selected_voice"] = selected_name
-    save_config(cfg)
+    set_session_voice(session_key(ctx.event), selected_name)
     await ctx.send(Message(msg("tts.switch_success", voice=selected_name)))

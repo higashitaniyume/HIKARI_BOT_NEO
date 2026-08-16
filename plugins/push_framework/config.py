@@ -31,6 +31,17 @@ DEFAULT_PUSH_FRAMEWORK_CONFIG: dict[str, Any] = {
             "source_options": {
                 "text": "这是一条定时推送示例。",
             },
+        },
+        {
+            "id": "notify_friend_add_example",
+            "enabled": False,
+            "trigger": "event",
+            "source": "friend_add",
+            "targets": {
+                "group_ids": [],
+                "private_user_ids": [123456789],
+            },
+            "source_options": {},
         }
     ],
 }

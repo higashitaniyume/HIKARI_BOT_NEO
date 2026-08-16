@@ -68,7 +68,7 @@ _FIXED_TIMEZONES: dict[str, tzinfo] = {
     "PRC": timezone(timedelta(hours=8), "Asia/Shanghai"),
 }
 
-_TRIGGERS = {"schedule", "startup", "shutdown", "manual"}
+_TRIGGERS = {"schedule", "startup", "shutdown", "manual", "event"}
 _MEDIA_SEGMENT_TYPES = {"image", "record", "video", "file"}
 
 
@@ -194,6 +194,50 @@ async def run_job_by_id(bot, job_id: str, *, mark_state: bool = False, force: bo
     return await run_job(bot, job, token=token, mark_state=mark_state, now=now, force=force)
 
 
+async def run_jobs_by_source(
+    bot,
+    source_name: str,
+    *,
+    event_data: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> list[PushRunResult]:
+    """按消息源触发所有 trigger 为 event 的任务（如：好友添加通知）。
+
+    event_data 会原样透传到 PushContext，由消息源 handler 读取。
+    """
+    target_source = str(source_name or "").strip().casefold()
+    if not target_source:
+        return []
+
+    cfg = get_config()
+    if not bool(cfg.get("enabled", True)):
+        return []
+
+    current = now or datetime.now(_timezone("Asia/Shanghai"))
+    token = f"event:{target_source}:{current.isoformat()}"
+    results: list[PushRunResult] = []
+    jobs = cfg.get("jobs") if isinstance(cfg.get("jobs"), list) else []
+    for job in jobs:
+        if not isinstance(job, dict) or not bool(job.get("enabled", True)):
+            continue
+        if str(job.get("source") or "").strip().casefold() != target_source:
+            continue
+        if job_trigger(job) != "event":
+            continue
+        results.append(
+            await run_job(
+                bot,
+                job,
+                token=token,
+                mark_state=False,
+                now=current,
+                force=True,
+                event_data=event_data,
+            )
+        )
+    return results
+
+
 async def run_job(
     bot,
     job: dict[str, Any],
@@ -202,6 +246,7 @@ async def run_job(
     mark_state: bool,
     now: datetime | None = None,
     force: bool = False,
+    event_data: dict[str, Any] | None = None,
 ) -> PushRunResult:
     job_id = str(job.get("id") or "").strip() or "unnamed"
     source_name = str(job.get("source") or "").strip()
@@ -237,6 +282,7 @@ async def run_job(
             options=dict(options),
             now=current,
             force=force,
+            event_data=event_data,
         )
 
         try:
