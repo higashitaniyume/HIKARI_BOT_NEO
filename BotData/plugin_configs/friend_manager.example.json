@@ -4,5 +4,6 @@
   "comment_keyword": "",
   "allowed_users": [],
   "blocked_users": [],
-  "welcome_enabled": true
+  "welcome_enabled": true,
+  "notify_superuser": true
 }

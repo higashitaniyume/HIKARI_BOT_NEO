@@ -377,6 +377,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "friend_manager": {
         "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
+        "superuser_notify": "新好友添加通知\nQQ：{user_id}\n昵称：{nickname}\n时间：{time}",
     },
     "aiagent": {
         "usage": "用法：私聊直接发送文本；群聊 @机器人。发送“重置”可清空当前会话上下文和持久化记忆。",

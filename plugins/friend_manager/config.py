@@ -15,6 +15,8 @@ DEFAULT_FRIEND_MANAGER_CONFIG: dict[str, Any] = {
     "blocked_users": [],
     # 通过后是否发送欢迎消息
     "welcome_enabled": True,
+    # 添加好友后是否通知超级管理员（优先走 push_framework 的 friend_add 消息源，未配置任务时直发）
+    "notify_superuser": True,
 }
 
 
@@ -31,4 +33,5 @@ def get_config() -> dict[str, Any]:
             int(u) for u in cfg.get("blocked_users", []) if str(u).strip().isdigit()
         ],
         "welcome_enabled": bool(cfg.get("welcome_enabled", True)),
+        "notify_superuser": bool(cfg.get("notify_superuser", True)),
     }

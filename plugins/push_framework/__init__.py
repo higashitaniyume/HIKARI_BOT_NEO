@@ -24,7 +24,7 @@ from .registry import (
     iter_push_sources,
     register_push_source,
 )
-from .scheduler import PushRunResult, job_trigger, run_due_jobs, run_event_jobs, run_job_by_id
+from .scheduler import PushRunResult, job_trigger, run_due_jobs, run_event_jobs, run_job_by_id, run_jobs_by_source
 
 logger = logging.getLogger("HikariBot.PushFramework")
 
@@ -278,5 +278,6 @@ __all__ = [
     "PushSource",
     "PushTarget",
     "register_push_source",
+    "run_jobs_by_source",
     "submit_manual_push",
 ]
