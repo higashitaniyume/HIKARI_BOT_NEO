@@ -224,7 +224,7 @@ async def _process_single_program(
             item_type="program",
             item_id=program_id,
             title=program.name,
-            quality=_sent_quality(high_quality),
+            quality=_sent_quality(url_result.type),
             message_ids=message_ids,
         )
     except Exception as e:
@@ -295,9 +295,10 @@ def _resolve_high_quality(quality: str, cfg: dict) -> bool:
     return bool(cfg.get("high_quality", True))
 
 
-def _sent_quality(high_quality: bool) -> str:
-    """high_quality → 记录用格式名。"""
-    return "flac" if high_quality else "mp3"
+def _sent_quality(file_type: str) -> str:
+    """实际文件类型 → 记录用格式名。"""
+    t = (file_type or "").lstrip(".").lower()
+    return "flac" if t in ("flac", "ogg", "wav") else "mp3"
 
 
 async def _download_single_song_for_batch(
@@ -410,7 +411,7 @@ async def _process_multi_file_sequential(
                 item_type="song",
                 item_id=song_info.id,
                 title=song_info.name,
-                quality=_sent_quality(high_quality),
+                quality=_sent_quality(audio_path.suffix),
                 message_ids=message_ids,
             )
             logger.info("[Netease]   ✓ %s 上传完成 → %s", label, display_name)
@@ -520,7 +521,7 @@ async def _process_multi_file_zip(
         item_type=item_type,
         item_id=item_id,
         title=title,
-        quality=_sent_quality(high_quality),
+        quality=_sent_quality("flac" if high_quality else "mp3"),
         message_ids=message_ids,
     )
 
@@ -790,7 +791,7 @@ async def _process_single_song(
             item_type="song",
             item_id=song_id,
             title=song.name,
-            quality=_sent_quality(high_quality),
+            quality=_sent_quality(url_result.type),
             message_ids=message_ids,
         )
     except Exception as e:

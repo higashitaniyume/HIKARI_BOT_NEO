@@ -271,6 +271,10 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
         "enable": False,
         "groups": [],
     },
+    "card_hint": {
+        "enabled": True,
+        "cooldown_seconds": 300,
+    },
     "cookie": "",
     "max_file_mb": 200,
     "send_link_info": True,

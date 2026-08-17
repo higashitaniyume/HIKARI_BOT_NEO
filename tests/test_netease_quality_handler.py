@@ -1,4 +1,4 @@
-"""Netease quality handler tests — preference declaration & reply reconvert."""
+"""Netease quality handler tests — 回复换格式（唯一改音质入口）."""
 
 import asyncio
 import tempfile
@@ -57,16 +57,17 @@ class TestQualityHandler(unittest.TestCase):
         event = _make_event("mp3", "123")
         self.assertTrue(asyncio.run(NeteaseQualityHandler().match(event, "")))
 
-    def test_match_plain_mp3(self):
-        event = _make_event("我要mp3")
+    def test_match_reply_flac(self):
+        event = _make_event("flac", "123")
         self.assertTrue(asyncio.run(NeteaseQualityHandler().match(event, "")))
 
-    def test_match_plain_flac(self):
-        event = _make_event("用flac")
-        self.assertTrue(asyncio.run(NeteaseQualityHandler().match(event, "")))
+    def test_match_plain_mp3_no_reply_not_matched(self):
+        # 纯消息说 mp3（无引用）→ 不触发（改音质只允许回复触发）
+        event = _make_event("我要mp3")
+        self.assertFalse(asyncio.run(NeteaseQualityHandler().match(event, "")))
 
     def test_match_plain_without_keyword(self):
-        event = _make_event("你好")
+        event = _make_event("你好", "123")
         self.assertFalse(asyncio.run(NeteaseQualityHandler().match(event, "")))
 
     def test_handle_reply_finds_record_and_reconverts(self):
@@ -77,15 +78,13 @@ class TestQualityHandler(unittest.TestCase):
         )
         with patch(
             "plugins.netease_parser._enqueue_reconvert", new=AsyncMock(),
-        ) as reconvert, patch(
-            "plugins.netease_parser.get_config",
-            return_value={"quality_switch": True},
-        ):
+        ) as reconvert:
             asyncio.run(NeteaseQualityHandler().handle(AsyncMock(), event))
             reconvert.assert_awaited_once()
             rec = reconvert.call_args.args[2]
             self.assertEqual(rec.item_id, "42")
             self.assertEqual(reconvert.call_args.args[3], "mp3")
+            self.assertEqual(prefs.get_user_quality("10001"), "mp3")
 
     def test_handle_reply_same_quality(self):
         event = _make_event("mp3", "111")
@@ -110,13 +109,6 @@ class TestQualityHandler(unittest.TestCase):
             asyncio.run(NeteaseQualityHandler().handle(bot, event))
             reconvert.assert_not_awaited()
             self.assertEqual(prefs.get_user_quality("10001"), "mp3")
-
-    def test_handle_plain_sets_preference(self):
-        event = _make_event("我要mp3")
-        bot = AsyncMock()
-        asyncio.run(NeteaseQualityHandler().handle(bot, event))
-        self.assertEqual(prefs.get_user_quality("10001"), "mp3")
-        bot.send.assert_awaited_once()
 
 
 if __name__ == "__main__":

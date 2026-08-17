@@ -1,4 +1,4 @@
-"""Netease group manual-parse trigger tests — @bot + previous 10 messages."""
+"""Netease group manual-parse trigger tests — @bot + link / @bot + 引用卡片."""
 
 import asyncio
 import json
@@ -14,12 +14,8 @@ from nonebot.adapters.onebot.v11 import (
 )
 from nonebot.adapters.onebot.v11.event import Sender
 
-from plugins.netease_parser import (
-    AutoNeteaseHandler,
-    _history_before_trigger,
-    _history_event,
-)
-from plugins.netease_parser.parser import extract_song_ids_from_event
+from plugins.netease_parser import AutoNeteaseHandler, _history_event
+from plugins.netease_parser.parser import classify_links
 
 
 def _make_private(text: str) -> PrivateMessageEvent:
@@ -39,14 +35,18 @@ def _make_group(
     at_mid_message: bool = False,
     message_id: int = 500,
     time: int = 2000,
+    reply_id: str = "",
 ) -> GroupMessageEvent:
     """构造群聊事件。
 
     at_self=True：模拟适配器处理后的"@开头"场景 —— to_me=True 且 at 段
     已被适配器从 message 中移除（_check_at_me 的行为）。
     at_mid_message=True：@ 在消息中间 —— to_me=False 但 at 段保留。
+    reply_id：模拟引用回复某条消息（reply 段）。
     """
     segments = []
+    if reply_id:
+        segments.append(MessageSegment.reply(int(reply_id)))
     if at_mid_message:
         segments.append(MessageSegment.at("10000"))
     if text:
@@ -83,8 +83,6 @@ class TestGroupParseTrigger(unittest.TestCase):
         with patch(
             "plugins.netease_parser.get_config",
             return_value=cfg if cfg is not None else _cfg(),
-        ), patch(
-            "nonebot.get_bot", return_value=SimpleNamespace(self_id="10000"),
         ):
             return await handler.match(event, str(event.get_message()))
 
@@ -111,8 +109,8 @@ class TestGroupParseTrigger(unittest.TestCase):
         event = _make_group("https://music.163.com/song/33894312", group_id=222, at_self=False)
         self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=True))))
 
-    def test_default_manual_group_at_with_link_matches(self):
-        # 默认手动解析群：@ 开头（适配器已移除 at 段，to_me=True）+ 自身带链接 → 解析
+    def test_manual_group_at_with_link_matches(self):
+        # @ 开头（to_me=True）+ 自身带链接 → 解析
         event = _make_group("https://music.163.com/song/33894312")
         self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
@@ -124,132 +122,92 @@ class TestGroupParseTrigger(unittest.TestCase):
         )
         self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
-    def test_group_at_no_link_history_has_link_matches(self):
+    def test_manual_group_at_no_link_no_reply_not_matched(self):
+        # @bot 但既无链接也无引用 → 不解析（交给 AI 等后续处理）
         event = _make_group("帮我解析")
-        history = [
-            _history_item(10, 1000, "前面有人发 https://music.163.com/song/33894312"),
-        ]
-        with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=history),
-        ) as gh:
-            result = asyncio.run(self._match(event))
-            self.assertTrue(result)
-            gh.assert_awaited_once()
+        self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
-    def test_group_at_no_link_history_no_link_not_matched(self):
-        event = _make_group("你好")
-        with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=[]),
-        ):
-            self.assertFalse(asyncio.run(self._match(event)))
-
-    def test_group_at_history_card_link_matches(self):
-        # 历史消息带 QQ 音乐卡片（json 段）
-        event = _make_group("解析一下")
-        card = {
-            "app": "com.tencent.music.lua",
-            "meta": {"music": {"jumpUrl": "https://music.163.com/song/33894312"}},
-        }
-        history = [{
-            "message_id": 10,
-            "time": 1000,
-            "message": [{"type": "json", "data": {"data": json.dumps(card)}}],
-        }]
-        with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=history),
-        ):
-            self.assertTrue(asyncio.run(self._match(event)))
+    def test_manual_group_at_with_reply_matches(self):
+        # @bot + 引用某条消息（卡片）→ 匹配，进入 handle 回查
+        event = _make_group("解析", reply_id="999")
+        self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
 
 class TestGroupHandle(unittest.TestCase):
-    def test_history_picks_latest_link_only(self):
-        """历史含专辑(早)+单曲(晚)，@ 应只解析最近的单曲，不提示私聊。"""
-        event = _make_group("帮我解析")
-        history = [
-            _history_item(10, 1000, "https://music.163.com/album?id=379731879"),
-            _history_item(11, 1100, "https://music.163.com/song?id=3389394581"),
-        ]
+    def _ref_event(self, text: str) -> SimpleNamespace:
+        msg = Message(text)
+        return SimpleNamespace(message=msg, get_message=lambda: msg)
+
+    def test_reply_referenced_song_enqueued(self):
+        """@bot + 引用卡片（被引用消息含单曲链接）→ 回查后入队单曲。"""
+        event = _make_group("解析", reply_id="999")
+        ref = self._ref_event("https://music.163.com/song/33894312")
         with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=history),
+            "plugins.netease_parser.get_config", return_value=_cfg(),
         ), patch(
+            "plugins.netease_parser._fetch_referenced_message",
+            new=AsyncMock(return_value=ref),
+        ) as fetch, patch(
             "plugins.netease_parser._enqueue_parse_jobs", new=AsyncMock(),
-        ) as enqueue, patch(
+        ) as enqueue:
+            bot = AsyncMock()
+            asyncio.run(AutoNeteaseHandler().handle(bot, event))
+            fetch.assert_awaited_once()
+            enqueue.assert_awaited_once()
+            self.assertEqual(enqueue.call_args.args[2], ["33894312"])
+            bot.send.assert_not_awaited()
+
+    def test_reply_referenced_album_prompts_private(self):
+        """@bot + 引用卡片（被引用消息含专辑链接）→ 提示仅支持私聊。"""
+        event = _make_group("解析", reply_id="999")
+        ref = self._ref_event("https://music.163.com/album?id=379731879")
+        with patch(
+            "plugins.netease_parser.get_config", return_value=_cfg(),
+        ), patch(
+            "plugins.netease_parser._fetch_referenced_message",
+            new=AsyncMock(return_value=ref),
+        ), patch(
             "plugins.netease_parser._enqueue_album_parse_job", new=AsyncMock(),
         ) as album_enqueue:
             bot = AsyncMock()
             asyncio.run(AutoNeteaseHandler().handle(bot, event))
-            # 只入队单曲，专辑不入队、不提示私聊
-            enqueue.assert_awaited_once()
-            call = enqueue.call_args
-            self.assertEqual(call.args[2], ["3389394581"])  # song_ids
-            self.assertEqual(call.args[3], [])  # program_ids
+            bot.send.assert_awaited_once()
             album_enqueue.assert_not_awaited()
-            bot.send.assert_not_awaited()
 
-    def test_history_only_album_prompts_private(self):
-        """历史只含专辑 → 提示仅支持私聊。"""
-        event = _make_group("帮我解析")
-        history = [
-            _history_item(10, 1000, "https://music.163.com/album?id=379731879"),
-        ]
+    def test_group_direct_album_prompts_private(self):
+        """群聊 @bot 直接带专辑链接 → 提示仅支持私聊。"""
+        event = _make_group("https://music.163.com/album?id=379731879")
         with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=history),
-        ):
+            "plugins.netease_parser.get_config", return_value=_cfg(),
+        ), patch(
+            "plugins.netease_parser._enqueue_album_parse_job", new=AsyncMock(),
+        ) as album_enqueue:
             bot = AsyncMock()
             asyncio.run(AutoNeteaseHandler().handle(bot, event))
             bot.send.assert_awaited_once()
+            album_enqueue.assert_not_awaited()
 
-    def test_history_only_song_enqueued(self):
-        """历史只含单曲 → 正常入队解析。"""
-        event = _make_group("帮我解析")
-        history = [
-            _history_item(10, 1000, "https://music.163.com/song?id=3389394581"),
-        ]
+    def test_group_direct_song_enqueued(self):
+        """群聊 @bot 直接带单曲链接 → 入队解析。"""
+        event = _make_group("https://music.163.com/song/33894312")
         with patch(
-            "plugins.netease_parser._get_group_history",
-            new=AsyncMock(return_value=history),
+            "plugins.netease_parser.get_config", return_value=_cfg(),
         ), patch(
             "plugins.netease_parser._enqueue_parse_jobs", new=AsyncMock(),
         ) as enqueue:
             bot = AsyncMock()
             asyncio.run(AutoNeteaseHandler().handle(bot, event))
             enqueue.assert_awaited_once()
-            self.assertEqual(enqueue.call_args.args[2], ["3389394581"])
+            self.assertEqual(enqueue.call_args.args[2], ["33894312"])
             bot.send.assert_not_awaited()
 
 
-class TestHistoryHelpers(unittest.TestCase):
-    def test_history_before_trigger_by_message_id(self):
-        history = [_history_item(i, 1000 + i, f"m{i}") for i in range(1, 21)]
-        event = _make_group("x", message_id=12, time=1012)
-        before = _history_before_trigger(history, event, limit=10)
-        # message_id=12 → idx=11 → 之前 10 条 = m2..m11
-        self.assertEqual([m["message_id"] for m in before], list(range(2, 12)))
-
-    def test_history_before_trigger_by_time_fallback(self):
-        history = [_history_item(i, 1000 + i, f"m{i}") for i in range(1, 21)]
-        event = _make_group("x", message_id=515, time=1015)
-        before = _history_before_trigger(history, event, limit=10)
-        # message_id 不在历史 → 按 time>=1015 定位到 m15（items[14]）→ 之前 10 条 = m5..m14
-        self.assertEqual([m["message_id"] for m in before], list(range(5, 15)))
-
-    def test_history_before_trigger_all_when_not_found(self):
-        history = [_history_item(i, 1000 + i, f"m{i}") for i in range(1, 21)]
-        event = _make_group("x", message_id=999, time=99999)
-        before = _history_before_trigger(history, event, limit=10)
-        # 完全找不到 → 取最早的 10 条
-        self.assertEqual([m["message_id"] for m in before], list(range(1, 11)))
-
+class TestHistoryEventHelpers(unittest.TestCase):
     def test_history_event_extracts_song_id(self):
         item = _history_item(1, 1000, "https://music.163.com/song/33894312")
         ev = _history_event(item)
-        ids = asyncio.run(extract_song_ids_from_event(ev))
-        self.assertEqual(ids, ["33894312"])
+        links = asyncio.run(classify_links(ev))
+        self.assertEqual(links.song_ids, ["33894312"])
 
     def test_history_event_card_extracts_song_id(self):
         card = {
@@ -262,8 +220,8 @@ class TestHistoryHelpers(unittest.TestCase):
             "message": [{"type": "json", "data": {"data": json.dumps(card)}}],
         }
         ev = _history_event(item)
-        ids = asyncio.run(extract_song_ids_from_event(ev))
-        self.assertEqual(ids, ["33894312"])
+        links = asyncio.run(classify_links(ev))
+        self.assertEqual(links.song_ids, ["33894312"])
 
 
 if __name__ == "__main__":

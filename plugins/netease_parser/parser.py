@@ -11,7 +11,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 import httpx
 from nonebot.adapters.onebot.v11 import MessageEvent
@@ -111,6 +111,19 @@ class NeteaseSongUrlResult:
     size: int = 0
     type: str = "mp3"
     code: int = 200
+
+
+@dataclass
+class ParsedLinks:
+    """一次消息中提取出的网易云链接分类结果。"""
+
+    song_ids: list[str] = field(default_factory=list)
+    album_ids: list[str] = field(default_factory=list)
+    playlist_ids: list[str] = field(default_factory=list)
+    program_ids: list[str] = field(default_factory=list)
+
+    def any(self) -> bool:
+        return bool(self.song_ids or self.album_ids or self.playlist_ids or self.program_ids)
 
 
 # =========================
@@ -349,141 +362,71 @@ def extract_song_id_from_url(url: str) -> Optional[str]:
     return None
 
 
-async def extract_song_ids_from_event(event: MessageEvent) -> list[str]:
+async def classify_links(event: MessageEvent) -> ParsedLinks:
     """
-    从消息事件中提取所有网易云音乐歌曲 ID。
+    一次性从消息事件中分类提取所有网易云链接。
 
     处理流程：
-    1. 从消息正文和卡片元数据中提取所有 URL
-    2. 直接匹配 music.163.com/song/... 格式 → 提取 ID
-    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
+    1. 从消息正文和卡片元数据中提取所有 URL（一次）
+    2. 直接匹配 song/album/playlist/program 四类 URL → 提取 ID
+    3. 163cn.tv 短链接 → 只跟随重定向一次 → 对目标 URL 分类
     4. 去重返回
+
+    相比旧的 4 个 extract_*_ids_from_event，短链接只解析一次，
+    避免同一短链接被多次 resolve 成 4 次 HTTP 重定向。
     """
-    t_start = time.time()
-    ids: list[str] = []
-    seen_ids: set[str] = set()
-    short_urls_to_resolve: list[str] = []
-
+    result = ParsedLinks()
     all_urls = extract_all_urls(event)
-
     if not all_urls:
-        logger.debug("[Netease] 消息中未提取到任何 URL")
-        return []
+        return result
 
-    logger.info("[Netease] 从消息中提取到 %d 个 URL", len(all_urls))
+    seen: dict[str, set[str]] = {
+        "song": set(), "album": set(), "playlist": set(), "program": set(),
+    }
 
-    for url in all_urls:
-        # 尝试直接匹配 music.163.com/song/...
+    def _add(kind: str, id_: str) -> None:
+        if id_ and id_ not in seen[kind]:
+            seen[kind].add(id_)
+            getattr(result, f"{kind}_ids").append(id_)
+
+    def _classify_url(url: str) -> bool:
+        """对单个 URL 尝试四类匹配，命中即返回 True。"""
         song_id = extract_song_id_from_url(url)
         if song_id:
-            if song_id not in seen_ids:
-                seen_ids.add(song_id)
-                ids.append(song_id)
-                logger.debug("[Netease] 直接提取到歌曲 ID → %s (%s)", song_id, url[:60])
-            continue
+            _add("song", song_id)
+            return True
+        album_id = extract_album_id_from_url(url)
+        if album_id:
+            _add("album", album_id)
+            return True
+        playlist_id = extract_playlist_id_from_url(url)
+        if playlist_id:
+            _add("playlist", playlist_id)
+            return True
+        m = NETEASE_PROGRAM_URL_RE.search(url)
+        if m:
+            _add("program", m.group("id"))
+            return True
+        return False
 
-        # 匹配 163cn.tv 短链接
-        if NETEASE_SHORT_URL_RE.match(url):
-            short_urls_to_resolve.append(url)
-            logger.debug("[Netease] 发现短链接 → %s", url)
-
-    # 批量解析短链接
-    if short_urls_to_resolve:
-        logger.info(
-            "[Netease] 解析 %d 个 163cn.tv 短链接...", len(short_urls_to_resolve),
-        )
-        for short_url in short_urls_to_resolve:
-            resolved = await resolve_short_url(short_url)
-            if resolved:
-                song_id = extract_song_id_from_url(resolved)
-                if song_id and song_id not in seen_ids:
-                    seen_ids.add(song_id)
-                    ids.append(song_id)
-                    logger.info(
-                        "[Netease] 短链接解析 → 提取到歌曲 ID: %s → %s",
-                        short_url, song_id,
-                    )
-                else:
-                    logger.warning(
-                        "[Netease] 短链接解析后未找到歌曲 ID → %s → %s",
-                        short_url, resolved,
-                    )
-    else:
-        logger.debug("[Netease] 无需解析短链接")
-
-    elapsed = time.time() - t_start
-    if ids:
-        logger.info(
-            "[Netease] 歌曲 ID 提取完成 (%.2fs) → 共 %d 个: %s",
-            elapsed, len(ids), ids,
-        )
-    else:
-        logger.info(
-            "[Netease] 歌曲 ID 提取完成 (%.2fs) → 未找到有效歌曲 ID",
-            elapsed,
-        )
-
-    return ids
-
-
-async def extract_program_ids_from_event(event: MessageEvent) -> list[str]:
-    """
-    从消息事件中提取所有播客/电台节目 ID。
-
-    处理流程：
-    1. 从消息正文和卡片元数据中提取所有 URL
-    2. 直接匹配 program URL → 提取 ID
-    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
-    4. 去重返回
-    """
-    t_start = time.time()
-    ids: list[str] = []
-    seen_ids: set[str] = set()
     short_urls_to_resolve: list[str] = []
-
-    all_urls = extract_all_urls(event)
-
-    if not all_urls:
-        return []
-
-    logger.info("[Netease] 从消息中提取到 %d 个 URL（播客）", len(all_urls))
-
     for url in all_urls:
-        # 尝试直接匹配 program URL
-        match = NETEASE_PROGRAM_URL_RE.search(url)
-        if match:
-            pid = match.group("id")
-            if pid and pid not in seen_ids:
-                seen_ids.add(pid)
-                ids.append(pid)
-                logger.debug("[Netease] 直接提取到播客 ID → %s (%s)", pid, url[:60])
-            continue
-
-        # 匹配 163cn.tv 短链接
         if NETEASE_SHORT_URL_RE.match(url):
             short_urls_to_resolve.append(url)
+            continue
+        _classify_url(url)
 
-    # 批量解析短链接
-    if short_urls_to_resolve:
-        logger.info("[Netease] 解析 %d 个短链接（播客）...", len(short_urls_to_resolve))
-        for short_url in short_urls_to_resolve:
-            resolved = await resolve_short_url(short_url)
-            if resolved:
-                match = NETEASE_PROGRAM_URL_RE.search(resolved)
-                if match:
-                    pid = match.group("id")
-                    if pid and pid not in seen_ids:
-                        seen_ids.add(pid)
-                        ids.append(pid)
-                        logger.info("[Netease] 短链接解析 → 提取到播客 ID: %s → %s", short_url, pid)
+    for short_url in short_urls_to_resolve:
+        resolved = await resolve_short_url(short_url)
+        if resolved:
+            _classify_url(resolved)
 
-    elapsed = time.time() - t_start
-    if ids:
-        logger.info("[Netease] 播客 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
-    else:
-        logger.debug("[Netease] 播客 ID 提取完成 (%.2fs) → 未找到", elapsed)
-
-    return ids
+    logger.info(
+        "[Netease] 链接分类完成 → song=%d album=%d playlist=%d program=%d",
+        len(result.song_ids), len(result.album_ids),
+        len(result.playlist_ids), len(result.program_ids),
+    )
+    return result
 
 
 def extract_album_id_from_url(url: str) -> Optional[str]:
@@ -499,65 +442,6 @@ def extract_album_id_from_url(url: str) -> Optional[str]:
         album_id = match.group("id_path") or match.group("id_query")
         return album_id
     return None
-
-
-async def extract_album_ids_from_event(event: MessageEvent) -> list[str]:
-    """
-    从消息事件中提取所有网易云音乐专辑 ID。
-
-    处理流程：
-    1. 从消息正文和卡片元数据中提取所有 URL
-    2. 直接匹配 music.163.com/album/... 或 album?id=... 格式 → 提取 ID
-    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
-    4. 去重返回
-    """
-    t_start = time.time()
-    ids: list[str] = []
-    seen_ids: set[str] = set()
-    short_urls_to_resolve: list[str] = []
-
-    all_urls = extract_all_urls(event)
-
-    if not all_urls:
-        return []
-
-    logger.info("[Netease] 从消息中提取到 %d 个 URL（专辑）", len(all_urls))
-
-    for url in all_urls:
-        # 尝试直接匹配 album URL
-        album_id = extract_album_id_from_url(url)
-        if album_id:
-            if album_id not in seen_ids:
-                seen_ids.add(album_id)
-                ids.append(album_id)
-                logger.debug("[Netease] 直接提取到专辑 ID → %s (%s)", album_id, url[:60])
-            continue
-
-        # 匹配 163cn.tv 短链接
-        if NETEASE_SHORT_URL_RE.match(url):
-            short_urls_to_resolve.append(url)
-
-    # 批量解析短链接
-    if short_urls_to_resolve:
-        logger.info("[Netease] 解析 %d 个短链接（专辑）...", len(short_urls_to_resolve))
-        for short_url in short_urls_to_resolve:
-            resolved = await resolve_short_url(short_url)
-            if resolved:
-                album_id = extract_album_id_from_url(resolved)
-                if album_id and album_id not in seen_ids:
-                    seen_ids.add(album_id)
-                    ids.append(album_id)
-                    logger.info("[Netease] 短链接解析 → 提取到专辑 ID: %s → %s", short_url, album_id)
-
-    elapsed = time.time() - t_start
-    if ids:
-        logger.info("[Netease] 专辑 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
-    else:
-        logger.debug("[Netease] 专辑 ID 提取完成 (%.2fs) → 未找到", elapsed)
-
-    return ids
-
-
 
 
 def extract_program_ids(text: str) -> list[str]:
@@ -586,63 +470,6 @@ def extract_playlist_id_from_url(url: str) -> Optional[str]:
         playlist_id = match.group("id_path") or match.group("id_query")
         return playlist_id
     return None
-
-
-async def extract_playlist_ids_from_event(event: MessageEvent) -> list[str]:
-    """
-    从消息事件中提取所有网易云音乐歌单 ID。
-
-    处理流程：
-    1. 从消息正文和卡片元数据中提取所有 URL
-    2. 直接匹配 music.163.com/playlist/... 或 playlist?id=... 格式 → 提取 ID
-    3. 匹配 163cn.tv 短链接 → 跟随重定向 → 从目标 URL 提取 ID
-    4. 去重返回
-    """
-    t_start = time.time()
-    ids: list[str] = []
-    seen_ids: set[str] = set()
-    short_urls_to_resolve: list[str] = []
-
-    all_urls = extract_all_urls(event)
-
-    if not all_urls:
-        return []
-
-    logger.info("[Netease] 从消息中提取到 %d 个 URL（歌单）", len(all_urls))
-
-    for url in all_urls:
-        # 尝试直接匹配 playlist URL
-        playlist_id = extract_playlist_id_from_url(url)
-        if playlist_id:
-            if playlist_id not in seen_ids:
-                seen_ids.add(playlist_id)
-                ids.append(playlist_id)
-                logger.debug("[Netease] 直接提取到歌单 ID → %s (%s)", playlist_id, url[:60])
-            continue
-
-        # 匹配 163cn.tv 短链接
-        if NETEASE_SHORT_URL_RE.match(url):
-            short_urls_to_resolve.append(url)
-
-    # 批量解析短链接
-    if short_urls_to_resolve:
-        logger.info("[Netease] 解析 %d 个短链接（歌单）...", len(short_urls_to_resolve))
-        for short_url in short_urls_to_resolve:
-            resolved = await resolve_short_url(short_url)
-            if resolved:
-                playlist_id = extract_playlist_id_from_url(resolved)
-                if playlist_id and playlist_id not in seen_ids:
-                    seen_ids.add(playlist_id)
-                    ids.append(playlist_id)
-                    logger.info("[Netease] 短链接解析 → 提取到歌单 ID: %s → %s", short_url, playlist_id)
-
-    elapsed = time.time() - t_start
-    if ids:
-        logger.info("[Netease] 歌单 ID 提取完成 (%.2fs) → 共 %d 个: %s", elapsed, len(ids), ids)
-    else:
-        logger.debug("[Netease] 歌单 ID 提取完成 (%.2fs) → 未找到", elapsed)
-
-    return ids
 
 
 def extract_playlist_ids(text: str) -> list[str]:

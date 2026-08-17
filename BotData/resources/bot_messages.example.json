@@ -114,7 +114,10 @@
     "info": "🎵 {name}\n歌手：{artist}\n专辑：{album}",
     "failed": "网易云音乐解析失败，请稍后再试。",
     "not_found": "未找到歌曲信息。",
-    "url_unavailable": "无法获取歌曲音频链接（可能需要版权或登录）。"
+    "url_unavailable": "无法获取歌曲音频链接（可能需要版权或登录）。",
+    "format_hint": "（回复这条信息说 mp3 换 MP3 / 回复 flac 换 FLAC）",
+    "pref_updated": "已改默认音质为 {quality}，正在重新发送～",
+    "card_hint": "🎵 想下载这首歌？引用这条卡片并 @我 即可"
   },
   "media_parser": {
     "usage": "用法：媒体解析 <抖音/B站/小红书/小黑盒等平台链接>",
