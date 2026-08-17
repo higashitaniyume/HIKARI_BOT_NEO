@@ -92,6 +92,44 @@ async def _get_recent_scores_for_card(user_id, mode):
         return []
 
 
+async def _upload_file(ctx: CommandContext, path: Path, name: str) -> None:
+    bot = ctx.bot
+    event = ctx.event
+    if isinstance(event, GroupMessageEvent):
+        await bot.call_api(
+            "upload_group_file",
+            group_id=event.group_id,
+            file=str(path.resolve()),
+            name=name,
+        )
+        return
+    if isinstance(event, PrivateMessageEvent):
+        await bot.call_api(
+            "upload_private_file",
+            user_id=event.user_id,
+            file=str(path.resolve()),
+            name=name,
+        )
+        return
+    raise RuntimeError(f"不支持的事件类型，无法上传文件: {type(event).__name__}")
+
+
+async def _send_download_link(ctx: CommandContext, beatmapset_id: int, reason: str) -> None:
+    await ctx.send(
+        Message(
+            msg(
+                "osu.download_link",
+                download_url=official_download_url(
+                    beatmapset_id,
+                    no_video=bool(get_config().get("download_no_video", True)),
+                ),
+                page_url=official_page_url(beatmapset_id),
+                reason=reason,
+            )
+        )
+    )
+
+
 # Import command handlers (these reference __init__ functions via parent module lookup)
 from .commands import (  # noqa: E402
     handle_osu_beatmap,
@@ -169,4 +207,4 @@ async def handle_osu(ctx: CommandContext) -> None:
 get_config()
 
 # Test compatibility re-exports
-from .commands import _extract_beatmap_id, _resolve_download_beatmapset_id, _score_args, _send_download_link, _upload_file  # noqa: E402, F401
+from .commands import _extract_beatmap_id, _resolve_download_beatmapset_id, _score_args  # noqa: E402, F401

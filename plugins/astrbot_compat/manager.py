@@ -7,9 +7,14 @@ of pre-existing plugins.
 from __future__ import annotations
 
 import logging
+import re
+import shutil
+import stat
+import tempfile
 import time
 import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any
 
 from core.command_router import command, CommandContext
@@ -25,6 +30,15 @@ from plugins.astrbot_compat.loader import (
 )
 
 logger = logging.getLogger("AstrBotCompat.Manager")
+
+_SAFE_PLUGIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+_MAX_ZIP_MEMBERS = 2048
+_MAX_ZIP_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 
 
 def ensure_plugin_dirs() -> None:
@@ -79,42 +93,116 @@ def extract_plugin_zip(zip_path: Path, target_name: str | None = None) -> Path:
     if not zipfile.is_zipfile(zip_path):
         raise ValueError(f"Not a valid zip file: {zip_path}")
 
-    if target_name is None:
-        target_name = zip_path.stem
+    target_name = target_name or zip_path.stem
+    if (
+        not _SAFE_PLUGIN_NAME.fullmatch(target_name)
+        or target_name.upper() in _WINDOWS_RESERVED_NAMES
+    ):
+        raise ValueError(f"Unsafe plugin target name: {target_name!r}")
 
     started_at = time.monotonic()
+    PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     target_dir = PLUGINS_DIR / target_name
-    if target_dir.exists():
-        import shutil
-        logger.warning("Removing existing plugin directory for zip extraction: %s", target_dir)
-        shutil.rmtree(target_dir)
+    staging_dir = Path(tempfile.mkdtemp(prefix=".install-", dir=PLUGINS_DIR))
+    backup_dir = staging_dir.with_name(f"{staging_dir.name}-backup")
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        members = zf.namelist()
-        if any("/" in m for m in members):
-            zf.extractall(target_dir)
-            subdirs = [d for d in target_dir.iterdir() if d.is_dir()]
-            if len(subdirs) == 1 and (subdirs[0] / "main.py").exists():
-                flat_dir = subdirs[0]
-                for item in flat_dir.iterdir():
-                    item.rename(target_dir / item.name)
-                import shutil as _sh
-                _sh.rmtree(flat_dir)
-                logger.debug("Flattened single-subdirectory zip structure for %s", target_name)
-        else:
-            zf.extractall(target_dir)
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = zf.infolist()
+            if len(members) > _MAX_ZIP_MEMBERS:
+                raise ValueError(f"Plugin zip has too many members ({len(members)})")
 
-    # Verify main.py exists
-    if not (target_dir / "main.py").exists():
-        import shutil
-        shutil.rmtree(target_dir)
-        raise ValueError(
-            f"Plugin zip does not contain main.py (extracted to {target_dir})"
-        )
+            total_size = 0
+            destinations: set[str] = set()
+            validated: list[tuple[zipfile.ZipInfo, Path]] = []
+            for member in members:
+                relative = _validate_zip_member(member)
+                if relative is None:
+                    continue
+                total_size += member.file_size
+                if total_size > _MAX_ZIP_UNCOMPRESSED_BYTES:
+                    raise ValueError("Plugin zip exceeds the uncompressed size limit")
+
+                destination = staging_dir.joinpath(*relative.parts)
+                key = str(destination.relative_to(staging_dir)).casefold()
+                if key in destinations:
+                    raise ValueError(f"Plugin zip contains duplicate path: {member.filename!r}")
+                destinations.add(key)
+                validated.append((member, destination))
+
+            extracted_size = 0
+            for member, destination in validated:
+                if member.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member, "r") as source, destination.open("xb") as output:
+                    while chunk := source.read(1024 * 1024):
+                        extracted_size += len(chunk)
+                        if extracted_size > _MAX_ZIP_UNCOMPRESSED_BYTES:
+                            raise ValueError("Plugin zip exceeds the uncompressed size limit")
+                        output.write(chunk)
+
+        source_dir = staging_dir
+        if not (source_dir / "main.py").is_file():
+            entries = list(source_dir.iterdir())
+            if len(entries) == 1 and entries[0].is_dir() and (entries[0] / "main.py").is_file():
+                source_dir = entries[0]
+            else:
+                raise ValueError("Plugin zip does not contain main.py at its root")
+
+        had_existing_target = target_dir.exists()
+        if had_existing_target:
+            target_dir.rename(backup_dir)
+        try:
+            source_dir.rename(target_dir)
+            if backup_dir.exists():
+                shutil.rmtree(backup_dir)
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            if backup_dir.exists():
+                backup_dir.rename(target_dir)
+            raise
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        if backup_dir.exists() and not target_dir.exists():
+            backup_dir.rename(target_dir)
 
     elapsed = time.monotonic() - started_at
     logger.info("Plugin zip extracted to %s in %.2fs", target_dir, elapsed)
     return target_dir
+
+
+def _validate_zip_member(member: zipfile.ZipInfo) -> PurePosixPath | None:
+    raw_name = member.filename
+    normalized = raw_name.replace("\\", "/")
+    if not normalized or normalized.startswith(("/", "//")):
+        raise ValueError(f"Unsafe zip member path: {raw_name!r}")
+    if re.match(r"^[A-Za-z]:", normalized):
+        raise ValueError(f"Unsafe zip member path: {raw_name!r}")
+
+    path = PurePosixPath(normalized)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise ValueError(f"Unsafe zip member path: {raw_name!r}")
+    for part in path.parts:
+        if (
+            ":" in part
+            or part.endswith((" ", "."))
+            or part.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES
+        ):
+            raise ValueError(f"Unsafe zip member path: {raw_name!r}")
+
+    mode = member.external_attr >> 16
+    file_type = stat.S_IFMT(mode)
+    if stat.S_ISLNK(mode):
+        raise ValueError(f"Plugin zip contains a symbolic link: {raw_name!r}")
+    if file_type and not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+        raise ValueError(f"Plugin zip contains a special file: {raw_name!r}")
+    if member.flag_bits & 0x1:
+        raise ValueError(f"Plugin zip contains an encrypted member: {raw_name!r}")
+    return path
 
 
 async def auto_load_plugins() -> int:
@@ -134,7 +222,7 @@ async def auto_load_plugins() -> int:
     for plugin_dir in discovered:
         name = plugin_dir.name
         try:
-            handle = load_plugin(plugin_dir, plugin_name=name)
+            handle = await load_plugin(plugin_dir, plugin_name=name)
             set_loaded_plugin(name, handle)
             count += 1
         except (ValueError, ImportError) as e:
@@ -161,6 +249,7 @@ async def auto_load_plugins() -> int:
     usage="astrbot list",
     detail_key="astrbot_list",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_list(ctx: CommandContext) -> None:
     """List all loaded astrbot plugins."""
@@ -191,6 +280,7 @@ async def cmd_astrbot_list(ctx: CommandContext) -> None:
     usage="astrbot load <路径> [插件名]",
     detail_key="astrbot_load",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_load(ctx: CommandContext) -> None:
     """Load an astrbot plugin from a path or zip file."""
@@ -231,7 +321,7 @@ async def cmd_astrbot_load(ctx: CommandContext) -> None:
 
         logger.info("User triggered load: plugin=[%s] source=%s", plugin_name, target_path)
         await ctx.send(f"正在加载插件 {plugin_name} ...")
-        handle = load_plugin(plugin_dir, plugin_name=plugin_name)
+        handle = await load_plugin(plugin_dir, plugin_name=plugin_name)
         set_loaded_plugin(plugin_name, handle)
 
         info = handle.info
@@ -253,6 +343,7 @@ async def cmd_astrbot_load(ctx: CommandContext) -> None:
     usage="astrbot remove <插件名>",
     detail_key="astrbot_remove",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_remove(ctx: CommandContext) -> None:
     """Unload a loaded astrbot plugin."""
@@ -267,7 +358,7 @@ async def cmd_astrbot_remove(ctx: CommandContext) -> None:
 
     try:
         logger.info("User triggered remove: plugin=[%s]", name)
-        unload_plugin(name)
+        await unload_plugin(name)
         await ctx.send(f"✅ 插件 {name} 已卸载。")
     except Exception as e:
         await ctx.send(f"❌ 卸载失败: {e}")
@@ -281,6 +372,7 @@ async def cmd_astrbot_remove(ctx: CommandContext) -> None:
     usage="astrbot reload <插件名>",
     detail_key="astrbot_reload",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_reload(ctx: CommandContext) -> None:
     """Reload a loaded astrbot plugin."""
@@ -296,7 +388,7 @@ async def cmd_astrbot_reload(ctx: CommandContext) -> None:
     try:
         logger.info("User triggered reload: plugin=[%s]", name)
         await ctx.send(f"正在重新加载 {name} ...")
-        handle = reload_plugin(name)
+        handle = await reload_plugin(name)
         set_loaded_plugin(name, handle)
         await ctx.send(f"✅ 插件 {name} 已重新加载。")
     except Exception as e:
@@ -311,6 +403,7 @@ async def cmd_astrbot_reload(ctx: CommandContext) -> None:
     usage="astrbot rebuild-env",
     detail_key="astrbot_rebuild_env",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_rebuild_env(ctx: CommandContext) -> None:
     """Rebuild the shared plugin venv from all loaded plugins' requirements."""
@@ -347,6 +440,7 @@ async def cmd_astrbot_rebuild_env(ctx: CommandContext) -> None:
     usage="astrbot info <插件名>",
     detail_key="astrbot_info",
     private_only=True,
+    superuser_only=True,
 )
 async def cmd_astrbot_info(ctx: CommandContext) -> None:
     """Show detailed info about a loaded plugin."""

@@ -15,6 +15,7 @@ from typing import Awaitable, Callable, Iterable
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
 
+from core.config_loader import load_main_config
 from core.lifecycle_logging import describe_event, elapsed_ms, preview_text
 
 logger = logging.getLogger("HikariBot.CommandRouter")
@@ -47,6 +48,7 @@ class CommandSpec:
     require_tome: bool = False
     private_only: bool = False
     group_only: bool = False
+    superuser_only: bool = False
     show_in_help: bool = True
 
     @property
@@ -78,6 +80,7 @@ def command(
     require_tome: bool = False,
     private_only: bool = False,
     group_only: bool = False,
+    superuser_only: bool = False,
     show_in_help: bool = True,
 ) -> Callable[[CommandHandler], CommandHandler]:
     """注册一个明确命令。"""
@@ -93,6 +96,7 @@ def command(
             require_tome=require_tome,
             private_only=private_only,
             group_only=group_only,
+            superuser_only=superuser_only,
             show_in_help=show_in_help,
         )
         _commands.append(spec)
@@ -156,6 +160,21 @@ def _normalize_for_match(value: str) -> str:
     return value.strip().casefold()
 
 
+def is_superuser_event(event: MessageEvent) -> bool:
+    """Return whether the event sender matches a configured, usable superuser ID."""
+    try:
+        configured = str(
+            load_main_config().get("bot", {}).get("superuser_id", "")
+        ).strip()
+    except Exception:
+        logger.exception("读取 superuser_id 失败，拒绝受保护命令")
+        return False
+
+    if not configured.isdecimal() or int(configured) <= 0:
+        return False
+    return str(getattr(event, "user_id", "")).strip() == configured
+
+
 def _match_command(text: str) -> tuple[CommandSpec, str, str] | None:
     stripped = text.strip()
     if not stripped:
@@ -193,6 +212,8 @@ def _scope_allowed(spec: CommandSpec, event: MessageEvent) -> bool:
     if spec.group_only and not is_group:
         return False
     if spec.require_tome and is_group and not event.is_tome():
+        return False
+    if spec.superuser_only and not is_superuser_event(event):
         return False
     return True
 
@@ -271,4 +292,6 @@ def _scope_label(spec: CommandSpec) -> str:
         scopes.append("group_only")
     if spec.require_tome:
         scopes.append("require_tome")
+    if spec.superuser_only:
+        scopes.append("superuser_only")
     return ",".join(scopes) if scopes else "any"

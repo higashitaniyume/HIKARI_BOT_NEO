@@ -156,7 +156,7 @@ def save_plugin_config(name: str, config_data: dict[str, Any]) -> dict[str, Any]
     return get_plugin_detail(name)
 
 
-def reload_plugin(name: str) -> dict[str, Any]:
+async def reload_plugin(name: str) -> dict[str, Any]:
     """Reload a plugin and return updated detail."""
     from plugins.astrbot_compat.loader import reload_plugin as _reload, set_loaded_plugin
     from plugins.astrbot_compat.loader import get_loaded_plugins
@@ -164,23 +164,23 @@ def reload_plugin(name: str) -> dict[str, Any]:
     if name not in get_loaded_plugins():
         raise ValueError(f"插件未加载: {name}")
     logger.info("Web admin triggered reload: plugin=[%s]", name)
-    handle = _reload(name)
+    handle = await _reload(name)
     set_loaded_plugin(name, handle)
     return get_plugin_detail(name)
 
 
-def remove_plugin(name: str) -> dict[str, Any]:
+async def remove_plugin(name: str) -> dict[str, Any]:
     """Unload a plugin and return status."""
     from plugins.astrbot_compat.loader import get_loaded_plugins, unload_plugin
 
     if name not in get_loaded_plugins():
         raise ValueError(f"插件未加载: {name}")
     logger.info("Web admin triggered remove: plugin=[%s]", name)
-    unload_plugin(name)
+    await unload_plugin(name)
     return {"status": "removed", "name": name}
 
 
-def load_plugin_from_path(plugin_path: str, plugin_name: str | None = None) -> dict[str, Any]:
+async def load_plugin_from_path(plugin_path: str, plugin_name: str | None = None) -> dict[str, Any]:
     """Load a plugin from a directory or zip path."""
     import zipfile
     from plugins.astrbot_compat.loader import load_plugin as _load, set_loaded_plugin
@@ -203,12 +203,12 @@ def load_plugin_from_path(plugin_path: str, plugin_name: str | None = None) -> d
         raise ValueError(f"目录中未找到 main.py: {plugin_dir}")
 
     logger.info("Web admin triggered load: plugin=[%s] source=%s", name, plugin_path)
-    handle = _load(plugin_dir, plugin_name=name)
+    handle = await _load(plugin_dir, plugin_name=name)
     set_loaded_plugin(name, handle)
     return get_plugin_detail(name)
 
 
-def upload_and_load_plugin(
+async def upload_and_load_plugin(
     archive_content: bytes,
     filename: str,
     plugin_name: str | None = None,
@@ -243,7 +243,7 @@ def upload_and_load_plugin(
         plugin_dir = extract_plugin_zip(zip_path, name)
 
         # Load
-        handle = _load(plugin_dir, plugin_name=name)
+        handle = await _load(plugin_dir, plugin_name=name)
         set_loaded_plugin(name, handle)
         result = get_plugin_detail(name)
         result["message"] = "插件已上传并加载。"

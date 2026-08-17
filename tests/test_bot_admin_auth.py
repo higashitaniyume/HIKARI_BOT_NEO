@@ -4,6 +4,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from plugins.bot_admin import handler as admin_handler
+from plugins.bot_admin import handlers_state as admin_state_handlers
+from plugins.bot_admin import server as admin_server
+from plugins.bot_admin.config import is_obviously_weak_password
 
 
 class _Headers(dict):
@@ -63,12 +66,45 @@ class BotAdminAuthTests(unittest.TestCase):
         payload = {"current": {"version": "0.0.1", "git_hash": "abcdef1", "title": "Initial"}}
         with (
             patch.object(admin_handler.BotAdminHandler, "_is_authenticated", Mock(return_value=True)),
-            patch.object(admin_handler, "runtime_info_state", Mock(return_value=payload)),
+            patch.object(admin_state_handlers, "runtime_info_state", Mock(return_value=payload)),
             patch.object(admin_handler.BotAdminHandler, "_send_json") as send_json,
         ):
             request.do_GET()
 
         send_json.assert_called_once_with(payload)
+
+
+class BotAdminPasswordWarningTests(unittest.TestCase):
+    def test_obviously_weak_password_detection(self) -> None:
+        for password in (None, "", "  ", "change-me", "PASSWORD", "admin", 123456, "qwerty"):
+            with self.subTest(password=password):
+                self.assertTrue(is_obviously_weak_password(password))
+
+        self.assertFalse(is_obviously_weak_password("correct-horse-battery-staple"))
+
+    def test_start_server_warns_without_rejecting_weak_password(self) -> None:
+        fake_server = Mock()
+        fake_thread = Mock()
+        config = {
+            "enabled": True,
+            "host": "192.168.31.2",
+            "port": 54213,
+            "password": "change-me",
+        }
+
+        with (
+            patch.object(admin_server, "_server_started", False),
+            patch.object(admin_server, "get_config", return_value=config),
+            patch.object(admin_server, "ThreadingHTTPServer", return_value=fake_server) as http_server,
+            patch.object(admin_server.threading, "Thread", return_value=fake_thread),
+            patch.object(admin_server.logger, "critical") as critical,
+        ):
+            admin_server.start_server()
+
+        critical.assert_called_once()
+        self.assertNotIn(config["password"], critical.call_args.args[0])
+        http_server.assert_called_once_with(("192.168.31.2", 54213), admin_server.BotAdminHandler)
+        fake_thread.start.assert_called_once_with()
 
 
 if __name__ == "__main__":

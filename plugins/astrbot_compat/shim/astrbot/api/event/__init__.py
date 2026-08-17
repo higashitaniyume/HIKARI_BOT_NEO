@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from astrbot.api.message_components import BaseMessageComponent, Image, Plain
@@ -43,6 +44,7 @@ class AstrMessageEvent:
         self._result: MessageEventResult | None = None
         self._force_stopped: bool = False
         self._extras: dict[str, Any] = {}
+        self._send_hook: Callable[[Any], Awaitable[None]] | None = None
 
     # --- Identity ---
 
@@ -154,11 +156,20 @@ class AstrMessageEvent:
 
     # --- Send ---
 
+    def _set_send_hook(
+        self,
+        hook: Callable[[Any], Awaitable[None]] | None,
+    ) -> None:
+        self._send_hook = hook
+
     async def send(self, message: str | MessageChain | list[BaseMessageComponent]) -> None:
         """Send a message via the bridged bot."""
+        if self._send_hook is not None:
+            await self._send_hook(message)
+            return
         if self._bot is None or self._event is None:
             return
-        from plugins.astrbot_compat.loader import convert_chain_to_onebot
+        from plugins.astrbot_compat.conversion import convert_chain_to_onebot
         if isinstance(message, str):
             await self._bot.send(self._event, message)
         elif isinstance(message, MessageChain):

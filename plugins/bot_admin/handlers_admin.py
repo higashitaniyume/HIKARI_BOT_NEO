@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from . import astrbot_ops
+from plugins.astrbot_compat.runtime import submit_coroutine
 
 logger = logging.getLogger("HikariBot.BotAdmin")
 
@@ -39,7 +40,7 @@ class AdminHandlerMixin:
             name = str(data.get("name", "")).strip()
             if not name:
                 raise ValueError("插件名不能为空。")
-            result = astrbot_ops.reload_plugin(name)
+            result = submit_coroutine(astrbot_ops.reload_plugin(name), timeout=300)
             result["message"] = "插件已重新加载。"
             self._send_json(result)
         except ValueError as e:
@@ -54,7 +55,7 @@ class AdminHandlerMixin:
             name = str(data.get("name", "")).strip()
             if not name:
                 raise ValueError("插件名不能为空。")
-            result = astrbot_ops.remove_plugin(name)
+            result = submit_coroutine(astrbot_ops.remove_plugin(name), timeout=300)
             result["message"] = "插件已卸载。"
             self._send_json(result)
         except ValueError as e:
@@ -70,7 +71,10 @@ class AdminHandlerMixin:
             plugin_name = str(data.get("name", "")).strip() or None
             if not plugin_path:
                 raise ValueError("插件路径不能为空。")
-            result = astrbot_ops.load_plugin_from_path(plugin_path, plugin_name)
+            result = submit_coroutine(
+                astrbot_ops.load_plugin_from_path(plugin_path, plugin_name),
+                timeout=300,
+            )
             result["message"] = "插件已加载。"
             self._send_json(result)
         except ValueError as e:
@@ -122,7 +126,10 @@ class AdminHandlerMixin:
             return
 
         try:
-            result = astrbot_ops.upload_and_load_plugin(archive_content, filename, plugin_name)
+            result = submit_coroutine(
+                astrbot_ops.upload_and_load_plugin(archive_content, filename, plugin_name),
+                timeout=300,
+            )
             self._send_json(result)
         except ValueError as e:
             self._send_json({"error": str(e)}, 400)

@@ -6,7 +6,8 @@ HIKARI BOT NEO runtime.
 
 from __future__ import annotations
 
-import importlib
+import hashlib
+import importlib.util
 import inspect
 import logging
 import re
@@ -14,9 +15,9 @@ import sys
 import time
 from pathlib import Path
 from types import ModuleType
-from typing import Any, AsyncGenerator
+from typing import Any
 
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent
+from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
 
 from astrbot.api.star import Context, Star, clear_star_registration, get_registered_star_classes
 from astrbot.api.AstrBotConfig import AstrBotConfig
@@ -31,84 +32,17 @@ from astrbot.api.event.filter import (
 )
 from astrbot.core.message.message_event_result import MessageEventResult
 
-from plugins.astrbot_compat.conversion import (
-    _component_to_segment,
-    convert_chain_to_onebot,
+from core.command_router import _commands
+from plugins.astrbot_compat.state import (
+    OnMsgHandler,
+    PluginHandle,
+    RegexMatcher,
+    loaded_plugins as _loaded_plugins,
+    on_message_handlers as _on_message_handlers,
+    regex_matchers as _regex_matchers,
 )
 
-from core.command_router import CommandSpec, _commands
-from core.lifecycle_logging import describe_event
-
 logger = logging.getLogger("AstrBotCompat.Loader")
-
-# ---------------------------------------------------------------------------
-# Public state: loaded plugins tracked by the manager
-# ---------------------------------------------------------------------------
-
-_loaded_plugins: dict[str, "PluginHandle"] = {}
-_regex_matchers: list["RegexMatcher"] = []
-_on_message_handlers: list["OnMsgHandler"] = []
-
-
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
-
-class PluginHandle:
-    """Tracks a loaded astrbot plugin's runtime state."""
-
-    def __init__(
-        self,
-        name: str,
-        display_name: str,
-        module_path: Path,
-        module: ModuleType,
-        star_class: type[Star],
-        instance: Star,
-        ctx: Context,
-        config_obj: AstrBotConfig,
-    ):
-        self.name = name
-        self.display_name = display_name
-        self.module_path = module_path
-        self.module = module
-        self.star_class = star_class
-        self.instance = instance
-        self.ctx = ctx
-        self.config_obj = config_obj
-        self.command_names: list[str] = []  # primary command names registered in command_router
-        self._command_aliases: dict[str, list[str]] = {}  # primary name -> aliases
-        self._load_timestamp: float = time.monotonic()
-
-    @property
-    def info(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "display_name": self.display_name,
-            "class": self.star_class.__name__,
-            "author": getattr(self.star_class, "author", ""),
-            "version": getattr(self.star_class, "version", ""),
-            "commands": list(self.command_names),
-            "path": str(self.module_path),
-        }
-
-
-class RegexMatcher:
-    """A loaded plugin's regex handler."""
-
-    def __init__(self, plugin_name: str, pattern: re.Pattern, handler: Any):
-        self.plugin_name = plugin_name
-        self.pattern = pattern
-        self.handler = handler
-
-
-class OnMsgHandler:
-    """A loaded plugin's catch-all message handler."""
-
-    def __init__(self, plugin_name: str, handler: Any):
-        self.plugin_name = plugin_name
-        self.handler = handler
-
 
 from plugins.astrbot_compat.dispatch import dispatch_regex_command, dispatch_on_message
 
@@ -116,7 +50,7 @@ from plugins.astrbot_compat.dispatch import dispatch_regex_command, dispatch_on_
 # Core loading logic
 # ---------------------------------------------------------------------------
 
-def load_plugin(
+async def load_plugin(
     plugin_dir: Path,
     plugin_name: str | None = None,
     shim_path: Path | None = None,
@@ -124,8 +58,8 @@ def load_plugin(
     """Load an astrbot plugin from its directory.
 
     Steps:
-        1. Add shim & plugin dir to ``sys.path``
-        2. Import ``main`` module
+        1. Add the shared shim to ``sys.path``
+        2. Import ``main.py`` as a unique package
         3. Find the ``Star`` subclass
         4. Parse config, instantiate, register handlers
         5. Call ``initialize()``
@@ -155,10 +89,7 @@ def load_plugin(
 
     # --- Prepare paths ---
     shim_path = _resolve_shim_path(shim_path)
-    plugin_source = str(plugin_dir.resolve())
-
     _add_to_sys_path(shim_path)
-    _add_to_sys_path(plugin_source)
 
     # --- Install dependencies if needed ---
     requirements_txt = plugin_dir / "requirements.txt"
@@ -168,43 +99,47 @@ def load_plugin(
         if deps_installed:
             logger.info("Plugin [%s] deps installed: %s", plugin_name, deps_installed)
 
-    # --- Import main module ---
-    star_classes_before = set(get_registered_star_classes().keys())
+    # --- Import main module as an isolated package ---
+    module_prefix = _module_prefix(plugin_name, plugin_dir)
+    _clear_plugin_modules(module_prefix)
+    _clear_star_registrations(module_prefix)
+    spec = importlib.util.spec_from_file_location(
+        module_prefix,
+        main_py,
+        submodule_search_locations=[str(plugin_dir.resolve())],
+    )
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Failed to create import spec for plugin {plugin_name}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_prefix] = mod
     try:
-        mod = importlib.import_module("main")
-    except ImportError as e:
-        _remove_from_sys_path(plugin_source)
+        spec.loader.exec_module(mod)
+    except Exception as e:
+        _clear_star_registrations(module_prefix)
+        _clear_plugin_modules(module_prefix)
         raise ValueError(f"Failed to import plugin {plugin_name}: {e}") from e
 
     # --- Find Star subclass ---
     star_classes_after = get_registered_star_classes()
-    new_modules = set(star_classes_after.keys()) - star_classes_before
-    if not new_modules:
-        # The plugin might have been imported with a different module path
-        # Try scanning all star classes
-        for mod_name, cls in star_classes_after.items():
-            if mod_name.startswith("main") or mod_name == mod.__name__:
-                new_modules.add(mod_name)
-
-    if not new_modules:
+    star_cls = star_classes_after.get(module_prefix)
+    if star_cls is None:
         logger.debug(
             "Plugin [%s] no Star via __init_subclass__, scanning module ...",
             plugin_name,
         )
         found = _find_star_in_module(mod)
         if found:
-            star_classes_after[mod.__name__] = found
-            new_modules.add(mod.__name__)
+            star_cls = found
 
-    if not new_modules:
+    if star_cls is None:
+        _clear_star_registrations(module_prefix)
+        _clear_plugin_modules(module_prefix)
         raise ValueError(
             f"No Star subclass found in plugin {plugin_name}. "
             "Make sure the plugin class inherits from astrbot.api.star.Star"
         )
 
-    cls_module_name = next(iter(new_modules))
-    star_cls = star_classes_after[cls_module_name]
-    logger.debug("Plugin [%s] Star class: %s (module=%s)", plugin_name, star_cls.__name__, cls_module_name)
+    logger.debug("Plugin [%s] Star class: %s (module=%s)", plugin_name, star_cls.__name__, module_prefix)
 
     # --- Apply metadata to Star class ---
     if metadata.get("name"):
@@ -234,21 +169,28 @@ def load_plugin(
     # --- Instantiate ---
     try:
         instance = star_cls(context=ctx, config=config_obj)
-    except TypeError as e:
+    except TypeError:
         # Some plugins don't accept config
         try:
             instance = star_cls(context=ctx)
             logger.debug("Plugin [%s] instantiated without config (fallback)", plugin_name)
         except TypeError as e2:
+            _clear_star_registrations(module_prefix)
+            _clear_plugin_modules(module_prefix)
             raise ValueError(
                 f"Failed to instantiate plugin {plugin_name}: {e2}"
             ) from e2
+    except Exception:
+        _clear_star_registrations(module_prefix)
+        _clear_plugin_modules(module_prefix)
+        raise
 
     # --- Register handlers ---
     handle = PluginHandle(
         name=plugin_name,
         display_name=getattr(star_cls, "name", "") or star_cls.__name__,
         module_path=plugin_dir,
+        module_prefix=module_prefix,
         module=mod,
         star_class=star_cls,
         instance=instance,
@@ -256,22 +198,35 @@ def load_plugin(
         config_obj=config_obj,
     )
 
-    _register_handlers(handle)
-
     # --- Set bot ref for Context.send_message ---
     _try_set_bot_ref()
 
-    # --- Call initialize ---
+    # --- Initialize before exposing any handlers ---
     try:
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(instance.initialize())
+        await instance.initialize()
         logger.debug("Plugin [%s] initialize() completed", plugin_name)
     except Exception as e:
-        logger.warning(
-            "Plugin [%s] initialize() raised an error (plugin may be partially loaded): %s",
-            plugin_name,
-            e,
-        )
+        logger.exception("Plugin [%s] initialize() failed: %s", plugin_name, e)
+        try:
+            await instance.terminate()
+        except Exception:
+            logger.exception("Plugin [%s] rollback terminate() failed", plugin_name)
+        _rollback_registrations(handle)
+        _clear_star_registrations(module_prefix)
+        _clear_plugin_modules(module_prefix)
+        raise ValueError(f"Plugin {plugin_name} initialize() failed: {e}") from e
+
+    try:
+        _register_handlers(handle)
+    except Exception:
+        try:
+            await instance.terminate()
+        except Exception:
+            logger.exception("Plugin [%s] registration rollback terminate() failed", plugin_name)
+        _rollback_registrations(handle)
+        _clear_star_registrations(module_prefix)
+        _clear_plugin_modules(module_prefix)
+        raise
 
     elapsed = time.monotonic() - started_at
     cmd_count = len(handle.command_names)
@@ -294,7 +249,7 @@ def load_plugin(
     return handle
 
 
-def unload_plugin(name: str) -> None:
+async def unload_plugin(name: str) -> None:
     """Unload a previously loaded plugin.
 
     Removes its commands from ``command_router._commands``, regex/on_message
@@ -309,40 +264,17 @@ def unload_plugin(name: str) -> None:
 
     # Call terminate
     try:
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(handle.instance.terminate())
+        await handle.instance.terminate()
         logger.debug("Plugin [%s] terminate() completed", name)
     except Exception as e:
         logger.warning("Plugin [%s] terminate() raised: %s", name, e)
 
     # Remove commands from command_router
-    removed_count = 0
-    for cmd_name in handle.command_names:
-        spec_count_before = len(_commands)
-        _commands[:] = [spec for spec in _commands if spec.name != cmd_name]
-        removed_count += spec_count_before - len(_commands)
-
-    # Remove regex matchers
-    regex_removed = len([r for r in _regex_matchers if r.plugin_name == name])
-    _regex_matchers[:] = [r for r in _regex_matchers if r.plugin_name != name]
-
-    # Remove on_message handlers
-    on_msg_removed = len([o for o in _on_message_handlers if o.plugin_name == name])
-    _on_message_handlers[:] = [o for o in _on_message_handlers if o.plugin_name != name]
+    removed_count, regex_removed, on_msg_removed = _rollback_registrations(handle)
 
     # Clean shim star registration
-    clear_star_registration(handle.module.__name__)
-
-    # Remove from sys.path
-    _remove_from_sys_path(str(handle.module_path.resolve()))
-
-    # Remove from sys.modules
-    mod_names = [
-        m for m in sys.modules
-        if m == handle.module.__name__ or m.startswith(f"{handle.module.__name__}.")
-    ]
-    for m in mod_names:
-        sys.modules.pop(m, None)
+    _clear_star_registrations(handle.module_prefix)
+    mod_names = _clear_plugin_modules(handle.module_prefix)
 
     # Remove from loaded dict
     _loaded_plugins.pop(name, None)
@@ -360,18 +292,18 @@ def unload_plugin(name: str) -> None:
     )
 
 
-def reload_plugin(name: str, shim_path: Path | None = None) -> PluginHandle:
+async def reload_plugin(name: str, shim_path: Path | None = None) -> PluginHandle:
     """Reload a plugin: unload then load again."""
     plugin_dir: Path | None = None
     if name in _loaded_plugins:
         plugin_dir = _loaded_plugins[name].module_path
         logger.info("Reloading plugin [%s] ...", name)
-        unload_plugin(name)
+        await unload_plugin(name)
 
     if plugin_dir is None:
         raise ValueError(f"Cannot reload plugin that was never loaded: {name}")
 
-    return load_plugin(plugin_dir, plugin_name=name, shim_path=shim_path)
+    return await load_plugin(plugin_dir, plugin_name=name, shim_path=shim_path)
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +325,31 @@ def _add_to_sys_path(p: Path | str) -> None:
 def _remove_from_sys_path(s: str) -> None:
     while s in sys.path:
         sys.path.remove(s)
+
+
+def _module_prefix(plugin_name: str, plugin_dir: Path) -> str:
+    safe_name = re.sub(r"[^A-Za-z0-9_]", "_", plugin_name).strip("_") or "plugin"
+    if safe_name[0].isdigit():
+        safe_name = f"p_{safe_name}"
+    path_hash = hashlib.sha256(str(plugin_dir.resolve()).encode("utf-8")).hexdigest()[:12]
+    return f"_astrbot_plugin_{safe_name}_{path_hash}"
+
+
+def _clear_plugin_modules(module_prefix: str) -> list[str]:
+    module_names = [
+        name
+        for name in list(sys.modules)
+        if name == module_prefix or name.startswith(f"{module_prefix}.")
+    ]
+    for name in module_names:
+        sys.modules.pop(name, None)
+    return module_names
+
+
+def _clear_star_registrations(module_prefix: str) -> None:
+    for module_name in get_registered_star_classes():
+        if module_name == module_prefix or module_name.startswith(f"{module_prefix}."):
+            clear_star_registration(module_name)
 
 
 def _install_requirements(requirements_txt: Path, plugin_name: str) -> list[str]:
@@ -462,7 +419,9 @@ def _register_handlers(handle: PluginHandle) -> None:
         # --- @filter.regex ---
         regex_pat = get_regex_meta(method)
         if regex_pat is not None:
-            _regex_matchers.append(RegexMatcher(handle.name, regex_pat, method))
+            matcher = RegexMatcher(handle.name, regex_pat, method)
+            _regex_matchers.append(matcher)
+            handle.regex_handlers.append(matcher)
             logger.debug(
                 "Plugin [%s] registered regex: %s",
                 handle.name,
@@ -472,7 +431,9 @@ def _register_handlers(handle: PluginHandle) -> None:
 
         # --- @filter.on_message ---
         if is_on_message(method):
-            _on_message_handlers.append(OnMsgHandler(handle.name, method))
+            handler = OnMsgHandler(handle.name, method)
+            _on_message_handlers.append(handler)
+            handle.on_message_handlers.append(handler)
             logger.debug(
                 "Plugin [%s] registered on_message handler: %s",
                 handle.name,
@@ -481,6 +442,24 @@ def _register_handlers(handle: PluginHandle) -> None:
             continue
 
     _ensure_astrbot_matcher()
+
+
+def _rollback_registrations(handle: PluginHandle) -> tuple[int, int, int]:
+    command_ids = {id(spec) for spec in handle.command_specs}
+    commands_before = len(_commands)
+    _commands[:] = [spec for spec in _commands if id(spec) not in command_ids]
+    regex_ids = {id(item) for item in handle.regex_handlers}
+    on_message_ids = {id(item) for item in handle.on_message_handlers}
+    regex_removed = sum(1 for item in _regex_matchers if id(item) in regex_ids)
+    on_msg_removed = sum(1 for item in _on_message_handlers if id(item) in on_message_ids)
+    _regex_matchers[:] = [item for item in _regex_matchers if id(item) not in regex_ids]
+    _on_message_handlers[:] = [item for item in _on_message_handlers if id(item) not in on_message_ids]
+    handle.command_specs.clear()
+    handle.regex_handlers.clear()
+    handle.on_message_handlers.clear()
+    handle.command_names.clear()
+    handle._command_aliases.clear()
+    return commands_before - len(_commands), regex_removed, on_msg_removed
 
 
 def _register_one_command(
@@ -507,6 +486,9 @@ def _register_one_command(
         text = ctx.text
         bot = ctx.bot
 
+        if not await _permission_allowed(perm, bot, event):
+            return
+
         # Strip leading / from text for matching
         clean_text = text.lstrip("/") if text.startswith("/") else text
 
@@ -529,23 +511,24 @@ def _register_one_command(
         else:
             await _run_generator(instance, method, astr_event, bot, event)
 
-    # Build scope restrictions from permission / event_type
+    # Permission is checked against the real sender inside the wrapped handler.
     scopes: dict[str, Any] = {}
-    if perm == "admin":
-        scopes["require_tome"] = True
-    elif perm == "superuser":
-        scopes["private_only"] = True
     if evt_type == "group":
         scopes["group_only"] = True
     elif evt_type == "private":
         scopes["private_only"] = True
 
+    commands_before = len(_commands)
     register_command(
         cmd_name,
         aliases=alias_list,
         description=f"[AstrBot] {cmd_name}",
         **scopes,
     )(_wrapped_handler)
+
+    if len(_commands) != commands_before + 1:
+        raise RuntimeError(f"Command registration failed for {cmd_name}")
+    handle.command_specs.append(_commands[-1])
 
     handle.command_names.append(cmd_name)
     handle._command_aliases[cmd_name] = alias_list
@@ -561,6 +544,35 @@ def _register_one_command(
         params_str,
         perm_str,
     )
+
+
+async def _permission_allowed(perm: str, bot: Bot, event: MessageEvent) -> bool:
+    if perm not in ("admin", "superuser"):
+        return True
+
+    from core.command_router import is_superuser_event
+
+    if is_superuser_event(event):
+        return True
+    if perm == "superuser" or not isinstance(event, GroupMessageEvent):
+        return False
+
+    role = str(getattr(getattr(event, "sender", None), "role", "") or "").casefold()
+    if role in ("owner", "admin"):
+        return True
+    if role:
+        return False
+
+    try:
+        member = await bot.get_group_member_info(
+            group_id=event.group_id,
+            user_id=event.user_id,
+            no_cache=True,
+        )
+    except Exception as exc:
+        logger.warning("Failed to verify AstrBot group permission: %s", exc)
+        return False
+    return str(member.get("role", "")).casefold() in ("owner", "admin")
 
 
 def _make_astr_event(

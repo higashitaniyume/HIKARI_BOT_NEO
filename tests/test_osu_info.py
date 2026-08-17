@@ -10,12 +10,14 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, PrivateMessageEvent
 from PIL import Image
 
 import plugins.osu_info as osu_plugin
 import plugins.bot_help as bot_help
 from core.command_router import iter_commands
 from plugins.osu_info import api as osu_api
+from plugins.osu_info import commands as osu_commands
 from plugins.osu_info import downloader as osu_downloader
 from plugins.osu_info import render as osu_render
 from plugins.osu_info import storage as osu_storage
@@ -38,6 +40,21 @@ class FakeContext:
 
     async def send(self, message) -> None:
         self.sent.append(message)
+
+
+class FakeBot:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def call_api(self, api: str, **data) -> None:
+        self.calls.append((api, data))
+
+
+class FakeUploadContext(FakeContext):
+    def __init__(self, event) -> None:
+        super().__init__()
+        self.event = event
+        self.bot = FakeBot()
 
 
 class FakeOsuClient:
@@ -578,6 +595,63 @@ class OsuCommandTests(unittest.IsolatedAsyncioTestCase):
                 await osu_plugin.handle_osu_download(ctx)
 
         send_link.assert_awaited_once_with(ctx, 1, "官方源需要登录")
+
+    async def test_upload_file_uses_real_group_and_private_onebot_apis(self) -> None:
+        group_event = GroupMessageEvent(
+            time=0,
+            self_id=10000,
+            post_type="message",
+            sub_type="normal",
+            user_id=10001,
+            message_type="group",
+            message_id=1,
+            group_id=20001,
+            message=Message(),
+            original_message=Message(),
+            raw_message="",
+            font=0,
+            sender={"user_id": 10001},
+        )
+        private_event = PrivateMessageEvent(
+            time=0,
+            self_id=10000,
+            post_type="message",
+            sub_type="friend",
+            user_id=10002,
+            message_type="private",
+            message_id=2,
+            message=Message(),
+            original_message=Message(),
+            raw_message="",
+            font=0,
+            sender={"user_id": 10002},
+        )
+        path = Path(__file__)
+        group_ctx = FakeUploadContext(group_event)
+        private_ctx = FakeUploadContext(private_event)
+
+        await osu_commands._upload_file(group_ctx, path, "group.osz")
+        await osu_commands._upload_file(private_ctx, path, "private.osz")
+
+        self.assertEqual(
+            group_ctx.bot.calls,
+            [("upload_group_file", {"group_id": 20001, "file": str(path.resolve()), "name": "group.osz"})],
+        )
+        self.assertEqual(
+            private_ctx.bot.calls,
+            [("upload_private_file", {"user_id": 10002, "file": str(path.resolve()), "name": "private.osz"})],
+        )
+
+    async def test_send_download_link_uses_real_parent_implementation(self) -> None:
+        ctx = FakeContext()
+        with patch.object(osu_plugin, "get_config", Mock(return_value={"download_no_video": True})):
+            await osu_commands._send_download_link(ctx, 123, "需要登录")
+
+        self.assertEqual(len(ctx.sent), 1)
+        text = str(ctx.sent[0])
+        self.assertIn("https://osu.ppy.sh/beatmapsets/123/download?noVideo=1", text)
+        self.assertIn("https://osu.ppy.sh/beatmapsets/123", text)
+        self.assertIn("需要登录", text)
 
 
 if __name__ == "__main__":

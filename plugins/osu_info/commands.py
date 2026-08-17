@@ -148,7 +148,7 @@ async def handle_osu_bind(ctx: CommandContext) -> None:
     try:
         user = await _get_client().get_user(target, mode)
         set_binding(ctx.event.get_user_id(), osu_id=int(user["id"]), username=str(user.get("username") or target), mode=mode)
-        path = await render_user_card(user, mode, _cache_dir(), title=msg("osu.bind_success_title"), proxy=_proxy())
+        path = await _import("render_user_card")(user, mode, _cache_dir(), title=msg("osu.bind_success_title"), proxy=_proxy())
         await _send_image(ctx, path)
     except OsuAuthError as e:
         await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
@@ -170,7 +170,7 @@ async def handle_osu_user(ctx: CommandContext) -> None:
             return
         user, mode = result
         recent_scores = await _get_recent_scores_for_card(int(user["id"]), mode)
-        await _send_image(ctx, await render_user_card(user, mode, _cache_dir(), proxy=_proxy(), recent_scores=recent_scores))
+        await _send_image(ctx, await _import("render_user_card")(user, mode, _cache_dir(), proxy=_proxy(), recent_scores=recent_scores))
         stats_increment(ctx.event, "osu_queries", 1)
     except OsuAuthError as e:
         await _send_resource_notice(ctx, "config_error_title", "config_error", error=e)
@@ -281,7 +281,7 @@ async def handle_osu_download(ctx: CommandContext) -> None:
     try:
         beatmapset_id, _ = await _resolve_download_beatmapset_id(query or text, mode)
         cfg = get_config()
-        downloaded = await download_beatmapset_from_official(
+        downloaded = await _import("download_beatmapset_from_official")(
             beatmapset_id, cache_dir=_cache_dir(),
             no_video=bool(cfg.get("download_no_video", True)),
             max_file_mb=int(cfg.get("download_max_file_mb") or 80),

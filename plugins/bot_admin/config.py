@@ -20,6 +20,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "session_ttl_seconds": 604800,
 }
 
+_OBVIOUSLY_WEAK_PASSWORDS = {
+    "",
+    "111111",
+    "123456",
+    "12345678",
+    "abc123",
+    "admin",
+    "admin123",
+    "change-me",
+    "changeme",
+    "password",
+    "qwerty",
+    "root",
+}
+
+
+def is_obviously_weak_password(password: Any) -> bool:
+    if password is None:
+        return True
+    return str(password).strip().casefold() in _OBVIOUSLY_WEAK_PASSWORDS
+
 
 def _write_config(data: dict[str, Any]) -> None:
     CONFIG_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

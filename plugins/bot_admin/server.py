@@ -5,7 +5,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from typing import Any
 
-from .config import get_config
+from .config import get_config, is_obviously_weak_password
 from .handler import BotAdminHandler
 
 logger = logging.getLogger("HikariBot.BotAdmin")
@@ -37,6 +37,11 @@ def start_server() -> None:
             return
         host = str(cfg.get("host", "0.0.0.0"))
         port = _normalize_port(cfg.get("port", 54213))
+        if is_obviously_weak_password(cfg.get("password")):
+            logger.critical(
+                "[安全警告] Bot 后台正在使用空密码或明显弱密码，请尽快在配置中设置强密码；"
+                "本次仍将按配置启动，密码内容不会写入日志。"
+            )
         try:
             server = ThreadingHTTPServer((host, port), BotAdminHandler)
         except OSError as e:

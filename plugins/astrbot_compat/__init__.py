@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 import sys
 from pathlib import Path
 
@@ -78,6 +79,9 @@ async def _on_startup() -> None:
     from plugins.astrbot_compat.manager import ensure_plugin_dirs, auto_load_plugins
     from plugins.astrbot_compat.venv_manager import PluginVenvManager
     from plugins.astrbot_compat.conversion import clean_stale_temp_files
+    from plugins.astrbot_compat.runtime import set_running_loop
+
+    set_running_loop(asyncio.get_running_loop())
 
     config = load_plugin_config("astrbot_compat", DEFAULT_CONFIG)
     auto_load = config.get("auto_load", True)
@@ -112,3 +116,15 @@ async def _on_startup() -> None:
         logger.info("AstrBot compat startup complete — auto_load disabled")
 
     logger.debug("AstrBot compat fully initialized")
+
+
+@driver.on_shutdown
+async def _on_shutdown() -> None:
+    from plugins.astrbot_compat.loader import get_loaded_plugins, unload_plugin
+    from plugins.astrbot_compat.runtime import clear_running_loop
+
+    try:
+        for name in list(get_loaded_plugins()):
+            await unload_plugin(name)
+    finally:
+        clear_running_loop()
