@@ -23,6 +23,14 @@ _project_root = Path(__file__).resolve().parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+# 确保 astrbot shim 包在任何插件导入前就可用。项目根目录下的 astrbot/ 运行时
+# 数据目录会被 Python 当作命名空间包，若在 astrbot_compat 插件加载前先被
+# third_party 媒体解析器导入，会遮蔽 shim 中的正式 astrbot 包，导致
+# `from astrbot.api import ...` 报 ModuleNotFoundError。
+_astrbot_shim = _project_root / "plugins" / "astrbot_compat" / "shim"
+if str(_astrbot_shim) not in sys.path:
+    sys.path.insert(0, str(_astrbot_shim))
+
 # ---- Step 1: 加载主配置 ----
 from core.config_loader import load_main_config, init_directories
 
