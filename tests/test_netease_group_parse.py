@@ -12,7 +12,7 @@ from nonebot.adapters.onebot.v11 import (
     MessageSegment,
     PrivateMessageEvent,
 )
-from nonebot.adapters.onebot.v11.event import Sender
+from nonebot.adapters.onebot.v11.event import Reply, Sender
 
 from plugins.netease_parser import AutoNeteaseHandler, _history_event
 from plugins.netease_parser.parser import classify_links
@@ -77,6 +77,25 @@ def _history_item(message_id: int, time: int, text: str) -> dict:
     }
 
 
+def _set_processed_reply(
+    event: GroupMessageEvent,
+    message: Message,
+    *,
+    reply_id: int = 999,
+    sender_id: int = 10002,
+) -> GroupMessageEvent:
+    """模拟 NoneBot _check_reply 已移除 reply 段并写入 event.reply。"""
+    event.reply = Reply(
+        time=1000,
+        message_type="group",
+        message_id=reply_id,
+        real_id=reply_id,
+        sender=Sender(user_id=sender_id),
+        message=message,
+    )
+    return event
+
+
 class TestGroupParseTrigger(unittest.TestCase):
     async def _match(self, event, cfg=None):
         handler = AutoNeteaseHandler()
@@ -127,10 +146,21 @@ class TestGroupParseTrigger(unittest.TestCase):
         event = _make_group("帮我解析")
         self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
-    def test_manual_group_at_with_reply_matches(self):
-        # @bot + 引用某条消息（卡片）→ 匹配，进入 handle 回查
-        event = _make_group("解析", reply_id="999")
+    def test_manual_group_at_with_processed_reply_card_matches(self):
+        # 线上形态：reply 段已被 NoneBot 删除，只剩 event.reply + to_me=True。
+        card = {
+            "app": "com.tencent.music.lua",
+            "meta": {"music": {"jumpUrl": "https://music.163.com/song/33894312"}},
+        }
+        ref_message = Message([
+            MessageSegment(type="json", data={"data": json.dumps(card)}),
+        ])
+        event = _set_processed_reply(_make_group(""), ref_message)
         self.assertTrue(asyncio.run(self._match(event, _cfg(auto_enable=False))))
+
+    def test_manual_group_at_with_unrelated_processed_reply_not_matched(self):
+        event = _set_processed_reply(_make_group(""), Message("普通消息"))
+        self.assertFalse(asyncio.run(self._match(event, _cfg(auto_enable=False))))
 
 
 class TestGroupHandle(unittest.TestCase):
@@ -139,20 +169,19 @@ class TestGroupHandle(unittest.TestCase):
         return SimpleNamespace(message=msg, get_message=lambda: msg)
 
     def test_reply_referenced_song_enqueued(self):
-        """@bot + 引用卡片（被引用消息含单曲链接）→ 回查后入队单曲。"""
-        event = _make_group("解析", reply_id="999")
-        ref = self._ref_event("https://music.163.com/song/33894312")
+        """NoneBot 已解析 event.reply 时，直接复用引用内容，不重复 get_msg。"""
+        event = _set_processed_reply(
+            _make_group(""),
+            Message("https://music.163.com/song/33894312"),
+        )
         with patch(
             "plugins.netease_parser.get_config", return_value=_cfg(),
         ), patch(
-            "plugins.netease_parser._fetch_referenced_message",
-            new=AsyncMock(return_value=ref),
-        ) as fetch, patch(
             "plugins.netease_parser._enqueue_parse_jobs", new=AsyncMock(),
         ) as enqueue:
             bot = AsyncMock()
             asyncio.run(AutoNeteaseHandler().handle(bot, event))
-            fetch.assert_awaited_once()
+            bot.call_api.assert_not_awaited()
             enqueue.assert_awaited_once()
             self.assertEqual(enqueue.call_args.args[2], ["33894312"])
             bot.send.assert_not_awaited()

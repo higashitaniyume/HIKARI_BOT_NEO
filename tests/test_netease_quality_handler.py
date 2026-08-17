@@ -7,7 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from nonebot.adapters.onebot.v11 import Message
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
+from nonebot.adapters.onebot.v11.event import Reply, Sender
 
 from plugins.netease_parser import (
     NeteaseQualityHandler,
@@ -25,6 +26,26 @@ def _make_event(text: str = "mp3", reply_id: str = ""):
         get_user_id=lambda: "10001",
         get_message=lambda: message,
     )
+
+
+def _make_processed_reply_event(text: str = "mp3") -> GroupMessageEvent:
+    """模拟 NoneBot 已将回复机器人消息移入 event.reply 并设置 to_me=True。"""
+    message = Message(text)
+    event = GroupMessageEvent(
+        time=1000, self_id="10000", post_type="message", message_type="group",
+        sub_type="normal", group_id=111, user_id=10001, message_id=500,
+        message=message, raw_message=str(message), font=0,
+        sender=Sender(user_id=10001), to_me=True,
+    )
+    event.reply = Reply(
+        time=999,
+        message_type="group",
+        message_id=111,
+        real_id=111,
+        sender=Sender(user_id=10000),
+        message=Message("网易云发送信息"),
+    )
+    return event
 
 
 class TestReplyHelpers(unittest.TestCase):
@@ -59,6 +80,10 @@ class TestQualityHandler(unittest.TestCase):
 
     def test_match_reply_flac(self):
         event = _make_event("flac", "123")
+        self.assertTrue(asyncio.run(NeteaseQualityHandler().match(event, "")))
+
+    def test_match_processed_reply_to_bot_when_to_me(self):
+        event = _make_processed_reply_event("mp3")
         self.assertTrue(asyncio.run(NeteaseQualityHandler().match(event, "")))
 
     def test_match_plain_mp3_no_reply_not_matched(self):

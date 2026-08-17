@@ -294,6 +294,28 @@ def _history_event(message: dict) -> SimpleNamespace:
     return SimpleNamespace(message=msg, get_message=lambda: msg)
 
 
+def _message_event(message: Message) -> SimpleNamespace:
+    """将已解析的 OneBot Message 包装成 parser 可读取的事件对象。"""
+    return SimpleNamespace(message=message, get_message=lambda: message)
+
+
+def _reply_event(event: MessageEvent) -> SimpleNamespace | None:
+    """读取 NoneBot 在预处理阶段提取到 event.reply 中的引用消息。"""
+    reply = getattr(event, "reply", None)
+    message = getattr(reply, "message", None)
+    if isinstance(message, Message):
+        return _message_event(message)
+    return None
+
+
+def _event_has_netease_link(event: Any) -> bool:
+    """事件正文或卡片中是否包含网易云链接。"""
+    text = str(event.get_message())
+    return has_netease_url(text) or any(
+        has_netease_url(url) for url in extract_all_urls(event)
+    )
+
+
 async def _fetch_referenced_message(
     bot: Bot,
     event: MessageEvent,
@@ -308,6 +330,15 @@ async def _fetch_referenced_message(
         可复用的提取事件对象（SimpleNamespace），找不到时返回 None。
     """
     mid = str(message_id)
+
+    # NoneBot 的 _check_reply 已调用 get_msg，并把 reply 段从 event.message
+    # 移到 event.reply。优先直接复用，避免重复请求及 reply 段丢失。
+    reply = getattr(event, "reply", None)
+    if reply is not None and str(getattr(reply, "message_id", "")) == mid:
+        ref_event = _reply_event(event)
+        if ref_event is not None:
+            return ref_event
+
     try:
         resp = await bot.call_api("get_msg", message_id=int(mid))
     except Exception as e:
@@ -347,9 +378,7 @@ class AutoNeteaseHandler:
         if not is_event_allowed(cfg, event):
             return False
 
-        has_link = has_netease_url(text) or any(
-            has_netease_url(url) for url in extract_all_urls(event)
-        )
+        has_link = _event_has_netease_link(event)
 
         # 私聊：直接解析
         if not isinstance(event, GroupMessageEvent):
@@ -365,8 +394,9 @@ class AutoNeteaseHandler:
             return False
         if has_link:
             return True
-        # @bot 且引用卡片 → 进入 handle 回查被引用消息
-        return bool(_get_reply_message_id(event))
+        # @bot 且引用网易云卡片 → 进入 handle 处理；普通回复不抢占。
+        ref_event = _reply_event(event)
+        return ref_event is not None and _event_has_netease_link(ref_event)
 
     async def handle(self, bot: Bot, event: MessageEvent) -> None:
         cfg = get_config()
@@ -436,6 +466,10 @@ def _plain_text(event: MessageEvent) -> str:
 
 def _get_reply_message_id(event: MessageEvent) -> str:
     """获取消息引用的回复目标 message_id（无回复时返回空串）。"""
+    reply = getattr(event, "reply", None)
+    mid = getattr(reply, "message_id", "") if reply is not None else ""
+    if mid:
+        return str(mid)
     for seg in event.message:
         if seg.type == "reply":
             mid = seg.data.get("id", "") if isinstance(seg.data, dict) else ""
@@ -483,12 +517,17 @@ class NeteaseQualityHandler:
         plain = _plain_text(event)
         if not _MP3_RE.search(plain) and not _FLAC_RE.search(plain):
             return False
-        # @bot 的回复属于解析意图，不触发换格式
-        if getattr(event, "to_me", False):
-            return False
         # 必须回复（引用）某条消息
         if not _get_reply_message_id(event):
             return False
+        # NoneBot 会把回复机器人消息标记为 to_me；要求引用来源确实是机器人，
+        # 避免回复普通群友时仅说 mp3/flac 也触发偏好修改。
+        reply = getattr(event, "reply", None)
+        if reply is not None:
+            sender = getattr(reply, "sender", None)
+            sender_id = getattr(sender, "user_id", None)
+            if str(sender_id or "") != str(getattr(event, "self_id", "") or ""):
+                return False
         # 含网易云链接 → 交给解析流程
         if has_netease_url(plain):
             return False
