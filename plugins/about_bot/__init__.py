@@ -12,7 +12,7 @@ from core.stats_tracker import get_global_stats
 from plugins import sticker_library
 
 
-@command("关于", aliases=("about",), description="查看机器人信息", usage="关于", require_tome=True)
+@command("关于", aliases=("about",), description="查看机器人信息", usage="关于", require_tome=True, category="基础")
 async def handle_about(ctx: CommandContext) -> None:
     state = sticker_library.get_state()
     runtime = get_runtime_info()

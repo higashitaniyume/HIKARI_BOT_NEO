@@ -33,6 +33,7 @@ class LikeRequest:
     description="给 QQ 资料卡点满赞",
     usage="点赞 [@用户|QQ号] [次数]",
     detail_key="profile_like.help",
+    category="互动",
 )
 async def handle_profile_like(ctx: CommandContext) -> None:
     cfg = get_config()

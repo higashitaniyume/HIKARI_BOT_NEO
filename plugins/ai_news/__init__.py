@@ -145,6 +145,7 @@ async def ai_tool_ai_news_list(context: AIToolContext, arguments: dict[str, Any]
     usage="ai资讯 [数量] [刷新]",
     detail_key="ai_news.help",
     require_tome=True,
+    category="资讯",
 )
 async def handle_ai_news(ctx: CommandContext) -> None:
     if not bool(get_config().get("enabled", True)):

@@ -127,6 +127,7 @@ async def ai_tool_music_genre_search(
     ),
     description="搜索电子音乐流派，显示详细介绍和代表曲目",
     usage="流派 <流派名称>",
+    category="音乐",
 )
 async def handle_genre_search(ctx: CommandContext) -> None:
     if not _enabled():
@@ -191,6 +192,7 @@ async def _send_single_genre(ctx: CommandContext, result: GenreResult) -> None:
     ),
     description="列出所有电子音乐流派分类",
     usage="流派列表",
+    category="音乐",
 )
 async def handle_genre_list(ctx: CommandContext) -> None:
     if not _enabled():
@@ -216,6 +218,7 @@ async def handle_genre_list(ctx: CommandContext) -> None:
     ),
     description="查看某个分类下的流派层级树",
     usage="流派树 <分类名称>",
+    category="音乐",
 )
 async def handle_genre_tree(ctx: CommandContext) -> None:
     if not _enabled():
@@ -269,6 +272,7 @@ def _flatten_tree(tree: list[dict[str, Any]], lines: list[str], prefix: str) -> 
     ),
     description="查看音乐流派的上游（影响来源）和下游（衍生分支）关系",
     usage="流派关系 <流派名称>",
+    category="音乐",
 )
 async def handle_genre_relations(ctx: CommandContext) -> None:
     if not _enabled():

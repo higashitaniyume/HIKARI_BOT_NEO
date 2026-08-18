@@ -347,7 +347,7 @@ async def _deny_if_unauthorized(ctx: CommandContext) -> bool:
     return False
 
 
-@command("收集", aliases=("开始收集",), description="收集指定群友的表情包到贴纸包", usage="收集 @某人 [包名]")
+@command("收集", aliases=("开始收集",), description="收集指定群友的表情包到贴纸包", usage="收集 @某人 [包名]", category="贴纸")
 async def cmd_start_collect(ctx: CommandContext) -> None:
     if await _deny_if_unauthorized(ctx):
         return
@@ -367,7 +367,7 @@ async def cmd_start_collect(ctx: CommandContext) -> None:
     await ctx.send(Message(msg("sticker.collect_added", name=nickname or user_id, user_id=user_id, pack=pack_name)))
 
 
-@command("停止收集", description="停止收集指定群友的表情包", usage="停止收集 @某人")
+@command("停止收集", description="停止收集指定群友的表情包", usage="停止收集 @某人", category="贴纸")
 async def cmd_stop_collect(ctx: CommandContext) -> None:
     if await _deny_if_unauthorized(ctx):
         return
@@ -387,7 +387,7 @@ async def cmd_stop_collect(ctx: CommandContext) -> None:
     await ctx.send(Message(msg("sticker.collect_removed", name=target["name"] or user_id, user_id=user_id)))
 
 
-@command("收集列表", description="查看定向收集目标", usage="收集列表")
+@command("收集列表", description="查看定向收集目标", usage="收集列表", category="贴纸")
 async def cmd_collect_list(ctx: CommandContext) -> None:
     if await _deny_if_unauthorized(ctx):
         return

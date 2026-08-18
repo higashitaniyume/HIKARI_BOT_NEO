@@ -260,6 +260,7 @@ register_push_source(
     description="查询 Steam 热门热卖、免费和低价游戏日报",
     usage="steam日报 [免费|低价|刷新]",
     detail_key="steam_deals.help",
+    category="资讯",
 )
 async def handle_steam_deals(ctx: CommandContext) -> None:
     mode, force_refresh, help_requested = _parse_mode(ctx)

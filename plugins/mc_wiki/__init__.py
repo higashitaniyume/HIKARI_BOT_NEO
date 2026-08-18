@@ -87,6 +87,7 @@ async def ai_tool_mc_wiki_search(context: AIToolContext, arguments: dict[str, ob
     ),
     description="搜索中文 Minecraft Wiki",
     usage="mcwiki <关键词>",
+    category="百科",
 )
 async def handle_mc_wiki(ctx: CommandContext) -> None:
     if not _enabled():

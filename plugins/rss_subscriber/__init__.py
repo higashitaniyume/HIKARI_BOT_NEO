@@ -233,6 +233,7 @@ async def ai_tool_rss_latest(context: AIToolContext, arguments: dict[str, Any]) 
     usage="rss [列表|看|添加|删除|开启|关闭|测试]",
     detail_key="rss.help",
     require_tome=True,
+    category="订阅",
 )
 async def handle_rss(ctx: CommandContext) -> None:
     args = ctx.args.strip()

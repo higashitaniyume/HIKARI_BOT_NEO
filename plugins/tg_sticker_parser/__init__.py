@@ -130,7 +130,7 @@ async def handle_tg_sticker_request(bot: Bot, event: MessageEvent, set_name: str
     stats_increment(event, "tg_sticker_parsed", 1)
 
 
-@command("tg贴纸", description="解析 Telegram 贴纸包", usage="tg贴纸 <链接> [参数]", detail_key="tg_sticker.help")
+@command("tg贴纸", description="解析 Telegram 贴纸包", usage="tg贴纸 <链接> [参数]", detail_key="tg_sticker.help", category="贴纸")
 async def cmd_tg_sticker(ctx: CommandContext) -> None:
     parsed = split_command_link_and_options(ctx.args)
     if parsed is None:

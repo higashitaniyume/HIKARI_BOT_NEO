@@ -82,6 +82,7 @@ async def ai_tool_isaac_wiki_search(context: AIToolContext, arguments: dict[str,
     ),
     description="搜索中文以撒的结合：重生 Wiki",
     usage="isaacwiki <关键词>",
+    category="百科",
 )
 async def handle_isaac_wiki(ctx: CommandContext) -> None:
     if not _enabled():

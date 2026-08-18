@@ -83,6 +83,7 @@ async def ai_tool_terraria_wiki_search(context: AIToolContext, arguments: dict[s
     ),
     description="搜索中文泰拉瑞亚 Wiki",
     usage="trwiki <关键词>",
+    category="百科",
 )
 async def handle_terraria_wiki(ctx: CommandContext) -> None:
     if not _enabled():

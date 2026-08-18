@@ -200,7 +200,7 @@ async def cmd_sticker_collage(ctx: CommandContext) -> None:
         )
 
 
-@command("统计", description="查看当前会话统计")
+@command("统计", description="查看当前会话统计", category="基础")
 async def cmd_session_stats(ctx: CommandContext) -> None:
     await ctx.send(Message(format_stats(ctx.event)))
 
@@ -255,7 +255,7 @@ def _split_pack_subcommand(args: str) -> tuple[str | None, str]:
     return subcommand, parts[1].strip() if len(parts) > 1 else ""
 
 
-@command("贴纸包", description="贴纸包工具", usage="贴纸包", detail_key="sticker.help")
+@command("贴纸包", description="贴纸包工具", usage="贴纸包", detail_key="sticker.help", category="贴纸")
 async def cmd_sticker_pack(ctx: CommandContext) -> None:
     subcommand, rest = _split_pack_subcommand(ctx.args)
     if subcommand == "help":

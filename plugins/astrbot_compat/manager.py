@@ -248,6 +248,7 @@ async def auto_load_plugins() -> int:
     description="列出已加载的AstrBot兼容插件",
     usage="astrbot list",
     detail_key="astrbot_list",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )
@@ -279,6 +280,7 @@ async def cmd_astrbot_list(ctx: CommandContext) -> None:
     description="加载一个AstrBot兼容插件（路径或zip）",
     usage="astrbot load <路径> [插件名]",
     detail_key="astrbot_load",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )
@@ -342,6 +344,7 @@ async def cmd_astrbot_load(ctx: CommandContext) -> None:
     description="卸载一个AstrBot兼容插件",
     usage="astrbot remove <插件名>",
     detail_key="astrbot_remove",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )
@@ -371,6 +374,7 @@ async def cmd_astrbot_remove(ctx: CommandContext) -> None:
     description="重新加载一个AstrBot兼容插件",
     usage="astrbot reload <插件名>",
     detail_key="astrbot_reload",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )
@@ -402,6 +406,7 @@ async def cmd_astrbot_reload(ctx: CommandContext) -> None:
     description="重建AstrBot插件公共虚拟环境",
     usage="astrbot rebuild-env",
     detail_key="astrbot_rebuild_env",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )
@@ -439,6 +444,7 @@ async def cmd_astrbot_rebuild_env(ctx: CommandContext) -> None:
     description="查看AstrBot插件的详细信息",
     usage="astrbot info <插件名>",
     detail_key="astrbot_info",
+    category="管理",
     private_only=True,
     superuser_only=True,
 )

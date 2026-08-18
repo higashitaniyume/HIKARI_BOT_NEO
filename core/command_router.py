@@ -45,6 +45,7 @@ class CommandSpec:
     description: str = ""
     usage: str = ""
     detail_key: str = ""
+    category: str = ""
     require_tome: bool = False
     private_only: bool = False
     group_only: bool = False
@@ -77,6 +78,7 @@ def command(
     description: str = "",
     usage: str = "",
     detail_key: str = "",
+    category: str = "",
     require_tome: bool = False,
     private_only: bool = False,
     group_only: bool = False,
@@ -93,6 +95,7 @@ def command(
             description=description,
             usage=usage or name,
             detail_key=detail_key,
+            category=category,
             require_tome=require_tome,
             private_only=private_only,
             group_only=group_only,

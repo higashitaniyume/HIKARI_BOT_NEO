@@ -340,12 +340,12 @@ async def _handle_tts_command(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("tts.failed")))
 
 
-@command("说话", aliases=("tts", "TTS","说"), description="使用当前 Fish Audio 音色生成语音", usage="说话 <文本>")
+@command("说话", aliases=("tts", "TTS","说"), description="使用当前 Fish Audio 音色生成语音", usage="说话 <文本>", category="语音")
 async def cmd_say(ctx: CommandContext) -> None:
     await _handle_tts_command(ctx)
 
 
-@command("音色列表", aliases=("tts音色",), description="显示可用 Fish Audio 音色", usage="音色列表")
+@command("音色列表", aliases=("tts音色",), description="显示可用 Fish Audio 音色", usage="音色列表", category="语音")
 async def cmd_voice_list(ctx: CommandContext) -> None:
     cfg = get_config()
     voices = cfg.get("voices") if isinstance(cfg.get("voices"), list) else []
@@ -359,7 +359,7 @@ async def cmd_voice_list(ctx: CommandContext) -> None:
     await ctx.send(Message(msg("tts.voice_list", voices="、".join(name for name in names if name), current=current)))
 
 
-@command("切换音色", aliases=("换音色",), description="切换本会话的 Fish Audio 音色", usage="切换音色 <名称>")
+@command("切换音色", aliases=("换音色",), description="切换本会话的 Fish Audio 音色", usage="切换音色 <名称>", category="语音")
 async def cmd_switch_voice(ctx: CommandContext) -> None:
     target = _normalize_text(ctx.args)
     if not target:

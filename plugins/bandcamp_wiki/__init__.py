@@ -140,6 +140,7 @@ async def ai_tool_bandcamp_search(
     "  bandcamp track <关键词>   搜索单曲\n"
     "  bandcamp netease <关键词> 直接搜索网易云音乐\n"
     "  bandcamp taishi/专辑名    直接查看指定页面",
+    category="音乐",
 )
 async def handle_bandcamp(ctx: CommandContext) -> None:
     if not _enabled():

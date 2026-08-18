@@ -113,6 +113,7 @@ async def ai_tool_zhihu_hot_list(context: AIToolContext, arguments: dict[str, An
     usage="知乎热搜 [数量] [刷新] [链接]",
     detail_key="zhihu_hot.help",
     require_tome=True,
+    category="资讯",
 )
 async def handle_zhihu_hot(ctx: CommandContext) -> None:
     if _is_help(ctx.args):

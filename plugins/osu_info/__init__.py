@@ -183,7 +183,7 @@ def _split_osu_subcommand(args: str) -> tuple[str | None, str]:
     return subcommand, parts[1].strip() if len(parts) > 1 else ""
 
 
-@command("osu", description="osu! 信息查询", usage="osu", detail_key="osu.help", require_tome=True)
+@command("osu", description="osu! 信息查询", usage="osu", detail_key="osu.help", require_tome=True, category="游戏")
 async def handle_osu(ctx: CommandContext) -> None:
     subcommand, rest = _split_osu_subcommand(ctx.args)
     handlers = {

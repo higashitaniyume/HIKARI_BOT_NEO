@@ -98,6 +98,7 @@ async def ai_tool_sts2_wiki_search(context: AIToolContext, arguments: dict[str, 
     ),
     description="搜索杀戮尖塔 2 Wiki",
     usage="塔2wiki <关键词>",
+    category="百科",
 )
 async def handle_sts2_wiki(ctx: CommandContext) -> None:
     cfg = get_config()

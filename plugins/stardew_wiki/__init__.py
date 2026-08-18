@@ -84,6 +84,7 @@ async def ai_tool_stardew_wiki_search(context: AIToolContext, arguments: dict[st
     ),
     description="搜索星露谷物语中文 Wiki",
     usage="星露谷wiki <关键词>",
+    category="百科",
 )
 async def handle_stardew_wiki(ctx: CommandContext) -> None:
     if not _enabled():
