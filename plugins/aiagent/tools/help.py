@@ -153,15 +153,17 @@ def execute(cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
         if not path.is_file():
             continue
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")[:_MAX_RETURN_CHARS]
+            content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
         title = _doc_title(path).casefold()
+        # 打分看整篇文档，返回时才截断：否则在文档里新增一节就可能把相关内容
+        # 挤出评分窗口，让排序随文档长度漂移。
         score = _match_score(topic_lower, tokens, name, desc, title, content.casefold())
         score = int(score * weight)
         if score > best_score:
             best_score = score
-            best = (name, content)
+            best = (name, content[:_MAX_RETURN_CHARS])
 
     if best is not None and best_score > 0:
         name, content = best

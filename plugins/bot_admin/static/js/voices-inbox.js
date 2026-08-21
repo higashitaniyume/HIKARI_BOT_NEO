@@ -682,4 +682,139 @@ function renderAiAgentConfig() {
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
+  renderAiAgentProfiles();
+  renderAiAgentBindings();
+}
+
+/* ── 配置文件栏 ─────────────────────────────────────────────── */
+
+function aiagentProfileName(profileId) {
+  const found = (state.aiagentProfiles || []).find((item) => item.id === profileId);
+  return found ? found.name : profileId;
+}
+
+function renderAiAgentProfiles() {
+  const select = $("#aiagentProfileSelect");
+  if (!select) return;
+  const profiles = state.aiagentProfiles || [];
+  const editing = state.aiagentEditingProfile || state.aiagentActiveProfile;
+
+  select.replaceChildren();
+  for (const profile of profiles) {
+    const marks = [];
+    if (profile.is_active) marks.push("默认");
+    if (profile.bound_count) marks.push(`${profile.bound_count} 个会话`);
+    const suffix = marks.length ? ` · ${marks.join(" · ")}` : "";
+    select.append(option(profile.id, `${profile.name}${suffix}`));
+  }
+  select.value = profiles.some((item) => item.id === editing) ? editing : (profiles[0]?.id || "");
+
+  const current = profiles.find((item) => item.id === select.value);
+  const parts = [`共 ${profiles.length} 套配置`];
+  if (current) {
+    parts.push(current.is_active ? "当前编辑的就是全局默认配置" : `全局默认是「${aiagentProfileName(state.aiagentActiveProfile)}」`);
+    parts.push(`已绑定 ${current.bound_count || 0} 个会话`);
+    parts.push(current.api_key_set ? "已配置 API Key" : "尚未配置 API Key");
+  }
+  $("#aiagentProfileSummary").textContent = `${parts.join("　·　")}。`;
+
+  // 默认配置不能删；只剩一套时也不能删。
+  $("#aiagentProfileDeleteBtn").disabled = profiles.length <= 1 || Boolean(current?.is_active);
+  $("#aiagentProfileActivateBtn").disabled = Boolean(current?.is_active);
+}
+
+/* ── 会话绑定 ───────────────────────────────────────────────── */
+
+function renderAiAgentBindings() {
+  const tbody = $("#aiagentBindingTableBody");
+  if (!tbody) return;
+  const tab = state.aiagentBindingTab || "group";
+  const table = (state.aiagentBindings || {})[tab] || {};
+  const ids = Object.keys(table).sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
+
+  tbody.replaceChildren();
+  if (!ids.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.className = "empty-state";
+    td.textContent = tab === "group" ? "暂无群绑定，所有群使用全局默认配置。" : "暂无私聊绑定，所有私聊使用全局默认配置。";
+    tr.append(td);
+    tbody.append(tr);
+  } else {
+    for (const id of ids) {
+      tbody.append(buildAiAgentBindingRow(tab, id, table[id]));
+    }
+  }
+
+  const summary = $("#aiagentBindingSummary");
+  if (summary) {
+    const groupCount = Object.keys((state.aiagentBindings || {}).group || {}).length;
+    const privateCount = Object.keys((state.aiagentBindings || {}).private || {}).length;
+    summary.textContent = `已绑定 ${groupCount} 个群、${privateCount} 个私聊；未绑定的会话使用全局默认配置「${aiagentProfileName(state.aiagentActiveProfile)}」。`;
+  }
+}
+
+function buildAiAgentBindingRow(kind, ident, profileId, isNew = false) {
+  const tr = document.createElement("tr");
+
+  const idCell = document.createElement("td");
+  const idInput = document.createElement("input");
+  idInput.type = "text";
+  idInput.className = "binding-row-id";
+  idInput.value = ident || "";
+  idInput.placeholder = kind === "group" ? "群号" : "QQ 号";
+  idInput.readOnly = !isNew;
+  idCell.append(idInput);
+
+  const profileCell = document.createElement("td");
+  const select = document.createElement("select");
+  select.className = "binding-row-select";
+  for (const profile of state.aiagentProfiles || []) {
+    select.append(option(profile.id, profile.is_active ? `${profile.name}（默认）` : profile.name));
+  }
+  select.value = profileId || state.aiagentActiveProfile || "";
+  profileCell.append(select);
+
+  const actionCell = document.createElement("td");
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "ghost";
+  saveBtn.textContent = isNew ? "添加" : "保存";
+  saveBtn.addEventListener("click", () => {
+    saveAiAgentBinding(kind, idInput.value.trim(), select.value).catch((err) => showToast(err.message, true));
+  });
+  actionCell.append(saveBtn);
+  if (!isNew) {
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "ghost danger";
+    clearBtn.textContent = "解绑";
+    clearBtn.addEventListener("click", () => {
+      saveAiAgentBinding(kind, ident, "").catch((err) => showToast(err.message, true));
+    });
+    actionCell.append(clearBtn);
+  }
+
+  tr.append(idCell, profileCell, actionCell);
+  return tr;
+}
+
+function addAiAgentBindingRow() {
+  if (!(state.aiagentProfiles || []).length) {
+    showToast("请先读取配置文件列表。", true);
+    return;
+  }
+  const tbody = $("#aiagentBindingTableBody");
+  const empty = tbody.querySelector(".empty-state");
+  if (empty) tbody.replaceChildren();
+  tbody.append(buildAiAgentBindingRow(state.aiagentBindingTab || "group", "", state.aiagentActiveProfile, true));
+}
+
+function switchAiAgentBindingTab(btn) {
+  state.aiagentBindingTab = btn.dataset.bindingTab;
+  for (const other of document.querySelectorAll("[data-binding-tab]")) {
+    other.classList.toggle("is-active", other === btn);
+  }
+  renderAiAgentBindings();
 }

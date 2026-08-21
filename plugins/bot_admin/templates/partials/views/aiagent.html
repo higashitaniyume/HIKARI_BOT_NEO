@@ -7,6 +7,25 @@
           </div>
         </div>
 
+        <section class="profile-bar" aria-labelledby="aiagentProfileTitle">
+          <div class="profile-bar-head">
+            <div>
+              <h3 id="aiagentProfileTitle">配置文件</h3>
+              <p id="aiagentProfileSummary">正在读取配置文件。</p>
+            </div>
+            <label class="profile-bar-select">
+              <span>正在编辑</span>
+              <select id="aiagentProfileSelect"></select>
+            </label>
+          </div>
+          <div class="profile-bar-actions">
+            <button type="button" id="aiagentProfileCreateBtn" class="ghost">新建</button>
+            <button type="button" id="aiagentProfileRenameBtn" class="ghost">重命名</button>
+            <button type="button" id="aiagentProfileActivateBtn" class="ghost">设为默认</button>
+            <button type="button" id="aiagentProfileDeleteBtn" class="ghost danger">删除</button>
+          </div>
+        </section>
+
         <form id="aiagentConfigForm" class="settings-form aiagent-form">
           <label class="checkbox-field settings-toggle">
             <input id="aiagentEnabled" type="checkbox">
@@ -149,5 +168,33 @@
 
           <button type="submit" class="primary">保存 AI Agent 设置</button>
         </form>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>会话绑定</h3>
+            <p id="aiagentBindingSummary">给指定群或私聊指定配置文件；未绑定的会话使用全局默认配置。</p>
+          </div>
+          <button type="button" id="aiagentBindingAddBtn" class="ghost">＋ 添加绑定</button>
+        </div>
+        <div class="quota-tabs">
+          <button type="button" class="quota-tab is-active" data-binding-tab="group">群聊</button>
+          <button type="button" class="quota-tab" data-binding-tab="private">私聊用户</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>群号 / QQ 号</th>
+                <th>使用的配置文件</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="aiagentBindingTableBody">
+              <tr><td colspan="3">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </section>

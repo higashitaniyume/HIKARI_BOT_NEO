@@ -20,7 +20,7 @@ from core.command_router import CommandContext, command, is_command_handled, mar
 from core.stats_tracker import increment as stats_increment
 
 from .client import AIAgentRequestError, request_chat_completion
-from .config import get_config
+from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
 from .quota import check_quota, get_quota_status, record_usage
 from .memory import (
@@ -174,7 +174,7 @@ async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_
 
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
     text = normalize_text(text)
-    cfg = get_config()
+    cfg = get_config_for_event(event)
 
     # 如果当前消息是引用回复，把被引用的消息内容附加到输入中
     reply = getattr(event, "reply", None)
@@ -223,7 +223,11 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             return
 
         user_preview = text[:40].replace("\n", " ")
-        with ActivityScope("aiagent", "replying", "回复用户", description=user_preview):
+        profile_name = str(cfg.get("_profile_name") or "")
+        logger.info("[AIAgent] 使用配置「%s」回复 -> %s", profile_name, session)
+        with ActivityScope(
+            "aiagent", "replying", "回复用户", description=user_preview, profile=profile_name
+        ):
             reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
@@ -269,7 +273,7 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
     if is_command_handled(event) or not _should_auto_reply(event):
         return
 
-    cfg = get_config()
+    cfg = get_config_for_event(event)
     if not cfg.get("enabled", False):
         return
     # 黑白名单准入检查（优先于配额检查）
@@ -282,6 +286,10 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
         return
 
     await _handle_chat_event(bot, event, event.get_plaintext())
+
+
+# 多配置文件的管理命令（AI配置列表 / 切换AI配置 / 解绑AI配置）。
+from . import profile_commands  # noqa: E402, F401 — 导入即注册命令
 
 
 # ── 隐藏命令：查看 / 总结记忆 ─────────────────────────────────────────
@@ -297,7 +305,7 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
 )
 async def handle_view_memory(ctx: CommandContext) -> None:
     """查看当前会话的持久化记忆内容（含摘要和原始记录）。"""
-    cfg = get_config()
+    cfg = get_config_for_event(ctx.event)
     if not cfg.get("enabled", False):
         await ctx.send(Message("AI Agent 未启用"))
         return
@@ -335,7 +343,7 @@ async def handle_view_memory(ctx: CommandContext) -> None:
 )
 async def handle_summarize_memory(ctx: CommandContext) -> None:
     """手动触发当前会话的原始对话记忆总结。"""
-    cfg = get_config()
+    cfg = get_config_for_event(ctx.event)
     if not cfg.get("enabled", False):
         await ctx.send(Message("AI Agent 未启用"))
         return
@@ -355,7 +363,7 @@ async def handle_summarize_memory(ctx: CommandContext) -> None:
 )
 async def handle_quota_query(ctx: CommandContext) -> None:
     """查询当前会话（群/个人）的 AI 配额使用情况。"""
-    cfg = get_config()
+    cfg = get_config_for_event(ctx.event)
     if not cfg.get("enabled", False):
         await ctx.send(Message("AI Agent 未启用"))
         return

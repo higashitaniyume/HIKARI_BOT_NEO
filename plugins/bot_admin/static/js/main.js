@@ -66,6 +66,15 @@ $("#aiagentPersonaSelect").addEventListener("change", (event) => {
     $("#aiagentPersonaPath").value = event.currentTarget.value;
   }
 });
+$("#aiagentProfileSelect").addEventListener("change", () => switchAiAgentProfile());
+$("#aiagentProfileCreateBtn").addEventListener("click", () => createAiAgentProfile().catch((err) => showToast(err.message, true)));
+$("#aiagentProfileRenameBtn").addEventListener("click", () => renameAiAgentProfile().catch((err) => showToast(err.message, true)));
+$("#aiagentProfileActivateBtn").addEventListener("click", () => activateAiAgentProfile().catch((err) => showToast(err.message, true)));
+$("#aiagentProfileDeleteBtn").addEventListener("click", () => deleteAiAgentProfile().catch((err) => showToast(err.message, true)));
+$("#aiagentBindingAddBtn").addEventListener("click", addAiAgentBindingRow);
+for (const btn of document.querySelectorAll("[data-binding-tab]")) {
+  btn.addEventListener("click", () => switchAiAgentBindingTab(btn));
+}
 $("#aiagentPluginToolsEnabled").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentAllowSideEffectTools").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentToolSelectionMode").addEventListener("change", () => renderAiAgentTools(true));

@@ -240,6 +240,8 @@ function buildTtsPayload() {
 
 function buildAiAgentPayload() {
   return {
+    // 写回正在编辑的那套配置；缺省时后端写全局默认配置。
+    profile: $("#aiagentProfileSelect")?.value || "",
     enabled: $("#aiagentEnabled").checked,
     api: {
       protocol: $("#aiagentProtocol").value === "chat_completions" ? "chat_completions" : "responses",
@@ -287,9 +289,7 @@ async function saveAiAgentConfig(event) {
       body: JSON.stringify(buildAiAgentPayload()),
     });
     const data = await readJsonResponse(res, "保存 AI Agent 设置失败");
-    state.aiagentConfig = data.config || {};
-    state.aiagentPersonas = data.personas || [];
-    state.aiagentTools = data.tools_catalog || [];
+    applyAiAgentConfigPayload(data);
     renderAiAgentConfig();
     showToast(data.message || "AI Agent 设置已保存。");
   } catch (err) {
@@ -297,6 +297,78 @@ async function saveAiAgentConfig(event) {
   } finally {
     button.disabled = false;
   }
+}
+
+/* ── AI 配置文件 CRUD 与会话绑定 ─────────────────────────────── */
+
+async function requestAiAgentProfileAction(path, payload, method = "POST") {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await readJsonResponse(res, "配置文件操作失败");
+  applyAiAgentConfigPayload(data);
+  renderAiAgentConfig();
+  showToast(data.message || "操作完成。");
+}
+
+async function switchAiAgentProfile() {
+  const profileId = $("#aiagentProfileSelect").value;
+  if (!profileId) return;
+  try {
+    await fetchAiAgentConfig(true, profileId);
+  } catch (err) {
+    showToast(err.message, true);
+  }
+}
+
+async function createAiAgentProfile() {
+  const name = prompt("新配置文件名称：", "");
+  if (name === null) return;
+  if (!name.trim()) {
+    showToast("配置文件名称不能为空。", true);
+    return;
+  }
+  const copyFrom = confirm("以当前正在编辑的配置为模板复制（含 API Key）？\n点「取消」则用默认值新建。")
+    ? $("#aiagentProfileSelect").value
+    : "";
+  await requestAiAgentProfileAction("/api/aiagent-profiles", { name: name.trim(), copy_from: copyFrom });
+}
+
+async function renameAiAgentProfile() {
+  const profileId = $("#aiagentProfileSelect").value;
+  if (!profileId) return;
+  const name = prompt("新的配置文件名称：", aiagentProfileName(profileId));
+  if (name === null) return;
+  await requestAiAgentProfileAction("/api/aiagent-profiles/rename", { profile: profileId, name: name.trim() });
+}
+
+async function activateAiAgentProfile() {
+  const profileId = $("#aiagentProfileSelect").value;
+  if (!profileId) return;
+  if (!confirm(`把「${aiagentProfileName(profileId)}」设为全局默认配置？未绑定的会话会立即改用它。`)) return;
+  await requestAiAgentProfileAction("/api/aiagent-profiles/activate", { profile: profileId });
+}
+
+async function deleteAiAgentProfile() {
+  const profileId = $("#aiagentProfileSelect").value;
+  if (!profileId) return;
+  if (!confirm(`删除配置文件「${aiagentProfileName(profileId)}」？它的会话绑定会一并清除，此操作不可撤销。`)) return;
+  await requestAiAgentProfileAction("/api/aiagent-profiles", { profile: profileId }, "DELETE");
+}
+
+async function saveAiAgentBinding(kind, ident, profileId) {
+  if (!ident) {
+    showToast("请填写群号 / QQ 号。", true);
+    return;
+  }
+  await requestAiAgentProfileAction("/api/aiagent-bindings", {
+    kind,
+    id: ident,
+    profile: profileId,
+    editing: $("#aiagentProfileSelect")?.value || "",
+  });
 }
 
 async function saveTtsConfigData(payload, successMessage = "TTS 设置已保存。") {
