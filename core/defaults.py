@@ -167,7 +167,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     },
     "message": {
         "packing": {
-            "mode": "按条件打包",
+            "mode": "按条件聚合",
             "thresholds": {
                 "image_count": 3,
                 "video_count": 2,

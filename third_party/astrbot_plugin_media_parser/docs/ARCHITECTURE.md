@@ -20,6 +20,7 @@
 - 今日头条：支持 视频 / 图片 / 文本；覆盖文章、微头条、视频、短链跳转页和 `message.meta.news.jumpUrl` 小程序卡片。
 - 小黑盒：支持 视频 / 图片 / 文本；覆盖游戏详情页和 BBS/link 帖子。
 - Twitter/X：支持 视频 / 图片 / 文本；优先 FxTwitter/FxEmbed，服务不可用时回退 Guest GraphQL。
+- Pixiv：支持 图片 / 文本；覆盖插画和漫画作品页、多页原图候选、Cookie 访问限制与解析/图片代理。
 
 ### 1.2 核心模块结构
 
@@ -42,6 +43,7 @@ astrbot_plugin_media_parser/
     │   ├── runtime_manager/
     │   │   └── bilibili/auth.py     # BilibiliAuthRuntime，Cookie 校验与扫码登录
     │   └── platform/                # 各平台解析器
+    │       ├── pixiv.py             # Pixiv 插画/漫画解析器
     │       ├── xianyu.py            # 闲鱼商品页解析器
     │       └── toutiao.py           # 今日头条文章/微头条/视频解析器
     ├── downloader/
@@ -59,7 +61,8 @@ astrbot_plugin_media_parser/
     │       └── video_cover.py       # 视频仅封面模式的首帧截取
     ├── message_adapter/
     │   ├── node_builder.py          # Plain/Image/Video 节点构建
-    │   └── sender.py                # 打包/非打包发送
+    │   ├── sender.py                # 聚合/独立/文件发送
+    │   └── archive_builder.py       # 解析结果 ZIP 归档
     ├── translation/
     │   ├── manager.py               # 元数据翻译与严格 JSON 结果回填
     │   ├── llm_client.py            # 自定义 OpenAI 兼容 / Ollama 调用
@@ -86,22 +89,26 @@ astrbot_plugin_media_parser/
 - `全部发送`：发送文本元数据节点和图片/视频节点。
 - `仅文本`：解析并发送文本元数据，不进入下载处理、文件 Token 注册和富媒体节点构建。
 - `仅富媒体`：解析并发送图片/视频，不构建文本节点；热评条数会对该平台归零。
-- 所有平台均为 `关闭` 时：`main.py::auto_parse()` 直接跳过，不进入解析。
-- 开场语只在富媒体流程中触发，且只有出现可发送媒体时才发送；如果已发送开场语但最终没有节点，会补发空结果说明。
+- 所有平台均为 `关闭` 时：普通消息不进入解析，但管理员清缓存命令仍在停用检查之前处理。
+- 普通解析的开场语只在富媒体流程中触发，且只有出现可发送媒体时才发送；如果已发送开场语但最终没有节点，会补发空结果说明。ZIP 归档不构建聊天节点，但会在归档流程中按 `message.opening.enable` 发送一次 `message.opening.archive_content`。
 
-#### 消息集合打包
+#### 消息聚合与 ZIP 归档
 
-`message.packing.mode` 使用字符串模式控制最终发送策略：
+`message.packing.mode` 是为保留现有用户配置而继续使用的持久化路径，内部映射为 `AggregationConfig`，控制最终发送策略：
 
-- `不打包`：始终逐链接独立发送。
-- `全部打包`：普通媒体使用 `Nodes` 消息集合发送，大媒体仍按 `download.large_video_threshold_mb` 单独发送。
-- `按条件打包`：节点构建完成后统计最终可发送的图片节点、视频节点和总节点数，任一数量达到 `message.packing.thresholds` 对应阈值时才使用消息集合。
+- `不聚合`：始终逐链接独立发送。
+- `全部聚合`：普通媒体使用 `Nodes` 消息集合发送，大媒体仍按 `download.large_video_threshold_mb` 单独发送。
+- `按条件聚合`：统计真正进入合并转发的图片、视频、文本和翻译节点，任一数量达到 `message.packing.thresholds` 对应阈值时使用消息集合；单独发送的大媒体不参与统计。
 
-`message.packing.thresholds.image_count`、`video_count`、`node_count` 均为非负整数。阈值为 `0` 时表示不按该项触发打包。
+`message.packing.thresholds.image_count`、`video_count`、`node_count` 均为非负整数。阈值为 `0` 时表示不按该项触发聚合。
 
-`message.text_metadata.quote_user_message` 控制非打包发送时文本元数据节点是否引用对应的用户消息。媒体节点、热评节点、翻译节点和消息集合不引用用户消息。
+`message.text_metadata.quote_user_message` 控制非聚合发送时文本元数据节点是否引用对应的用户消息。媒体节点、热评节点、翻译节点和消息集合不引用用户消息。
+
+`message.archive.command` 为空时关闭 ZIP 功能。配置命令后，用户必须引用含可解析链接的消息，并发送一条只包含该命令的消息；命令与 `admin.clean_cache_keyword` 相同时会被禁用。归档流程会按当前平台输出模式过滤链接并尝试下载原始媒体，不构建聊天节点，但在 `message.opening.enable` 开启时发送一次 `message.opening.archive_content`，也不会注册普通媒体中转 Token 或继承聊天的字段可见性和“视频仅发送封面”策略。`archive_builder.py` 在工作线程中以固定 `media_parser/序号_标题/` 布局写入 ZIP；每条链接生成 `metadata.txt` 与白名单化的 `details.json`，失败媒体记录链接和原因。`message.archive.max_total_size_mb` 限制单次归档媒体总量，配置值会限制在 1–4096 MB。源媒体在发送后立即清理；ZIP 至少保留 300 秒供 AstrBot/协议端延迟拉取，并用持久过期标记回收。
 
 `message.text_metadata.show_title/show_author/show_timestamp/show_original_link/show_description` 分别控制来源元数据字段。开关默认均为 `true`，只改变展示与翻译输入；访问状态、媒体大小、跳过原因和错误提示不受影响。现有 `message.*` 路径保持不变，避免 AstrBot 递归更新 schema 时删除用户旧配置。
+
+配置 schema 对依赖开关的字段使用条件显隐，例如翻译提供商、权限名单、B站 Cookie、管理员协助登录和媒体中转参数。显隐只影响配置页展示，不会删除已保存的隐藏值。
 
 #### 缓存目录
 
@@ -137,7 +144,7 @@ cache/runtime_manager/bilibili/cookie.json
 - 监听所有消息事件。
 - 执行权限检查、触发判断、卡片 URL 和回复 URL 提取。
 - 协调解析限流、解析、下载、文件 Token 注册、节点构建、发送与清理。
-- 在 `terminate()` 中关闭延迟清理任务、管理员交互任务、下载任务，并清理当前缓存根目录下带标记的媒体子目录。
+- 在 `terminate()` 中关闭周期清理、延迟清理、管理员交互和下载任务；仍处于 Token TTL 内的已标记文件由下次加载后的过期扫描回收。
 
 管理员私聊发送 `admin.clean_cache_keyword`，且发送者为 `permissions.admin_id` 时，会触发 `cleanup_marked_in(cache_dir)` 主动清理媒体缓存。
 
@@ -147,25 +154,26 @@ cache/runtime_manager/bilibili/cookie.json
 
 - `TriggerConfig`：`auto_parse`、`keywords`、`reply_trigger`，提供 `should_parse()` 和 `has_keyword()`。
 - `ParserOutputConfig`：各平台输出模式，负责解析器启用、文本/富媒体输出判定。
-- `MessageConfig`：消息输出聚合域，由 `OpeningMessageConfig`、`PackingConfig`、`MediaDisplayConfig`、`TextMetadataConfig` 和 `HotCommentConfig` 组成。
+- `MessageConfig`：消息输出域，由 `OpeningMessageConfig`、`AggregationConfig`、`ArchiveConfig`、`MediaDisplayConfig`、`TextMetadataConfig` 和 `HotCommentConfig` 组成。
 - `PermissionConfig`：管理员、白名单、黑名单，提供 `check()`。
 - `DownloadConfig`：大小限制、缓存目录、缓存可用性、下载并发。
 - `ParseRateLimitConfig`：同链接/同用户解析频率限制、时间窗和持久化记录文件。
-- `ProxyConfig`：全局代理、TikTok、小黑盒、Twitter/X 代理开关。
-- `BilibiliEnhancedConfig`：Cookie、最高画质、运行时文件、管理员协助登录。
+- `ProxyConfig`：全局代理、TikTok、小黑盒、Twitter/X、Pixiv 代理开关。
+- `BilibiliEnhancedConfig`：Cookie、最高画质、运行时文件、管理员协助登录与主动更新指令。
+- `PixivConfig`：Pixiv Web Ajax API 使用的可选 Cookie。
 - `MediaRelayConfig`：文件 Token 中转开关、回调地址、TTL。
 - `TranslationConfig`：翻译开关、翻译范围、目标语言、AstrBot 内置或自定义大模型配置。输入/输出上限固定为 4000，超时固定为 60 秒，随机性固定为 0。
 - `AdminConfig`：清理关键词和 debug 模式。
 
-`ConfigManager` 会将 `parsers` 的输出模式归一到 `ParserOutputConfig.modes`。使用 `关闭`、`全部发送`、`仅文本`、`仅富媒体` 四种字符串模式。缺省平台使用 `全部发送`，不同平台之间不互相继承配置。`message.packing.mode` 会被归一为 `不打包`、`全部打包`、`按条件打包` 三种模式；条件阈值会按非负整数兜底。
+`ConfigManager` 会将 `parsers` 的输出模式归一到 `ParserOutputConfig.modes`。使用 `关闭`、`全部发送`、`仅文本`、`仅富媒体` 四种字符串模式。缺省平台使用 `全部发送`；显式无效值会安全关闭并记录警告。`message.packing.mode` 会被归一为 `不聚合`、`全部聚合`、`按条件聚合`；条件阈值按非负整数兜底。旧模式值和旧 ZIP 命令会在 schema 仍保留这些字段时迁移，避免 AstrBot 完整性检查提前删除用户配置。
 
-权限优先级为：管理员直接放行，其次个人白名单、个人黑名单、群组白名单、群组黑名单；均未命中时，白名单开启则拒绝，白名单关闭则放行。管理员 ID 会自动加入用户白名单。
+权限优先级为：管理员直接放行，其次个人白名单、个人黑名单、群组白名单、群组黑名单；均未命中时，白名单开启则拒绝，白名单关闭则放行。管理员 ID 会自动加入用户白名单。权限根配置、白/黑名单子配置、开关值或名单类型无效时整段权限配置 fail-closed，所有消息均拒绝。
 
 ### 2.3 解析器模块 `core/parser/`
 
 `LinkRouter` 负责：
 
-- 跳过含有 `原始链接：` 标记的文本，避免二次解析机器人自己发出的结果。
+- 只负责文本提链，不再使用用户可伪造的文本哨兵；`main.py` 在事件层通过发送者 ID 跳过机器人自身消息。
 - 遍历启用的解析器调用 `extract_links()`。
 - 过滤 hostname 标签含 `live` 的直播链接，也会识别 query 参数内嵌的直播跳转。
 - 按原文出现位置排序并去重。
@@ -186,12 +194,13 @@ cache/runtime_manager/bilibili/cookie.json
 - 优先使用运行时 Cookie，其次配置 Cookie。
 - 通过 B站 nav 接口校验登录态，并对有效/无效结果做短 TTL 缓存。
 - 运行时 Cookie 失效时会清空本地凭据，再尝试配置 Cookie。
-- 可生成登录链接和二维码链接，轮询扫码结果，并保存新凭据。
+- 可生成登录链接，在本地生成二维码 PNG，轮询扫码结果，并原子保存新凭据；登录令牌不会发送到第三方二维码服务。
 `BilibiliAdminCookieAssistManager` 是插件运行时的非阻塞协助流程：
 
 - 只有管理员私聊过机器人后，才有可主动发送的私聊会话标识。
 - 当 B站解析器消费到 Cookie 不可用请求后，后台向管理员发送确认消息。
-- 管理员回复 `确定` 后发送登录链接/二维码，并后台轮询登录结果。
+- 管理员回复 `确定` 后发送登录链接和本地二维码，并在受管理任务中轮询登录结果；等待确认和扫码均会主动超时并清理状态。
+- 管理员私聊发送配置的主动更新指令（默认 `B站更新Cookie`）会绕过自动请求冷却，直接进入二维码登录；同一时间只允许一轮扫码登录。
 - Notice、Request 等非用户消息事件不会更新私聊会话或消费待确认状态。
 - 管理员发送可解析链接时会优先进入解析流程，不会被纯文本协助回复处理抢走。
 
@@ -205,7 +214,7 @@ image_urls: List[List[str]]
 file_paths: List[Optional[str]]
 ```
 
-当 `message.media_display.video_cover_only=true` 时，下载器会先把视频媒体转换为图片媒体：解析结果提供 `video_cover_urls` 等封面字段时直接按图片下载封面；没有封面字段时创建本地 `video_cover` 任务，由 `handler/video_cover.py` 调用 ffmpeg 从视频 URL 截取第一帧。
+当 `message.media_display.video_cover_only=true` 时，下载器会先把视频媒体转换为图片媒体：解析结果提供 `video_cover_urls` 等封面字段时直接按图片下载封面；没有封面字段时创建本地 `video_cover` 任务，由 `handler/video_cover.py` 调用 ffmpeg 从视频 URL 截取第一帧。ffmpeg 不可用时保留原视频，避免封面模式把媒体误判为失败。
 
 `file_paths` 索引固定为：
 
@@ -217,7 +226,7 @@ video_count .. video_count + image_count   图片
 每个视频独立决策：
 
 - `video_force_download` 或逐项 `video_force_downloads` 为真：必须 `local`。
-- URL 含 `dash:` 或 `m3u8:`：必须 `local`。
+- URL 含 `dash:` 或 `m3u8:`：通常必须 `local`；ffmpeg 不可用时回退为 `direct`，保留原始流地址。
 - 缓存可用的普通视频：`local`。
 - 缓存不可用的普通视频：通过大小与可访问性预检后 `direct`。
 - 必须 `local` 但缓存不可用：`skip`。
@@ -233,13 +242,13 @@ video_count .. video_count + image_count   图片
 
 下载路由规则：
 
-- `dash:video_url||audio_url`：进入 DASH 处理器，video/audio 并发下载，音频存在时必须 ffmpeg 合并成功。
-- `m3u8:` 或 URL 中含 `.m3u8`：进入 M3U8 处理器，下载分片、合并；音视频分离时需要 ffmpeg。
+- `dash:video_url||audio_url`：进入 DASH 处理器，video/audio 并发下载，音频存在时用 ffmpeg 合并；ffmpeg 不可用时回退发送原始流地址。
+- `m3u8:` 或 URL 中含 `.m3u8`：进入 M3U8 处理器，下载分片、合并；音视频分离时需要 ffmpeg，缺少 ffmpeg 时回退发送原始流地址。
 - `range:`：普通视频路径中先尝试并发 Range 下载，失败降级普通视频下载。
-- `image`：进入图片处理器；非 jpg/jpeg/png 会尝试 ffmpeg 转 PNG。
+- `image`：进入图片处理器；非 jpg/jpeg/png 会尝试 ffmpeg 转 PNG，缺少 ffmpeg 时保留原格式并写入警告，其他转换失败则跳过该图片。
 - 其他：普通视频流式下载。
 
-`validator.py` 负责 HEAD/Range GET 预检、大小提取、Content-Type 检查、HTML/JSON/文本错误响应识别和 403 状态传递。
+`validator.py` 负责 HEAD/Range GET 预检、大小提取、Content-Type 检查、HTML/JSON/文本错误响应识别和 403 状态传递。`security.py` 统一负责公网地址限制、逐跳重定向、DNS/peer 校验和跨源凭据剥离；`budget.py` 为普通视频、图片、DASH、HLS 和封面截取提供流式硬字节预算。所有文件先写 `.part` 再原子替换，取消或失败不会留下伪成功文件。HLS 会选择最高分辨率/带宽变体并限制清单、初始化片和分片总量；`EXT-X-BYTERANGE` 当前明确拒绝。
 
 ### 2.6 存储与清理 `core/storage/`
 
@@ -268,14 +277,15 @@ video_count .. video_count + image_count   图片
 - 富媒体节点只消费 `video_modes/image_modes`：`local` 用 Token URL 或本地文件，`direct` 用剥离前缀后的 URL，`skip` 不构建节点。
 - 内部先尝试构建富媒体节点，再构建文本节点，这样节点构建失败时可把原因回填到 metadata，文本节点可展示。
 - `build_all_nodes()` 返回 `BuildAllNodesResult(all_link_nodes, link_metadata, temp_files, video_files)`。
-- `summarize_node_counts()` 统计最终可发送的图片、视频和总节点数量，供按条件打包判断使用。
+- `summarize_node_counts()` 统计真正进入合并转发的图片、视频和总节点数量，供按条件聚合判断使用。
+- `archive_builder.py` 直接把 `metadata.file_paths` 中已成功下载的媒体以 `ZIP_STORED` 写入归档，避免额外副本和无效压缩；同时生成 `metadata.txt` 与不含请求头、Cookie、Token、本地路径的 `details.json`。归档前检查请求级总量与可用磁盘空间。
 
 `sender.py` 负责发送，是否进入消息集合由 `main.py` 在节点构建后决定：
 
-- `message.packing.mode=不打包`：逐链接独立发送。
-- `message.packing.mode=全部打包`：使用 `Nodes` 打包发送普通媒体；大媒体单独发送。
-- `message.packing.mode=按条件打包`：节点构建完成后统计图片、视频和总节点数量，任一数量达到 `message.packing.thresholds` 中配置的阈值时打包发送。
-- 非打包时，如果 `message.text_metadata.quote_user_message=true`，只让文本元数据节点引用对应的用户消息；媒体、热评、翻译和分隔符不引用。
+- `message.packing.mode=不聚合`：逐链接独立发送。
+- `message.packing.mode=全部聚合`：使用 `Nodes` 聚合发送普通媒体；大媒体单独发送。
+- `message.packing.mode=按条件聚合`：节点构建和翻译完成后统计可聚合节点，任一数量达到 `message.packing.thresholds` 中配置的阈值时合并转发。
+- 非聚合时，如果 `message.text_metadata.quote_user_message=true`，只让文本元数据节点引用对应的用户消息；媒体、热评、翻译和分隔符不引用。
 - 纯图片图集会把文本和图片分组发送；混合内容按节点逐个发送。
 - 大媒体判定来自 `download.large_video_threshold_mb` 和当前 metadata 的最大视频大小。
 
@@ -288,10 +298,6 @@ main.py::VideoParserPlugin.auto_parse(event)
   ↓
 admin_cookie_assist.try_update_admin_origin(event)
   ↓
-parser_output.has_any_output()
-  ├─ false -> 返回
-  └─ true  -> 继续
-  ↓
 PermissionConfig.check(is_private, sender_id, group_id)
   ├─ false -> 返回
   └─ true  -> 继续
@@ -299,6 +305,10 @@ PermissionConfig.check(is_private, sender_id, group_id)
 管理员清理关键词检查
   ├─ 命中且为管理员私聊 -> cleanup_marked_in(cache_dir) -> 返回
   └─ 未命中 -> 继续
+  ↓
+parser_output.has_any_output()
+  ├─ false -> 返回（管理命令仍可用）
+  └─ true  -> 继续
   ↓
 提取当前消息文本 / QQ 卡片 URL
   ↓
@@ -318,7 +328,7 @@ ParseRecordManager.filter_links()
   ├─ 同标准链接或同用户超出时间窗限制 -> 跳过对应链接
   └─ 允许解析 -> 写入本次解析尝试记录
   ↓
-创建 aiohttp.ClientSession
+创建带 PublicOnlyResolver/socket_factory 的 aiohttp.ClientSession
   ↓
 ParserManager.parse_text(parse_text, session, links_with_parser)
   ↓
@@ -336,27 +346,28 @@ translation.enable=true?
   ├─ 是 -> 仅对这些 metadata 并发 DownloadManager.process_metadata()
   └─ 否 -> processed_metadata_list = metadata_list
   ↓
-media_relay.enable 且该 metadata 启用富媒体 -> register_files_with_token_service()
-  ↓
-build_all_nodes()
-  ↓
-summarize_node_counts()
-  ↓
-按 message.packing.mode 与条件阈值发送文本元数据、热评和媒体节点
-  ├─ 打包 -> send_packed_results()
-  └─ 不打包 -> send_unpacked_results()
-       └─ 可按 message.text_metadata.quote_user_message 引用用户消息
-  ↓
-等待 translation_task
-  ├─ 有翻译节点 -> send_translation_results()
-  └─ 无翻译节点 -> 跳过
+ZIP 命令?
+  ├─ 是 -> 强制原视频/完整字段 -> 发送归档开场语（如启用） -> 等待翻译 -> 在线程中 build_zip_archive()
+  │        -> send_zip_result() -> 源媒体立即清理，ZIP 至少延迟 300 秒清理
+  └─ 否 -> media_relay.enable 时 register_files_with_token_service()
+           ↓
+         build_all_nodes() + 等待翻译
+           ↓
+         summarize_node_counts()
+           ↓
+         按 message.packing.mode 与条件阈值选择发送路径
+           ├─ 聚合 -> send_aggregated_results()
+           └─ 独立 -> send_individual_results()
+                        └─ 可按 message.text_metadata.quote_user_message 引用用户消息
+           ↓
+         send_translation_results()
   ↓
 finally 清理本次 temp_files + video_files
   ├─ relay 开启 -> 延迟 media_relay.ttl 秒
   └─ relay 关闭 -> 立即清理
 ```
 
-有效 metadata 的判定条件是：至少一条结果没有 `error`，且在当前平台输出模式下可能构建节点。富媒体输出开启时需要包含视频或图片；文本输出开启时可由标题、作者、简介、发布时间、访问提示或媒体跳过信息构建文本节点。
+有效 metadata 的判定条件是：至少一条结果在当前平台输出模式下可能构建节点。带 `error` 的结果也会构建可见错误节点；富媒体输出开启时需要包含视频或图片；文本输出开启时可由标题、作者、简介、发布时间、访问提示、热评、媒体跳过信息或解析错误构建文本节点。
 
 ### 3.2 链接提取与解析链
 
@@ -364,8 +375,8 @@ finally 清理本次 temp_files + video_files
 文本
   ↓
 LinkRouter.extract_links_with_parser()
-  ├─ 跳过含 "原始链接：" 的文本
   ├─ 遍历 parser.extract_links()
+  ├─ 机器人自发消息由 main.py 按发送者身份提前跳过
   ├─ 过滤直播链接
   ├─ 按出现位置排序
   └─ 去重
@@ -386,7 +397,7 @@ metadata
 归一 video_urls/image_urls 为 List[List[str]]
   ↓
 逐视频决策 local/direct/skip
-  ├─ DASH/M3U8/强制缓存 -> local 或 skip
+  ├─ DASH/M3U8/强制缓存 -> local 或 skip；ffmpeg 缺失时流媒体回退 direct
   ├─ 普通视频 + 缓存可用 -> local
   └─ 普通视频 + 缓存不可用 -> 预检后 direct 或 skip
   ↓
@@ -397,8 +408,8 @@ metadata
 local_items 并发下载
   ├─ dash -> video/audio 下载 + ffmpeg 合并
   ├─ m3u8 -> 分片下载 + 拼接/ffmpeg 合并
-  ├─ range -> Range 并发下载 + 降级普通下载
-  ├─ image -> 下载 + 必要时转 PNG
+  ├─ range -> 单次 0-0 探测；仅严格 206/Content-Range 才并发，否则降级单流
+  ├─ image -> 下载 + 必要时转 PNG；ffmpeg 缺失时保留原格式
   └─ video -> 普通流式下载
   ↓
 下载结果回填 metadata
@@ -430,11 +441,11 @@ build_all_nodes()
   ↓
 summarize_node_counts()
   ↓
-PackingConfig.should_pack()
+AggregationConfig.should_aggregate_nodes()
   ↓
 MessageSender
-  ├─ 需要打包 -> send_packed_results()
-  └─ 不打包   -> send_unpacked_results()
+  ├─ 需要聚合 -> send_aggregated_results()
+  └─ 独立发送 -> send_individual_results()
   ↓
 translation_task 完成后
   └─ build_translation_nodes_for_all() -> send_translation_results()
@@ -486,6 +497,8 @@ translation_target_language/_translated_fields
 use_image_proxy/use_video_proxy/proxy_url
 error
 ```
+
+Pixiv 解析器还会附加 `pixiv_illust_id`、`pixiv_user_id`、`pixiv_x_restrict`、`pixiv_ai_type`、`pixiv_sanity_level` 和 `pixiv_page_count`，用于保留作品访问限制与分页信息。
 
 下载层回填：
 
@@ -541,7 +554,7 @@ main.py finally 统一清理本次文件
   ├─ relay -> 延迟清理
   └─ 普通 -> 立即清理
   ↓
-terminate/admin clean -> cleanup_marked_in(cache_dir)
+周期/admin clean -> 在独占清理锁内 cleanup_marked_in(cache_dir)
 ```
 
 DASH 临时 `.m4s` 在合并后由 DASH 处理器清理；M3U8 临时分片目录由 M3U8 处理器在 finally 中清理。
@@ -554,6 +567,7 @@ DASH 临时 `.m4s` 在合并后由 DASH 处理器清理；M3U8 临时分片目�
 proxy.address
 proxy.tiktok
 proxy.xiaoheihe_video
+proxy.pixiv
 proxy.twitter.parse
 proxy.twitter.image
 proxy.twitter.video
@@ -564,6 +578,7 @@ proxy.twitter.video
 - `TikTokParser`：TikTok 解析和媒体代理。
 - `XiaoheiheParser`：视频代理。
 - `TwitterParser`：Twitter/X 解析、图片、视频代理。
+- `PixivParser`：Pixiv Web Ajax API 解析和图片下载共用同一代理开关。
 
 解析结果写入：
 
@@ -581,22 +596,26 @@ metadata.proxy_url > ConfigManager.proxy.address
 
 然后按媒体类型读取 `use_image_proxy` 或 `use_video_proxy` 决定是否传给 aiohttp。
 
+主解析/下载会话使用 `create_public_only_connector()`：直连目标的 URL、DNS 结果、连接前 socket 地址和实际 peer 均必须是公网地址，重定向逐跳复验，跨源时剥离 Authorization/Cookie/Proxy-Authorization。显式配置的代理地址作为受信连接端点放行；代理模式仍拒绝字面私网目标，但允许已知的 `198.18.0.0/15` fake-IP 交给代理解析，普通域名最终解析和连接发生在代理端，属于管理员显式选择的代理信任边界。直连环境若使用 Clash/TUN fake-IP 会 fail-closed，应改为真实 DNS/redir-host 或显式代理。
+
 ## 五、并发与异常
 
 ### 5.1 并发模型
 
 - `ParserManager.parse_text()` 对去重后的链接并发解析。
-- `main.py` 在至少一条 metadata 启用富媒体输出时创建下载处理任务，并用 `asyncio.as_completed()` 按完成顺序处理开场语触发。
+- Pixiv 等平台解析器使用 `Config.PARSER_MAX_CONCURRENT` 控制单平台解析并发，Pixiv 每个作品会依次请求元信息和分页图片接口。
+- `main.py` 在至少一条 metadata 启用富媒体输出时并发处理各条 metadata；普通开场语由锁保护的一次性回调按首个可发送媒体触发，ZIP 流程使用独立的打包文本但共享开关。
 - `DownloadManager` 使用实例级 `_download_semaphore` 限制所有本地媒体下载总并发。
-- Range 下载内部使用分片级 semaphore。
+- Range 下载在严格能力探测后使用分片级 semaphore；服务器忽略 Range 时不会读取 N 份完整正文。
 - DASH 音视频子流并发下载。
 - M3U8 分片下载内部使用独立分片并发上限。
-- B站管理员协助登录和 relay 延迟清理都是插件生命周期内登记的后台任务。
+- B站管理员协助登录和 relay/ZIP 延迟清理都是受观察的后台任务。延迟文件会写持久过期标记，热重载取消任务后仍能由后续周期扫描回收。
 
 ### 5.2 异常处理
 
 - 解析阶段：`SkipParse` 跳过；普通异常生成 error metadata；`CancelledError` 继续抛出。
+- Pixiv Ajax 返回 HTML 时会在 HTTP 状态抛错前识别 Cloudflare 防护页，避免把拦截页当作 JSON 处理。
 - 下载阶段：单个候选失败会尝试下一个候选；媒体项全部失败写入 skip reason；本条 metadata 全部媒体失败时清理对应缓存子目录。
 - 大小限制：普通视频下载前预检，DASH/M3U8/强制缓存视频下载后再兜底检查，超限会删除文件并置为 `skip`。
-- 发送阶段：单个大媒体节点发送失败记录 warning 后继续；主发送异常会继续进入 finally 清理。
-- 外部子进程：DASH/M3U8/图片转换涉及 ffmpeg，TikTok 涉及系统 curl；超时或取消路径会终止并回收子进程。
+- 发送阶段：独立节点采用 best-effort，部分失败会给用户明确提示；预期节点全部发送失败时抛出聚合错误，不再记录虚假的“发送完成”。主发送异常始终进入 finally 清理。
+- 外部子进程：DASH/M3U8/图片转换涉及 ffmpeg，TikTok 涉及系统 curl；ffmpeg 缺失时流媒体和图片处理回退原格式；超时或取消路径会终止并回收子进程。
