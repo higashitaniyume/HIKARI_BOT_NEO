@@ -79,15 +79,30 @@ async function fetchTtsConfig(shouldRender = true) {
   }
 }
 
-async function fetchAiAgentConfig(shouldRender = true) {
-  const res = await fetch("/api/aiagent-config", { cache: "no-store" });
+async function fetchAiAgentConfig(shouldRender = true, profileId = "") {
+  const query = profileId ? `?profile=${encodeURIComponent(profileId)}` : "";
+  const res = await fetch(`/api/aiagent-config${query}`, { cache: "no-store" });
   const data = await readJsonResponse(res, "读取 AI Agent 设置失败");
-  state.aiagentConfig = data.config || {};
-  state.aiagentPersonas = data.personas || [];
-  state.aiagentTools = data.tools_catalog || [];
+  applyAiAgentConfigPayload(data);
   if (shouldRender) {
     renderAiAgentConfig();
   }
+}
+
+// 所有 AI 配置相关的接口（读取 / 保存 / 配置文件 CRUD / 绑定）都返回同一份
+// 整页状态，统一在这里落到 state，避免各处漏字段。
+function applyAiAgentConfigPayload(data) {
+  state.aiagentConfig = data.config || {};
+  state.aiagentPersonas = data.personas || [];
+  state.aiagentTools = data.tools_catalog || [];
+  state.aiagentProfiles = data.profiles || [];
+  state.aiagentActiveProfile = data.active_profile || "";
+  state.aiagentEditingProfile = data.editing_profile || data.active_profile || "";
+  const bindings = data.bindings || {};
+  state.aiagentBindings = {
+    group: bindings.group || {},
+    private: bindings.private || {},
+  };
 }
 
 async function fetchPushConfig(shouldRender = true) {

@@ -188,3 +188,65 @@
   font-size: 0.78em;
   vertical-align: middle;
 }
+
+/* ── AI 配置文件栏与会话绑定（复用配额页的表格/徽标风格）── */
+
+.profile-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  padding: 16px 18px;
+}
+
+.profile-bar-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-bar-head h3 {
+  margin: 0;
+}
+
+.profile-bar-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.profile-bar-select {
+  display: grid;
+  min-width: 240px;
+  gap: 4px;
+}
+
+.profile-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-bar-actions button {
+  width: auto;
+  padding: 0 14px;
+}
+
+.badge-active {
+  display: inline-block;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--accent-grad);
+  color: #fff;
+  padding: 2px 9px;
+  font-size: 0.78em;
+  vertical-align: middle;
+}
+
+.binding-row-select {
+  min-width: 180px;
+}

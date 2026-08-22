@@ -53,7 +53,9 @@ class StateHandlerMixin:
         self._send_json(_tts_config_state())
 
     def _handle_aiagent_config_get(self) -> None:
-        self._send_json(_aiagent_config_state())
+        # ?profile=<id> 指定正在编辑的配置文件，缺省读全局默认。
+        profile_id = self._query_params.get("profile", [""])[0].strip() or None
+        self._send_json(_aiagent_config_state(profile_id))
 
     def _handle_aiagent_memory(self) -> None:
         file_param = self._query_params.get("file", [None])[0]

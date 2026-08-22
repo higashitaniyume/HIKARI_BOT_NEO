@@ -84,6 +84,10 @@ ROUTE_DEFS: list[RouteEntry] = [
     # ===== POST API — exact paths ========================================
     RouteEntry({"POST"}, "/api/tts-config", "api_tts_config_save", "_handle_tts_config_save"),
     RouteEntry({"POST"}, "/api/aiagent-config", "api_aiagent_config_save", "_handle_aiagent_config_save"),
+    RouteEntry({"POST"}, "/api/aiagent-profiles/rename", "api_aiagent_profile_rename", "_handle_aiagent_profile_rename"),
+    RouteEntry({"POST"}, "/api/aiagent-profiles/activate", "api_aiagent_profile_activate", "_handle_aiagent_profile_activate"),
+    RouteEntry({"POST"}, "/api/aiagent-profiles", "api_aiagent_profile_create", "_handle_aiagent_profile_create"),
+    RouteEntry({"POST"}, "/api/aiagent-bindings", "api_aiagent_binding_save", "_handle_aiagent_binding_save"),
     RouteEntry({"POST"}, "/api/aiagent-memory/summarize", "api_aiagent_memory_summarize", "_handle_aiagent_memory_summarize"),
     RouteEntry({"POST"}, "/api/aiagent-quota", "api_aiagent_quota_save", "_handle_aiagent_quota_save"),
     RouteEntry({"POST"}, "/api/aiagent-quota/reset", "api_aiagent_quota_reset", "_handle_aiagent_quota_reset"),
@@ -116,6 +120,7 @@ ROUTE_DEFS: list[RouteEntry] = [
 
     # ===== DELETE =========================================================
     RouteEntry({"DELETE"}, "/api/packs", "api_packs_delete", "_handle_packs_delete"),
+    RouteEntry({"DELETE"}, "/api/aiagent-profiles", "api_aiagent_profile_delete", "_handle_aiagent_profile_delete"),
     RouteEntry({"DELETE"}, "/api/voices", "api_voices_delete", "_handle_voices_delete"),
     RouteEntry({"DELETE"}, "/api/voice-keywords", "api_voice_keywords_delete", "_handle_voice_keywords_delete"),
     RouteEntry({"DELETE"}, "/api/keywords", "api_keywords_delete", "_handle_keywords_delete"),

@@ -1,91 +1,104 @@
 {
   "enabled": false,
-  "api": {
-    "protocol": "responses"
+  "active_profile": "default",
+  "profiles": {
+    "default": {
+      "name": "默认配置",
+      "api": {
+        "protocol": "responses"
+      },
+      "model": {
+        "base_url": "https://api.deepseek.com",
+        "api_key": "",
+        "model": "deepseek-v4-flash",
+        "temperature": 0.7,
+        "top_p": 1,
+        "max_tokens": 8192,
+        "timeout_seconds": 120,
+        "proxy": "",
+        "tool_choice": null
+      },
+      "thinking": {
+        "enabled": true,
+        "reasoning_effort": "high"
+      },
+      "persona": {
+        "skill_path": "BotData/agent_personas/default",
+        "max_chars": 12000,
+        "include_references": true,
+        "reference_max_depth": 1,
+        "reference_max_files": 8,
+        "reference_max_chars_per_file": 8000,
+        "reference_max_total_chars": 24000,
+        "fallback_prompt": "你是 {bot_name} 的聊天 AI Agent。请自然、简洁地回复用户。"
+      },
+      "chat": {
+        "max_user_chars": 2000,
+        "max_reply_chars": 3500,
+        "short_reply_chars": 200,
+        "max_history_messages": 10,
+        "cooldown_seconds": 3,
+        "system_prompt_extra": "",
+        "blocked_url_domains": [
+          "douyin.com",
+          "iesdouyin.com",
+          "bilibili.com",
+          "b23.tv",
+          "xiaohongshu.com",
+          "xhslink.com",
+          "xiaoheihe.cn",
+          "heybox.cn",
+          "twitter.com",
+          "x.com",
+          "t.co",
+          "toutiao.com",
+          "ixigua.com",
+          "kuaishou.com",
+          "gifshow.com",
+          "weibo.com",
+          "weibo.cn",
+          "tiktok.com",
+          "vm.tiktok.com"
+        ]
+      },
+      "memory": {
+        "enabled": true,
+        "root": "UserData/aiagent_memory",
+        "max_read_chars_per_file": 8000,
+        "max_file_chars": 60000
+      },
+      "tools": {
+        "help": {
+          "enabled": true
+        },
+        "search": {
+          "enabled": true,
+          "mode": "builtin",
+          "base_url": "http://searxng-core:8080",
+          "timeout_seconds": 30,
+          "max_results": 5,
+          "safesearch": 1,
+          "language": "auto",
+          "categories": "general"
+        },
+        "files": {
+          "enabled": true,
+          "max_read_chars": 20000,
+          "max_write_chars": 20000
+        },
+        "plugin_tools": {
+          "enabled": true,
+          "allow_side_effects": false,
+          "enabled_names": [],
+          "disabled_names": []
+        },
+        "max_tool_rounds": 4
+      }
+    }
   },
-  "model": {
-    "base_url": "https://api.deepseek.com",
-    "api_key": "",
-    "model": "deepseek-v4-flash",
-    "temperature": 0.7,
-    "top_p": 1.0,
-    "max_tokens": 8192,
-    "timeout_seconds": 120,
-    "proxy": "",
-    "tool_choice": null
-  },
-  "thinking": {
-    "enabled": true,
-    "reasoning_effort": "high"
-  },
-  "persona": {
-    "skill_path": "BotData/agent_personas/default",
-    "max_chars": 12000,
-    "include_references": true,
-    "reference_max_depth": 1,
-    "reference_max_files": 8,
-    "reference_max_chars_per_file": 8000,
-    "reference_max_total_chars": 24000,
-    "fallback_prompt": "你是 {bot_name} 的聊天 AI Agent。请自然、简洁地回复用户。"
-  },
-  "chat": {
-    "max_user_chars": 2000,
-    "max_reply_chars": 3500,
-    "short_reply_chars": 200,
-    "max_history_messages": 10,
-    "cooldown_seconds": 3,
-    "system_prompt_extra": "",
-    "blocked_url_domains": [
-      "douyin.com",
-      "iesdouyin.com",
-      "bilibili.com",
-      "b23.tv",
-      "xiaohongshu.com",
-      "xhslink.com",
-      "xiaoheihe.cn",
-      "heybox.cn",
-      "twitter.com",
-      "x.com",
-      "t.co",
-      "toutiao.com",
-      "ixigua.com",
-      "kuaishou.com",
-      "gifshow.com",
-      "weibo.com",
-      "weibo.cn",
-      "tiktok.com",
-      "vm.tiktok.com"
-    ]
-  },
-  "memory": {
-    "enabled": true,
-    "root": "UserData/aiagent_memory",
-    "max_read_chars_per_file": 8000,
-    "max_file_chars": 60000
-  },
-  "tools": {
-    "search": {
-      "enabled": true,
-      "mode": "builtin",
-      "base_url": "http://searxng-core:8080",
-      "timeout_seconds": 15,
-      "max_results": 5,
-      "safesearch": 1,
-      "language": "auto",
-      "categories": "general"
-    },
-    "files": {
-      "enabled": true,
-      "max_read_chars": 20000,
-      "max_write_chars": 20000
-    },
-    "plugin_tools": {
-      "enabled": true,
-      "allow_side_effects": false,
-      "enabled_names": [],
-      "disabled_names": []
-    },
-    "max_tool_rounds": 4
+  "bindings": {
+    "group": {},
+    "private": {}
   },
   "quota": {
     "enabled": false,

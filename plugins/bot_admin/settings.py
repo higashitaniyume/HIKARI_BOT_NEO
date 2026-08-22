@@ -6,7 +6,14 @@ from typing import Any
 
 from core.access_control import normalize_access_rules
 from core.ai_tool_registry import iter_ai_tools
+from plugins.aiagent.config import create_profile as create_aiagent_profile
+from plugins.aiagent.config import delete_profile as delete_aiagent_profile
 from plugins.aiagent.config import get_config as get_aiagent_config
+from plugins.aiagent.config import get_raw_config as get_aiagent_raw_config
+from plugins.aiagent.config import list_profiles as list_aiagent_profiles
+from plugins.aiagent.config import rename_profile as rename_aiagent_profile
+from plugins.aiagent.config import set_active_profile as set_active_aiagent_profile
+from plugins.aiagent.config import set_binding as set_aiagent_binding
 from plugins.aiagent.persona import list_persona_skills as list_aiagent_persona_skills
 from plugins.aiagent.persona import resolve_persona_path as resolve_aiagent_persona_path
 from plugins.aiagent.config import save_config as save_aiagent_config
@@ -144,8 +151,14 @@ def _aiagent_tools_catalog(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     return tools
 
 
-def _aiagent_config_state() -> dict[str, Any]:
-    cfg = get_aiagent_config()
+def _aiagent_config_state(profile_id: str | None = None) -> dict[str, Any]:
+    """AI 页数据：指定配置文件的有效配置 + 配置文件列表 + 会话绑定。
+
+    profile_id 为空时读全局默认配置文件。API Key 永不回传，只回传「是否已配置」
+    标记，而且这个标记按配置文件各算各的。
+    """
+    doc = get_aiagent_raw_config()
+    cfg = get_aiagent_config(profile_id)
     sanitized = json.loads(json.dumps(cfg, ensure_ascii=False))
     model_cfg = sanitized.get("model") if isinstance(sanitized.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "")
@@ -156,6 +169,10 @@ def _aiagent_config_state() -> dict[str, Any]:
         "config": sanitized,
         "personas": list_aiagent_persona_skills(),
         "tools_catalog": _aiagent_tools_catalog(sanitized),
+        "profiles": list_aiagent_profiles(doc),
+        "active_profile": doc["active_profile"],
+        "editing_profile": str(sanitized.get("_profile_id") or doc["active_profile"]),
+        "bindings": doc["bindings"],
     }
 
 def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -233,8 +250,9 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
     return save_tts_config(next_config)
 
 
-def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
-    current = get_aiagent_config()
+def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
+    """校验并保存「AI」页表单，写入指定配置文件（缺省为全局默认）。"""
+    current = get_aiagent_config(profile_id)
     current_api = current.get("api") if isinstance(current.get("api"), dict) else {}
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
@@ -345,7 +363,73 @@ def _update_aiagent_config(data: dict[str, Any]) -> dict[str, Any]:
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
     # 保留配额配置（本页面不含 quota 字段，由「AI 配额」页面单独管理）
     next_config["quota"] = current.get("quota", {})
-    return save_aiagent_config(next_config)
+    # 只在指定了配置文件时传第二个参数，保持旧调用签名可用。
+    if profile_id is None:
+        return save_aiagent_config(next_config)
+    return save_aiagent_config(next_config, profile_id)
+
+
+# ── AI 配置文件（profiles）与会话绑定 ────────────────────────────────────
+
+
+def _aiagent_profiles_state(profile_id: str | None = None) -> dict[str, Any]:
+    """配置文件操作后的统一响应：整页状态，前端一次刷新到位。"""
+    return _aiagent_config_state(profile_id)
+
+
+def _create_aiagent_profile(data: dict[str, Any]) -> dict[str, Any]:
+    name = _parse_str(data.get("name"), max_length=64)
+    if not name:
+        raise ValueError("配置文件名称不能为空。")
+    copy_from = _parse_str(data.get("copy_from"), max_length=32) or None
+    summary = create_aiagent_profile(name, copy_from=copy_from)
+    payload = _aiagent_profiles_state(summary["id"])
+    payload["message"] = f"已新建配置文件：{summary['name']}"
+    return payload
+
+
+def _rename_aiagent_profile(data: dict[str, Any]) -> dict[str, Any]:
+    profile_id = _parse_str(data.get("profile"), max_length=32)
+    name = _parse_str(data.get("name"), max_length=64)
+    if not profile_id:
+        raise ValueError("请选择要重命名的配置文件。")
+    if not name:
+        raise ValueError("配置文件名称不能为空。")
+    summary = rename_aiagent_profile(profile_id, name)
+    payload = _aiagent_profiles_state(profile_id)
+    payload["message"] = f"已重命名为：{summary['name']}"
+    return payload
+
+
+def _activate_aiagent_profile(data: dict[str, Any]) -> dict[str, Any]:
+    profile_id = _parse_str(data.get("profile"), max_length=32)
+    if not profile_id:
+        raise ValueError("请选择要设为默认的配置文件。")
+    summary = set_active_aiagent_profile(profile_id)
+    payload = _aiagent_profiles_state(profile_id)
+    payload["message"] = f"已把「{summary['name']}」设为全局默认配置。"
+    return payload
+
+
+def _delete_aiagent_profile(data: dict[str, Any]) -> dict[str, Any]:
+    profile_id = _parse_str(data.get("profile"), max_length=32)
+    if not profile_id:
+        raise ValueError("请选择要删除的配置文件。")
+    delete_aiagent_profile(profile_id)
+    payload = _aiagent_profiles_state()
+    payload["message"] = "配置文件已删除，其会话绑定同时清除。"
+    return payload
+
+
+def _save_aiagent_binding(data: dict[str, Any]) -> dict[str, Any]:
+    """绑定 / 解绑一个群或私聊会话（profile 传空串表示解绑）。"""
+    kind = _parse_str(data.get("kind"), max_length=16).strip().lower()
+    ident = _parse_str(data.get("id"), max_length=32)
+    profile_id = _parse_str(data.get("profile"), max_length=32)
+    set_aiagent_binding(kind, ident, profile_id)
+    payload = _aiagent_profiles_state(_parse_str(data.get("editing"), max_length=32) or None)
+    payload["message"] = "会话绑定已更新。" if profile_id else "已解除会话绑定，回落默认配置。"
+    return payload
 
 
 # ── AI 配额（quota）──────────────────────────────────────────────────────
@@ -443,10 +527,10 @@ def _update_aiagent_quota(data: dict[str, Any]) -> dict[str, Any]:
             input_quota.get("count_background", quota_cfg.get("count_background", True))
         ),
     }
-    current["quota"] = next_quota
-    # 黑白名单（配额页「访问控制」板块）
+    # quota / permissions 是全局段，只写这两段，不碰任何配置文件的内容。
+    patch: dict[str, Any] = {"quota": next_quota}
     if "permissions" in data:
-        current["permissions"] = normalize_access_rules(data.get("permissions", {}))
-    save_aiagent_config(current)
+        patch["permissions"] = normalize_access_rules(data.get("permissions", {}))
+    save_aiagent_config(patch)
     return _aiagent_quota_state()
 

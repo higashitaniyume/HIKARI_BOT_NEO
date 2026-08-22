@@ -812,6 +812,15 @@ multipart/form-data
 
 读取 AI Agent 配置、人格 skill 列表和已注册 plugin tools 目录。响应会隐藏真实模型 API Key。
 
+查询参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `profile` | 要读取的配置文件 ID；缺省读全局默认配置 |
+
+`config` 是「指定配置文件 + 全局段」合并后的扁平配置，额外带 `_profile_id` / `_profile_name`。
+`model.api_key_set` 按配置文件各算各的，不会跨配置泄漏 Key 状态。
+
 响应：
 
 ```json
@@ -858,11 +867,32 @@ multipart/form-data
       "blocked_reason": "",
       "missing": false
     }
-  ]
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "name": "默认配置",
+      "model": "deepseek-v4-flash",
+      "base_url": "https://api.deepseek.com",
+      "protocol": "responses",
+      "persona_path": "BotData/agent_personas/default",
+      "api_key_set": true,
+      "is_active": true,
+      "bound_count": 2
+    }
+  ],
+  "active_profile": "default",
+  "editing_profile": "default",
+  "bindings": {
+    "group": { "123456": "default" },
+    "private": {}
+  }
 }
 ```
 
 `tools_catalog[].selected` 表示按当前 `tools.plugin_tools` 配置计算后是否会提供给模型。`blocked_reason` 描述被拦截原因，例如 `plugin_tools 已关闭`、`已加入禁用名单`、`副作用工具未放行`。
+
+`profiles[]` 是配置文件摘要（不含 API Key 本身），`active_profile` 是全局默认配置，`editing_profile` 是本次响应里 `config` 对应的配置文件，`bindings` 是会话到配置文件的映射。
 
 #### `POST /api/aiagent-config`
 
@@ -872,7 +902,8 @@ multipart/form-data
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `enabled` | boolean | 是否启用聊天 Agent |
+| `profile` | string | 要写入的配置文件 ID；缺省写全局默认配置 |
+| `enabled` | boolean | 是否启用聊天 Agent（全局段，对所有配置文件生效） |
 | `model.base_url` | string | OpenAI-compatible API base URL，不能为空 |
 | `model.api_key` | string | 模型 API Key；留空保留现有 Key |
 | `model.model` | string | 模型名称，不能为空 |
@@ -921,6 +952,8 @@ multipart/form-data
 - `disabled_names` 用于禁用默认启用的 tool。
 - `allow_side_effects=false` 时，`readonly=false` 的 tool 即使被选中也不会给模型。
 
+除 `enabled` 外的字段都写入 `profile` 指定的那一套配置，其他配置文件不受影响。
+
 成功响应同 `GET /api/aiagent-config`，并增加：
 
 ```json
@@ -928,6 +961,55 @@ multipart/form-data
   "message": "AI Agent 设置已保存。"
 }
 ```
+
+### AI Agent 配置文件与会话绑定
+
+以下 5 个端点的成功响应都与 `GET /api/aiagent-config` 同构（含 `config`、`profiles`、`active_profile`、`editing_profile`、`bindings`），另加一条 `message`。参数非法返回 `400`。
+
+#### `POST /api/aiagent-profiles`
+
+新建配置文件（上限 20 个，重名拒绝）。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `name` | string | 配置文件名称，不能为空 |
+| `copy_from` | string | 可选；以该配置文件为模板复制（含 API Key），缺省用默认值新建 |
+
+ID 由名称自动生成 slug（`[A-Za-z0-9_-]{1,32}`），纯中文名回落 `profile` / `profile-2`。创建后 ID 不可改。
+
+#### `POST /api/aiagent-profiles/rename`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `profile` | string | 配置文件 ID |
+| `name` | string | 新名称，不能为空、不能与其他配置重名 |
+
+#### `POST /api/aiagent-profiles/activate`
+
+把配置文件设为全局默认，未绑定的会话立即改用它。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `profile` | string | 配置文件 ID |
+
+#### `DELETE /api/aiagent-profiles`
+
+删除配置文件，连带清除它的会话绑定。当前默认配置和最后一个配置不允许删除。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `profile` | string | 配置文件 ID |
+
+#### `POST /api/aiagent-bindings`
+
+绑定或解绑一个会话。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `kind` | string | `group`（群聊）或 `private`（私聊） |
+| `id` | string | 群号 / QQ 号，必须是数字 |
+| `profile` | string | 目标配置文件 ID；传空串表示解绑，回落全局默认 |
+| `editing` | string | 可选；响应中 `config` 要返回哪个配置文件（保持前端正在编辑的那套） |
 
 ### 推送配置
 
@@ -1601,6 +1683,31 @@ curl -X POST \
 ```
 
 注意：`POST /api/aiagent-config` 会校验模型 `base_url` 和 `model`。如果当前配置不存在或为空，应同时提交完整 `model` 字段。
+
+### 新建 AI 配置文件并绑定一个群
+
+```bash
+# 以现有默认配置为模板复制一套（含 API Key），返回体里的 editing_profile 就是新 ID
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <后台密码>" \
+  -d '{"name": "Nightly", "copy_from": "default"}' \
+  http://192.168.31.2:54213/api/aiagent-profiles
+
+# 把 123456 群绑定到这套配置
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <后台密码>" \
+  -d '{"kind": "group", "id": "123456", "profile": "nightly"}' \
+  http://192.168.31.2:54213/api/aiagent-bindings
+
+# 只改这套配置的模型，不影响别的配置
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <后台密码>" \
+  -d '{"profile": "nightly", "model": {"base_url": "https://api.deepseek.com", "model": "deepseek-v4"}}' \
+  http://192.168.31.2:54213/api/aiagent-config
+```
 
 ### 上传贴纸并轮询任务
 

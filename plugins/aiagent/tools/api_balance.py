@@ -120,8 +120,11 @@ async def handle_api_balance(context: AIToolContext, arguments: dict[str, Any]) 
     proxy = None
 
     try:
-        from plugins.aiagent.config import get_config as get_aiagent_config
-        ai_cfg = get_aiagent_config()
+        # 优先用当前会话生效的那套 AI 配置（多配置文件下每套 key 可能不同）。
+        ai_cfg = context.agent_config if isinstance(context.agent_config, dict) else {}
+        if not ai_cfg:
+            from plugins.aiagent.config import get_config as get_aiagent_config
+            ai_cfg = get_aiagent_config()
         model_cfg = ai_cfg.get("model") if isinstance(ai_cfg.get("model"), dict) else {}
         deepseek_key = str(model_cfg.get("api_key") or "")
         proxy = str(model_cfg.get("proxy") or "").strip() or None

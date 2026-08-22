@@ -401,6 +401,12 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "quota_usage": "今日：已用 {daily_used} / {daily_limit} 次 · 剩余 {daily_remaining} 次\n本小时：已用 {hourly_used} / {hourly_limit} 次 · 剩余 {hourly_remaining} 次\n重置：每日 {daily_resets}，每小时 {hourly_resets}",
         "quota_exempt": "当前是豁免对象，不设 AI 配额限制。",
         "quota_disabled": "AI Agent 配额未启用。",
+        "profile_list_header": "🧠 AI 配置文件：",
+        "profile_list_item": "  • {name}（{id}） 模型 {model}{marks}",
+        "profile_switch_usage": "用法：切换AI配置 <名称|ID>。发送「AI配置列表」查看可选配置。",
+        "profile_not_found": "没有找到叫「{keyword}」的 AI 配置，发送「AI配置列表」看看有哪些。",
+        "profile_switched": "已把{scope}的 AI 配置切换为「{name}」。",
+        "profile_unbound": "已解除{scope}的 AI 配置绑定，回落到默认配置「{name}」。",
     },
 }
 

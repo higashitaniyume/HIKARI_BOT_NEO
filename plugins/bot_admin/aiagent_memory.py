@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from plugins.aiagent.client import post_chat_completion
-from plugins.aiagent.config import get_config
+from plugins.aiagent.config import get_config, resolve_profile_id
 from plugins.aiagent.memory import _SESSION_MARKER, _SUMMARIZE_SYSTEM_PROMPT, _summarizing_locks
 
 logger = logging.getLogger("HikariBot.BotAdmin.AIAgentMemory")
@@ -36,6 +36,26 @@ def _safe_relative(file_path: str) -> Path | None:
     if target.suffix.lower() != ".md":
         return None
     return target
+
+
+def _config_for_memory_file(target: Path) -> dict[str, Any]:
+    """按记忆文件所属会话取生效的那套 AI 配置。
+
+    记忆目录结构就是会话结构（``groups/<群号>/…`` / ``private/<QQ 号>/…``），
+    所以后台触发总结时能复用该会话绑定的配置文件，而不是一律用全局默认。
+    """
+    root = _resolve_absolute(_MEMORY_ROOT).resolve()
+    try:
+        parts = target.resolve().relative_to(root).as_posix().split("/")
+    except ValueError:
+        return get_config()
+    if len(parts) >= 2 and parts[0] == "groups":
+        kind, ident = "group", parts[1]
+    elif len(parts) >= 2 and parts[0] == "private":
+        kind, ident = "private", parts[1]
+    else:
+        return get_config()
+    return get_config(resolve_profile_id(kind, ident))
 
 
 def _list_memory_files() -> list[dict[str, Any]]:
@@ -201,7 +221,7 @@ async def trigger_summarize(file_path: str) -> dict[str, Any]:
     if target in _summarizing_locks:
         return {"error": "该文件正在总结中，请稍后重试", "path": file_path}
 
-    cfg = get_config()
+    cfg = _config_for_memory_file(target)
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "")
     if not api_key or not str(model_cfg.get("model") or "").strip():
