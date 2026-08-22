@@ -1,4 +1,5 @@
 """B 站解析器，实现视频/动态解析、鉴权与热评提取。"""
+
 import asyncio
 import hashlib
 import json
@@ -7,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urljoin, urlparse, parse_qs, urlencode
 
 import aiohttp
 
@@ -23,6 +24,10 @@ UA = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 B23_HOST = "b23.tv"
+T_BILIBILI_HOST = "t.bilibili.com"
+B23_MAX_REDIRECTS = 5
+B23_EXPANSION_TIMEOUT_SECONDS = 10
+B23_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 BV_RE = re.compile(r"[Bb][Vv][0-9A-Za-z]{10,}")
 AV_RE = re.compile(r"[Aa][Vv](\d+)")
 EP_PATH_RE = re.compile(r"/bangumi/play/ep(\d+)", re.IGNORECASE)
@@ -30,20 +35,130 @@ EP_QS_RE = re.compile(r"(?:^|[?&])ep_id=(\d+)", re.IGNORECASE)
 SS_PATH_RE = re.compile(r"/bangumi/play/ss(\d+)", re.IGNORECASE)
 SS_QS_RE = re.compile(r"(?:^|[?&])season_id=(\d+)", re.IGNORECASE)
 OPUS_RE = re.compile(r"/opus/(\d+)", re.IGNORECASE)
-T_BILIBILI_RE = re.compile(r"t\.bilibili\.com/(\d+)", re.IGNORECASE)
+T_BILIBILI_PATH_RE = re.compile(r"^/(\d+)(?:/|$)")
 BV_TABLE = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
 XOR_CODE = 23442827791579
 MAX_AID = 1 << 51
 BASE = 58
 NAV_API = "https://api.bilibili.com/x/web-interface/nav"
 HOT_COMMENT_API = "https://api.bilibili.com/x/v2/reply/wbi/main"
+UGC_PLAYURL_API = "https://api.bilibili.com/x/player/wbi/playurl"
+PGC_PLAYURL_API = "https://api.bilibili.com/pgc/player/web/v2/playurl"
 HOT_COMMENT_MODE = 3
+FNVAL_MP4 = 1
+FNVAL_DASH = 4048
+WBI_KEY_TTL_SECONDS = 6 * 60 * 60
 MIXIN_KEY_ENC_TAB = [
-    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
-    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
-    37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
-    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+    46,
+    47,
+    18,
+    2,
+    53,
+    8,
+    23,
+    32,
+    15,
+    50,
+    10,
+    31,
+    58,
+    3,
+    45,
+    35,
+    27,
+    43,
+    5,
+    49,
+    33,
+    9,
+    42,
+    19,
+    29,
+    28,
+    14,
+    39,
+    12,
+    38,
+    41,
+    13,
+    37,
+    48,
+    7,
+    16,
+    24,
+    55,
+    40,
+    61,
+    26,
+    17,
+    0,
+    1,
+    60,
+    51,
+    30,
+    4,
+    22,
+    25,
+    54,
+    21,
+    56,
+    59,
+    6,
+    63,
+    57,
+    62,
+    11,
+    36,
+    20,
+    34,
+    44,
+    52,
 ]
+
+
+class B23ExpansionError(RuntimeError):
+    """Raised when a B23 short URL cannot be expanded to a trusted target."""
+
+
+def _is_trusted_bilibili_host(hostname: str) -> bool:
+    """Return whether a hostname belongs to Bilibili's primary web domain."""
+    normalized = str(hostname or "").strip().lower().rstrip(".")
+    return normalized == "bilibili.com" or normalized.endswith(".bilibili.com")
+
+
+def _url_hostname(url: str) -> str:
+    """Extract a normalized hostname without treating netloc text as authority."""
+    try:
+        return (urlparse(url).hostname or "").lower().rstrip(".")
+    except (AttributeError, TypeError, ValueError):
+        return ""
+
+
+def _is_b23_url(url: str) -> bool:
+    return _url_hostname(url) == B23_HOST
+
+
+def _is_t_bilibili_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme.lower() in {"http", "https"}
+        and _url_hostname(url) == T_BILIBILI_HOST
+    )
+
+
+def _is_bilibili_opus_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return (
+        parsed.scheme.lower() in {"http", "https"}
+        and _is_trusted_bilibili_host(parsed.hostname or "")
+        and bool(OPUS_RE.search(parsed.path))
+    )
 
 
 def av2bv(av: int) -> str:
@@ -58,9 +173,7 @@ def av2bv(av: int) -> str:
     Returns:
         BV号字符串
     """
-    bytes_arr = [
-        'B', 'V', '1', '0', '0', '0', '0', '0', '0', '0', '0', '0'
-    ]
+    bytes_arr = ["B", "V", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
     bv_idx = len(bytes_arr) - 1
     tmp = (MAX_AID | av) ^ XOR_CODE
     while tmp > 0:
@@ -69,12 +182,12 @@ def av2bv(av: int) -> str:
         bv_idx -= 1
     bytes_arr[3], bytes_arr[9] = bytes_arr[9], bytes_arr[3]
     bytes_arr[4], bytes_arr[7] = bytes_arr[7], bytes_arr[4]
-    return ''.join(bytes_arr)
+    return "".join(bytes_arr)
 
 
 class BilibiliParser(BaseVideoParser):
-
     """B 站解析器，支持视频/动态解析与热评提取。"""
+
     def __init__(
         self,
         cookie_runtime_enabled: bool = False,
@@ -82,7 +195,7 @@ class BilibiliParser(BaseVideoParser):
         admin_assist_enabled: bool = False,
         credential_path: str = "",
         max_quality: int = 0,
-        hot_comment_count: int = 0
+        hot_comment_count: int = 0,
     ):
         """初始化B站解析器"""
         super().__init__("bilibili")
@@ -104,6 +217,9 @@ class BilibiliParser(BaseVideoParser):
         )
         self._assist_request_reason: Optional[str] = None
         self._assist_request_pending = False
+        self._wbi_mixin_key = ""
+        self._wbi_key_expires_at = 0.0
+        self._wbi_key_lock = asyncio.Lock()
         self._default_headers = {
             "User-Agent": UA,
             "Referer": "https://www.bilibili.com",
@@ -129,17 +245,12 @@ class BilibiliParser(BaseVideoParser):
         self._assist_request_pending = True
         self._assist_request_reason = reason or "cookie_unavailable"
 
-    async def _resolve_cookie_header(
-        self,
-        session: aiohttp.ClientSession
-    ) -> str:
+    async def _resolve_cookie_header(self, session: aiohttp.ClientSession) -> str:
         """异步获取当前请求可用的 Cookie 请求头。"""
         if not self.cookie_runtime_enabled:
             return ""
 
-        cookie_header = await self.auth_runtime.get_cookie_header_for_request(
-            session
-        )
+        cookie_header = await self.auth_runtime.get_cookie_header_for_request(session)
         if cookie_header:
             return cookie_header
 
@@ -149,9 +260,7 @@ class BilibiliParser(BaseVideoParser):
         return ""
 
     def _build_api_headers(
-        self,
-        referer: Optional[str] = None,
-        cookie_header: str = ""
+        self, referer: Optional[str] = None, cookie_header: str = ""
     ) -> Dict[str, str]:
         """构建访问 B 站 API 所需请求头。"""
         headers = dict(self._default_headers)
@@ -162,10 +271,7 @@ class BilibiliParser(BaseVideoParser):
         return headers
 
     def _build_media_headers(
-        self,
-        referer: str,
-        origin: str,
-        cookie_header: str = ""
+        self, referer: str, origin: str, cookie_header: str = ""
     ) -> Tuple[Dict[str, str], Dict[str, str]]:
         """构建访问媒体资源所需请求头。"""
         custom_headers = {"Cookie": cookie_header} if cookie_header else None
@@ -173,13 +279,10 @@ class BilibiliParser(BaseVideoParser):
             is_video=False,
             referer=referer,
             origin=origin,
-            custom_headers=custom_headers
+            custom_headers=custom_headers,
         )
         video_headers = build_request_headers(
-            is_video=True,
-            referer=referer,
-            origin=origin,
-            custom_headers=custom_headers
+            is_video=True, referer=referer, origin=origin, custom_headers=custom_headers
         )
         return image_headers, video_headers
 
@@ -196,46 +299,42 @@ class BilibiliParser(BaseVideoParser):
         return "".join(raw[i] for i in MIXIN_KEY_ENC_TAB)[:32]
 
     async def _get_wbi_mixin_key(
-        self,
-        session: aiohttp.ClientSession,
-        headers: Dict[str, str]
+        self, session: aiohttp.ClientSession, headers: Dict[str, str]
     ) -> str:
         """异步拉取导航数据并计算 WBI mixin_key。"""
-        request_headers = dict(headers)
-        request_headers["Accept"] = "application/json, text/plain, */*"
-        async with session.get(
-            NAV_API,
-            headers=request_headers,
-            timeout=aiohttp.ClientTimeout(total=15)
-        ) as resp:
-            j = await self._check_json_response(resp)
-        nav_data = j.get("data") or {}
-        wbi_img = nav_data.get("wbi_img") or {}
-        img_url = str(wbi_img.get("img_url", "")).strip()
-        sub_url = str(wbi_img.get("sub_url", "")).strip()
-        if not img_url or not sub_url:
-            raise RuntimeError(
-                "获取B站WBI签名密钥失败：缺少img_url/sub_url"
-            )
-        img_key = self._extract_key_from_url(img_url)
-        sub_key = self._extract_key_from_url(sub_url)
-        if not img_key or not sub_key:
-            raise RuntimeError(
-                "获取B站WBI签名密钥失败：img_key/sub_key为空"
-            )
-        return self._get_mixin_key(img_key, sub_key)
+        async with self._wbi_key_lock:
+            now = time.monotonic()
+            if self._wbi_mixin_key and now < self._wbi_key_expires_at:
+                return self._wbi_mixin_key
+
+            request_headers = dict(headers)
+            request_headers["Accept"] = "application/json, text/plain, */*"
+            async with session.get(
+                NAV_API,
+                headers=request_headers,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                j = await self._check_json_response(resp)
+            nav_data = j.get("data") or {}
+            wbi_img = nav_data.get("wbi_img") or {}
+            img_url = str(wbi_img.get("img_url", "")).strip()
+            sub_url = str(wbi_img.get("sub_url", "")).strip()
+            if not img_url or not sub_url:
+                raise RuntimeError("获取B站WBI签名密钥失败：缺少img_url/sub_url")
+            img_key = self._extract_key_from_url(img_url)
+            sub_key = self._extract_key_from_url(sub_url)
+            if not img_key or not sub_key:
+                raise RuntimeError("获取B站WBI签名密钥失败：img_key/sub_key为空")
+            self._wbi_mixin_key = self._get_mixin_key(img_key, sub_key)
+            self._wbi_key_expires_at = time.monotonic() + WBI_KEY_TTL_SECONDS
+            return self._wbi_mixin_key
 
     @staticmethod
-    def _sign_wbi_params(
-        params: Dict[str, Any],
-        mixin_key: str
-    ) -> Dict[str, Any]:
+    def _sign_wbi_params(params: Dict[str, Any], mixin_key: str) -> Dict[str, Any]:
         """为请求参数追加 WBI 签名字段。"""
         signed_params = dict(params)
         signed_params["wts"] = int(time.time())
-        signed_params = dict(
-            sorted(signed_params.items(), key=lambda item: item[0])
-        )
+        signed_params = dict(sorted(signed_params.items(), key=lambda item: item[0]))
         filtered_params = {}
         remove_chars = "!'()*"
         for key, value in signed_params.items():
@@ -244,9 +343,7 @@ class BilibiliParser(BaseVideoParser):
                 text = text.replace(ch, "")
             filtered_params[key] = text
         query = urlencode(filtered_params)
-        w_rid = hashlib.md5(
-            (query + mixin_key).encode("utf-8")
-        ).hexdigest()
+        w_rid = hashlib.md5((query + mixin_key).encode("utf-8")).hexdigest()
         filtered_params["w_rid"] = w_rid
         return filtered_params
 
@@ -254,15 +351,13 @@ class BilibiliParser(BaseVideoParser):
     def _extract_initial_state_from_html(html: str) -> Dict[str, Any]:
         """从 HTML 中提取页面初始化状态 JSON。"""
         match = re.search(
-            r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});",
-            html,
-            re.DOTALL
+            r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", html, re.DOTALL
         )
         if not match:
             match = re.search(
                 r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\})\s*</script>",
                 html,
-                re.DOTALL
+                re.DOTALL,
             )
         if not match:
             return {}
@@ -272,10 +367,7 @@ class BilibiliParser(BaseVideoParser):
             return {}
 
     async def _resolve_opus_comment_subject(
-        self,
-        session: aiohttp.ClientSession,
-        opus_url: str,
-        headers: Dict[str, str]
+        self, session: aiohttp.ClientSession, opus_url: str, headers: Dict[str, str]
     ) -> Optional[Tuple[int, int]]:
         """解析动态评论接口所需的 oid/type 参数。"""
         async with session.get(
@@ -303,9 +395,7 @@ class BilibiliParser(BaseVideoParser):
         content = item.get("content") or {}
         ctime = item.get("ctime")
         if isinstance(ctime, int):
-            time_text = datetime.fromtimestamp(ctime).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
+            time_text = datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
         else:
             time_text = ""
         try:
@@ -316,10 +406,7 @@ class BilibiliParser(BaseVideoParser):
             "username": str(member.get("uname", "") or ""),
             "uid": str(member.get("mid", "") or ""),
             "likes": likes,
-            "message": str(content.get("message", "") or "").replace(
-                "\n",
-                " "
-            ).strip(),
+            "message": str(content.get("message", "") or "").replace("\n", " ").strip(),
             "time": time_text,
         }
 
@@ -329,7 +416,7 @@ class BilibiliParser(BaseVideoParser):
         oid: int,
         comment_type: int,
         referer: str,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> List[Dict[str, Any]]:
         """异步请求并提取热评列表。"""
         if self.hot_comment_count <= 0:
@@ -337,10 +424,7 @@ class BilibiliParser(BaseVideoParser):
         if not isinstance(oid, int) or oid <= 0:
             return []
 
-        headers = self._build_api_headers(
-            referer=referer,
-            cookie_header=cookie_header
-        )
+        headers = self._build_api_headers(referer=referer, cookie_header=cookie_header)
         headers["Accept"] = "application/json, text/plain, */*"
         mixin_key = await self._get_wbi_mixin_key(session, headers)
         params = {
@@ -356,7 +440,7 @@ class BilibiliParser(BaseVideoParser):
             HOT_COMMENT_API,
             headers=headers,
             params=signed_params,
-            timeout=aiohttp.ClientTimeout(total=15)
+            timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "hot comments")
@@ -380,13 +464,10 @@ class BilibiliParser(BaseVideoParser):
             seen_rpid.add(dedupe_key)
             deduped_items.append(item)
 
-        comments = [
-            self._normalize_hot_comment_item(item)
-            for item in deduped_items
-        ]
+        comments = [self._normalize_hot_comment_item(item) for item in deduped_items]
         comments = [item for item in comments if item.get("message")]
         comments.sort(key=lambda x: x.get("likes", 0), reverse=True)
-        return comments[:self.hot_comment_count]
+        return comments[: self.hot_comment_count]
 
     async def _attach_hot_comments_to_result(
         self,
@@ -395,7 +476,7 @@ class BilibiliParser(BaseVideoParser):
         oid: Optional[int],
         comment_type: int,
         referer: str,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> None:
         """按配置将热评附加到解析结果中。"""
         if self.hot_comment_count <= 0:
@@ -416,7 +497,7 @@ class BilibiliParser(BaseVideoParser):
                 oid=oid_int,
                 comment_type=comment_type,
                 referer=referer,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
             if comments:
                 result["hot_comments"] = comments
@@ -425,7 +506,7 @@ class BilibiliParser(BaseVideoParser):
                 f"[{self.name}] 获取热评失败: oid={oid_int}, "
                 f"type={comment_type}, 错误: {e}"
             )
-    
+
     def _prepare_aid_param(self, aid: str) -> int:
         """将aid转换为整数
 
@@ -440,10 +521,7 @@ class BilibiliParser(BaseVideoParser):
         except (ValueError, TypeError):
             return aid
 
-    async def _check_json_response(
-        self,
-        resp: aiohttp.ClientResponse
-    ) -> dict:
+    async def _check_json_response(self, resp: aiohttp.ClientResponse) -> dict:
         """检查并解析JSON响应
 
         Args:
@@ -455,7 +533,7 @@ class BilibiliParser(BaseVideoParser):
         Raises:
             RuntimeError: 响应不是JSON格式时
         """
-        if resp.content_type != 'application/json':
+        if resp.content_type != "application/json":
             text = await resp.text()
             raise RuntimeError(
                 f"API返回非JSON响应 "
@@ -475,11 +553,9 @@ class BilibiliParser(BaseVideoParser):
             RuntimeError: API返回错误码时
         """
         if j.get("code") != 0:
-            error_msg = j.get('message', '未知错误')
-            error_code = j.get('code')
-            raise RuntimeError(
-                f"{api_name} error: {error_code} {error_msg}"
-            )
+            error_msg = j.get("message", "未知错误")
+            error_code = j.get("code")
+            raise RuntimeError(f"{api_name} error: {error_code} {error_msg}")
 
     def can_parse(self, url: str) -> bool:
         """判断是否可以解析此URL（支持视频和动态链接）
@@ -493,23 +569,32 @@ class BilibiliParser(BaseVideoParser):
         if not url:
             logger.debug(f"[{self.name}] can_parse: URL为空")
             return False
-        url_lower = url.lower()
-        if 'live.bilibili.com' in url_lower:
+        try:
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").lower().rstrip(".")
+        except ValueError:
+            logger.debug(f"[{self.name}] can_parse: URL格式无效 {url}")
+            return False
+        if parsed.scheme.lower() not in {"http", "https"}:
+            return False
+        if hostname == B23_HOST:
+            logger.debug(f"[{self.name}] can_parse: 匹配b23短链 {url}")
+            return True
+        if not _is_trusted_bilibili_host(hostname):
+            return False
+
+        if hostname == "live.bilibili.com":
             logger.debug(f"[{self.name}] can_parse: 跳过直播链接 {url}")
             return False
-        if 'space.bilibili.com' in url_lower:
+        if hostname == "space.bilibili.com":
             logger.debug(f"[{self.name}] can_parse: 跳过空间链接 {url}")
             return False
 
-        if '/opus/' in url_lower:
+        if _is_bilibili_opus_url(url):
             logger.debug(f"[{self.name}] can_parse: 匹配动态链接 {url}")
             return True
-        if 't.bilibili.com' in url_lower:
+        if hostname == T_BILIBILI_HOST:
             logger.debug(f"[{self.name}] can_parse: 匹配动态链接 {url}")
-            return True
-
-        if B23_HOST in urlparse(url).netloc.lower():
-            logger.debug(f"[{self.name}] can_parse: 匹配b23短链 {url}")
             return True
 
         if BV_RE.search(url):
@@ -519,10 +604,10 @@ class BilibiliParser(BaseVideoParser):
             logger.debug(f"[{self.name}] can_parse: 匹配AV号 {url}")
             return True
         if (
-            EP_PATH_RE.search(url) or
-            EP_QS_RE.search(url) or
-            SS_PATH_RE.search(url) or
-            SS_QS_RE.search(url)
+            EP_PATH_RE.search(url)
+            or EP_QS_RE.search(url)
+            or SS_PATH_RE.search(url)
+            or SS_QS_RE.search(url)
         ):
             logger.debug(f"[{self.name}] can_parse: 匹配番剧链接 {url}")
             return True
@@ -540,15 +625,15 @@ class BilibiliParser(BaseVideoParser):
         """
         result_links_set = set()
         seen_ids = set()
-        
+
         b23_pattern = r'https?://[Bb]23\.tv/[^\s<>"\'()]+'
         b23_links = re.findall(b23_pattern, text, re.IGNORECASE)
         result_links_set.update(b23_links)
-        
-        bilibili_domains = r'(?:www|m|mobile)\.bilibili\.com'
-        
+
+        bilibili_domains = r"(?:www|m|mobile)\.bilibili\.com"
+
         bv_url_pattern = (
-            rf'https?://{bilibili_domains}/video/'
+            rf"https?://{bilibili_domains}/video/"
             rf'([Bb][Vv][0-9A-Za-z]{{10,}})[^\s<>"\'()]*'
         )
         bv_url_matches = re.finditer(bv_url_pattern, text, re.IGNORECASE)
@@ -561,9 +646,9 @@ class BilibiliParser(BaseVideoParser):
                 seen_ids.add(bvid_key)
                 normalized_url = f"https://www.bilibili.com/video/{bvid}"
                 result_links_set.add(normalized_url)
-        
+
         av_url_pattern = (
-            rf'https?://{bilibili_domains}/video/'
+            rf"https?://{bilibili_domains}/video/"
             rf'[Aa][Vv](\d+)[^\s<>"\'()]*'
         )
         av_url_matches = re.finditer(av_url_pattern, text, re.IGNORECASE)
@@ -574,9 +659,9 @@ class BilibiliParser(BaseVideoParser):
                 seen_ids.add(av_key)
                 av_url = f"https://www.bilibili.com/video/av{av_num}"
                 result_links_set.add(av_url)
-        
+
         ep_url_pattern = (
-            rf'https?://{bilibili_domains}/bangumi/play/'
+            rf"https?://{bilibili_domains}/bangumi/play/"
             rf'ep(\d+)[^\s<>"\'()]*'
         )
         ep_url_matches = re.finditer(ep_url_pattern, text, re.IGNORECASE)
@@ -589,7 +674,7 @@ class BilibiliParser(BaseVideoParser):
                 result_links_set.add(ep_url)
 
         ss_url_pattern = (
-            rf'https?://{bilibili_domains}/bangumi/play/'
+            rf"https?://{bilibili_domains}/bangumi/play/"
             rf'ss(\d+)[^\s<>"\'()]*'
         )
         ss_url_matches = re.finditer(ss_url_pattern, text, re.IGNORECASE)
@@ -600,13 +685,9 @@ class BilibiliParser(BaseVideoParser):
                 seen_ids.add(ss_key)
                 ss_url = f"https://www.bilibili.com/bangumi/play/ss{season_id}"
                 result_links_set.add(ss_url)
-        
-        bv_standalone_pattern = r'\b[Bb][Vv][0-9A-Za-z]{10,}\b'
-        bv_standalone_matches = re.finditer(
-            bv_standalone_pattern,
-            text,
-            re.IGNORECASE
-        )
+
+        bv_standalone_pattern = r"\b[Bb][Vv][0-9A-Za-z]{10,}\b"
+        bv_standalone_matches = re.finditer(bv_standalone_pattern, text, re.IGNORECASE)
         for match in bv_standalone_matches:
             bvid = match.group(0)
             if bvid[0:2].upper() != "BV":
@@ -617,18 +698,16 @@ class BilibiliParser(BaseVideoParser):
                 context_start = max(0, start_pos - 50)
                 context_end = min(len(text), match.end() + 10)
                 context = text[context_start:context_end]
-                if ('http://' not in context.lower() and
-                        'https://' not in context.lower()):
+                if (
+                    "http://" not in context.lower()
+                    and "https://" not in context.lower()
+                ):
                     seen_ids.add(bvid_key)
                     bv_url = f"https://www.bilibili.com/video/{bvid}"
                     result_links_set.add(bv_url)
-        
-        av_standalone_pattern = r'\b[Aa][Vv](\d+)\b'
-        av_standalone_matches = re.finditer(
-            av_standalone_pattern,
-            text,
-            re.IGNORECASE
-        )
+
+        av_standalone_pattern = r"\b[Aa][Vv](\d+)\b"
+        av_standalone_matches = re.finditer(av_standalone_pattern, text, re.IGNORECASE)
         for match in av_standalone_matches:
             av_num = match.group(1)
             av_key = f"AV:{av_num}"
@@ -637,15 +716,17 @@ class BilibiliParser(BaseVideoParser):
                 context_start = max(0, start_pos - 50)
                 context_end = min(len(text), match.end() + 10)
                 context = text[context_start:context_end]
-                if ('http://' not in context.lower() and
-                        'https://' not in context.lower()):
+                if (
+                    "http://" not in context.lower()
+                    and "https://" not in context.lower()
+                ):
                     seen_ids.add(av_key)
                     av_url = f"https://www.bilibili.com/video/av{av_num}"
                     result_links_set.add(av_url)
 
         opus_pattern = (
-            rf'https?://(?:www|m|mobile)\.bilibili\.com/opus/'
-            rf'(\d+)[^\s<>"\'()]*'
+            r"https?://(?:www|m|mobile)\.bilibili\.com/opus/"
+            r'(\d+)[^\s<>"\'()]*'
         )
         opus_matches = re.finditer(opus_pattern, text, re.IGNORECASE)
         for match in opus_matches:
@@ -657,7 +738,7 @@ class BilibiliParser(BaseVideoParser):
                 result_links_set.add(opus_url)
 
         t_bilibili_pattern = (
-            r'https?://t\.bilibili\.com/'
+            r"https?://t\.bilibili\.com/"
             r'(\d+)[^\s<>"\'()]*'
         )
         t_bilibili_matches = re.finditer(t_bilibili_pattern, text, re.IGNORECASE)
@@ -671,16 +752,14 @@ class BilibiliParser(BaseVideoParser):
 
         result = list(result_links_set)
         if result:
-            logger.debug(f"[{self.name}] extract_links: 提取到 {len(result)} 个链接: {result[:3]}{'...' if len(result) > 3 else ''}")
+            logger.debug(
+                f"[{self.name}] extract_links: 提取到 {len(result)} 个链接: {result[:3]}{'...' if len(result) > 3 else ''}"
+            )
         else:
             logger.debug(f"[{self.name}] extract_links: 未提取到链接")
         return result
 
-    async def expand_b23(
-        self,
-        url: str,
-        session: aiohttp.ClientSession
-    ) -> str:
+    async def expand_b23(self, url: str, session: aiohttp.ClientSession) -> str:
         """展开b23短链
 
         Args:
@@ -688,27 +767,74 @@ class BilibiliParser(BaseVideoParser):
             session: aiohttp会话
 
         Returns:
-            展开后的URL，如果展开失败返回原URL
+            非短链原样返回；短链成功时返回经过校验的 B 站目标 URL。
+
+        Raises:
+            B23ExpansionError: 短链请求失败，或最终响应不是可信 B 站目标。
         """
-        if urlparse(url).netloc.lower() == B23_HOST:
-            headers = {
-                "User-Agent": UA,
-                "Referer": "https://www.bilibili.com",
-                "Accept-Encoding": "gzip, deflate",
-            }
-            try:
+        if not _is_b23_url(url):
+            return url
+        parsed_input = urlparse(url)
+        if parsed_input.scheme.lower() not in {"http", "https"}:
+            raise B23ExpansionError("B23 短链展开失败：仅支持 HTTP(S) URL")
+
+        headers = {
+            "User-Agent": UA,
+            "Referer": "https://www.bilibili.com",
+            "Accept-Encoding": "gzip, deflate",
+        }
+        current_url = url
+        deadline = time.monotonic() + B23_EXPANSION_TIMEOUT_SECONDS
+        try:
+            for redirect_count in range(B23_MAX_REDIRECTS):
+                remaining_timeout = deadline - time.monotonic()
+                if remaining_timeout <= 0:
+                    raise asyncio.TimeoutError
                 async with session.get(
-                    url,
+                    current_url,
                     headers=headers,
-                    allow_redirects=True,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as r:
-                    expanded_url = str(r.url)
+                    allow_redirects=False,
+                    timeout=aiohttp.ClientTimeout(total=remaining_timeout),
+                ) as response:
+                    response.raise_for_status()
+                    status = int(getattr(response, "status", 0) or 0)
+                    if status not in B23_REDIRECT_STATUSES:
+                        if redirect_count == 0:
+                            raise B23ExpansionError(
+                                "B23 短链展开失败：服务端未返回重定向"
+                            )
+                        raise B23ExpansionError(
+                            "B23 短链展开失败：目标不是受支持的 B 站作品"
+                        )
+
+                    response_headers = getattr(response, "headers", {}) or {}
+                    location = str(response_headers.get("Location", "") or "").strip()
+                    if not location:
+                        raise B23ExpansionError(
+                            "B23 短链展开失败：重定向响应缺少 Location"
+                        )
+                    expanded_url = urljoin(current_url, location)
+
+                parsed_target = urlparse(expanded_url)
+                target_host = _url_hostname(expanded_url)
+                if parsed_target.scheme.lower() not in {"http", "https"}:
+                    raise B23ExpansionError("B23 短链展开失败：目标协议不受信任")
+                if target_host == B23_HOST:
+                    current_url = expanded_url
+                    continue
+                if not _is_trusted_bilibili_host(target_host):
+                    raise B23ExpansionError("B23 短链展开失败：目标不是可信 B 站域名")
+                if self.can_parse(expanded_url) or is_live_url(expanded_url):
                     return expanded_url
-            except Exception as e:
-                logger.warning(f"[{self.name}] expand_b23: 展开b23短链失败 {url}, 错误: {e}")
-                return url
-        return url
+                current_url = expanded_url
+
+            raise B23ExpansionError("B23 短链展开失败：重定向次数过多")
+        except asyncio.CancelledError:
+            raise
+        except B23ExpansionError:
+            raise
+        except Exception as exc:
+            raise B23ExpansionError(f"B23 短链展开失败：{type(exc).__name__}") from exc
 
     def extract_p(self, url: str) -> int:
         """提取分P序号
@@ -733,11 +859,19 @@ class BilibiliParser(BaseVideoParser):
         Returns:
             动态ID，提取失败时为None
         """
-        match = T_BILIBILI_RE.search(url)
-        if match:
-            return match.group(1)
+        try:
+            parsed = urlparse(url)
+        except (AttributeError, TypeError, ValueError):
+            return None
 
-        match = OPUS_RE.search(url)
+        if _is_t_bilibili_url(url):
+            match = T_BILIBILI_PATH_RE.search(parsed.path)
+            if match:
+                return match.group(1)
+
+        if not _is_trusted_bilibili_host(parsed.hostname or ""):
+            return None
+        match = OPUS_RE.search(parsed.path)
         if match:
             return match.group(1)
         return None
@@ -747,7 +881,7 @@ class BilibiliParser(BaseVideoParser):
         opus_id: str,
         session: aiohttp.ClientSession,
         referer: str = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> Dict[str, Any]:
         """获取opus动态信息
 
@@ -764,7 +898,7 @@ class BilibiliParser(BaseVideoParser):
         """
         headers = self._build_api_headers(
             referer=referer or f"https://www.bilibili.com/opus/{opus_id}",
-            cookie_header=cookie_header
+            cookie_header=cookie_header,
         )
         headers["Accept"] = "application/json, text/plain, */*"
 
@@ -773,7 +907,7 @@ class BilibiliParser(BaseVideoParser):
             api,
             params={"id": opus_id},
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "opus detail(polymer)")
@@ -842,9 +976,7 @@ class BilibiliParser(BaseVideoParser):
         return "".join(parts).strip()
 
     def _extract_polymer_author(
-        self,
-        item: Dict[str, Any],
-        modules: Dict[str, Any]
+        self, item: Dict[str, Any], modules: Dict[str, Any]
     ) -> str:
         """从 polymer 动态结构中提取作者显示文本。"""
         author_obj = modules.get("module_author") or {}
@@ -864,10 +996,7 @@ class BilibiliParser(BaseVideoParser):
             return f"(uid:{mid})"
         return ""
 
-    def _extract_polymer_timestamp(
-        self,
-        modules: Dict[str, Any]
-    ) -> str:
+    def _extract_polymer_timestamp(self, modules: Dict[str, Any]) -> str:
         """从 polymer 动态结构中提取发布时间。"""
         author_obj = modules.get("module_author") or {}
         if not isinstance(author_obj, dict):
@@ -880,7 +1009,7 @@ class BilibiliParser(BaseVideoParser):
 
     @staticmethod
     def _extract_polymer_comment_subject(
-        data: Dict[str, Any]
+        data: Dict[str, Any],
     ) -> Optional[Tuple[int, int]]:
         """从 polymer 详情中提取评论 oid/type。"""
         item = data.get("item") if isinstance(data, dict) else {}
@@ -897,10 +1026,7 @@ class BilibiliParser(BaseVideoParser):
             return None
         return int(oid_text), int(comment_type)
 
-    def _extract_polymer_video_url(
-        self,
-        major: Dict[str, Any]
-    ) -> Optional[str]:
+    def _extract_polymer_video_url(self, major: Dict[str, Any]) -> Optional[str]:
         """从 polymer major 中提取内嵌视频链接。"""
         if not isinstance(major, dict):
             return None
@@ -919,10 +1045,7 @@ class BilibiliParser(BaseVideoParser):
                 return jump_url
         return None
 
-    def _extract_polymer_images(
-        self,
-        major: Dict[str, Any]
-    ) -> List[List[str]]:
+    def _extract_polymer_images(self, major: Dict[str, Any]) -> List[List[str]]:
         """从 polymer major 中提取图片列表。"""
         image_urls: List[List[str]] = []
 
@@ -945,17 +1068,10 @@ class BilibiliParser(BaseVideoParser):
         opus = major.get("opus")
         if isinstance(opus, dict):
             for pic in (
-                opus.get("pics") or
-                opus.get("pictures") or
-                opus.get("items") or
-                []
+                opus.get("pics") or opus.get("pictures") or opus.get("items") or []
             ):
                 if isinstance(pic, dict):
-                    add_image(
-                        pic.get("url") or
-                        pic.get("src") or
-                        pic.get("img_src")
-                    )
+                    add_image(pic.get("url") or pic.get("src") or pic.get("img_src"))
                 elif isinstance(pic, str):
                     add_image(pic)
 
@@ -975,10 +1091,7 @@ class BilibiliParser(BaseVideoParser):
         return image_urls
 
     def _extract_polymer_title_desc(
-        self,
-        item: Dict[str, Any],
-        modules: Dict[str, Any],
-        opus_id: str
+        self, item: Dict[str, Any], modules: Dict[str, Any], opus_id: str
     ) -> Tuple[str, str]:
         """从 polymer 动态中提取标题和正文。"""
         dynamic = modules.get("module_dynamic") or {}
@@ -1001,10 +1114,10 @@ class BilibiliParser(BaseVideoParser):
                 continue
             major_title = str(major_obj.get("title", "") or "").strip()
             major_desc = str(
-                major_obj.get("desc") or
-                major_obj.get("summary") or
-                major_obj.get("intro") or
-                ""
+                major_obj.get("desc")
+                or major_obj.get("summary")
+                or major_obj.get("intro")
+                or ""
             ).strip()
             if not title and major_title:
                 title = major_title
@@ -1022,9 +1135,7 @@ class BilibiliParser(BaseVideoParser):
         return title, desc
 
     def _extract_polymer_origin_item(
-        self,
-        item: Dict[str, Any],
-        modules: Dict[str, Any]
+        self, item: Dict[str, Any], modules: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """提取 polymer 转发动态中的原始动态。"""
         for key in ("orig", "origin", "origin_item"):
@@ -1050,7 +1161,7 @@ class BilibiliParser(BaseVideoParser):
         cookie_header: str = "",
         enable_hot_comments: bool = True,
         comment_oid: Optional[int] = None,
-        comment_type: int = 17
+        comment_type: int = 17,
     ) -> Dict[str, Any]:
         """解析新版 polymer 动态详情结构。"""
         item = data.get("item") if isinstance(data, dict) else {}
@@ -1084,31 +1195,20 @@ class BilibiliParser(BaseVideoParser):
                 if not isinstance(origin_major, dict):
                     origin_major = {}
             origin_title, origin_desc = self._extract_polymer_title_desc(
-                origin_item,
-                origin_modules,
-                str(origin_item.get("id_str") or opus_id)
+                origin_item, origin_modules, str(origin_item.get("id_str") or opus_id)
             )
-            origin_author = self._extract_polymer_author(
-                origin_item,
-                origin_modules
-            )
+            origin_author = self._extract_polymer_author(origin_item, origin_modules)
             origin_timestamp = self._extract_polymer_timestamp(origin_modules)
 
         video_url = self._extract_polymer_video_url(major)
         if not video_url and origin_major:
             video_url = self._extract_polymer_video_url(origin_major)
 
-        display_url = (
-            original_url
-            if B23_HOST in urlparse(original_url).netloc.lower()
-            else url
-        )
+        display_url = original_url if _is_b23_url(original_url) else url
         referer = url
         origin = "https://www.bilibili.com"
         image_headers, video_headers = self._build_media_headers(
-            referer=referer,
-            origin=origin,
-            cookie_header=cookie_header
+            referer=referer, origin=origin, cookie_header=cookie_header
         )
 
         if video_url:
@@ -1116,16 +1216,16 @@ class BilibiliParser(BaseVideoParser):
                 video_url,
                 session=session,
                 cookie_header_override=cookie_header,
-                enable_hot_comments=False
+                enable_hot_comments=False,
             )
             if not video_result:
                 raise RuntimeError(f"视频解析器返回空结果: {video_url}")
 
             final_title = title
             if (
-                not final_title or
-                final_title == f"动态 #{opus_id}" or
-                final_title.endswith("的动态")
+                not final_title
+                or final_title == f"动态 #{opus_id}"
+                or final_title.endswith("的动态")
             ):
                 final_title = video_result.get("title", "") or origin_title
             elif origin_item:
@@ -1183,7 +1283,7 @@ class BilibiliParser(BaseVideoParser):
                     oid=comment_oid,
                     comment_type=comment_type,
                     referer=url,
-                    cookie_header=cookie_header
+                    cookie_header=cookie_header,
                 )
             return result
 
@@ -1192,15 +1292,9 @@ class BilibiliParser(BaseVideoParser):
             image_urls = self._extract_polymer_images(origin_major)
             if origin_item:
                 clean_origin_title = (
-                    ""
-                    if origin_title.startswith("动态 #")
-                    else origin_title
+                    "" if origin_title.startswith("动态 #") else origin_title
                 )
-                if (
-                    not title or
-                    title == f"动态 #{opus_id}" or
-                    title.endswith("的动态")
-                ):
+                if not title or title == f"动态 #{opus_id}" or title.endswith("的动态"):
                     title = clean_origin_title or title
                 elif clean_origin_title and clean_origin_title != title:
                     title = f"{title} ({clean_origin_title})"
@@ -1233,7 +1327,7 @@ class BilibiliParser(BaseVideoParser):
                 oid=comment_oid,
                 comment_type=comment_type,
                 referer=url,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         return result
 
@@ -1264,10 +1358,7 @@ class BilibiliParser(BaseVideoParser):
 
         return None
 
-    def detect_target(
-        self,
-        url: str
-    ) -> Tuple[Optional[str], Dict[str, str]]:
+    def detect_target(self, url: str) -> Tuple[Optional[str], Dict[str, str]]:
         """检测视频类型和标识符（支持视频和番剧）
 
         Args:
@@ -1304,7 +1395,7 @@ class BilibiliParser(BaseVideoParser):
         bvid: str = None,
         aid: str = None,
         session: aiohttp.ClientSession = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> Dict[str, str]:
         """获取UGC视频信息
 
@@ -1332,7 +1423,7 @@ class BilibiliParser(BaseVideoParser):
             api,
             params=params,
             headers=self._build_api_headers(cookie_header=cookie_header),
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "view")
@@ -1350,13 +1441,13 @@ class BilibiliParser(BaseVideoParser):
             author = f"(uid:{mid})"
         else:
             author = ""
-        
+
         timestamp = ""
         pubdate = data.get("pubdate")
         if pubdate:
             dt = datetime.fromtimestamp(int(pubdate))
             timestamp = dt.strftime("%Y-%m-%d")
-        
+
         rights = data.get("rights") or {}
         aid_value = data.get("aid")
         try:
@@ -1370,20 +1461,17 @@ class BilibiliParser(BaseVideoParser):
             "timestamp": timestamp,
             "aid": aid_value,
             "content_access_type_hint": (
-                "charge_exclusive" if data.get("is_upower_exclusive")
-                else "paid_exclusive" if any(
-                    rights.get(key) for key in ("pay", "arc_pay", "ugc_pay")
-                )
+                "charge_exclusive"
+                if data.get("is_upower_exclusive")
+                else "paid_exclusive"
+                if any(rights.get(key) for key in ("pay", "arc_pay", "ugc_pay"))
                 else ""
             ),
             "is_upower_exclusive": bool(data.get("is_upower_exclusive")),
         }
 
     async def get_pgc_info_by_ep(
-        self,
-        ep_id: str,
-        session: aiohttp.ClientSession,
-        cookie_header: str = ""
+        self, ep_id: str, session: aiohttp.ClientSession, cookie_header: str = ""
     ) -> Dict[str, str]:
         """获取PGC视频信息
 
@@ -1402,7 +1490,7 @@ class BilibiliParser(BaseVideoParser):
             api,
             params={"ep_id": ep_id},
             headers=self._build_api_headers(cookie_header=cookie_header),
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "pgc season view")
@@ -1416,9 +1504,10 @@ class BilibiliParser(BaseVideoParser):
         title = ""
         if ep_obj:
             title = (
-                ep_obj.get("share_copy") or
-                ep_obj.get("long_title") or
-                ep_obj.get("title") or ""
+                ep_obj.get("share_copy")
+                or ep_obj.get("long_title")
+                or ep_obj.get("title")
+                or ""
             )
         if not title:
             title = result.get("season_title") or result.get("title") or ""
@@ -1440,7 +1529,7 @@ class BilibiliParser(BaseVideoParser):
             author = f"(uid:{mid})"
         else:
             author = result.get("season_title") or result.get("title") or ""
-        
+
         timestamp = ""
         if ep_obj:
             pub_time = ep_obj.get("pub_time")
@@ -1467,10 +1556,7 @@ class BilibiliParser(BaseVideoParser):
         }
 
     async def get_first_ep_id_by_season(
-        self,
-        season_id: str,
-        session: aiohttp.ClientSession,
-        cookie_header: str = ""
+        self, season_id: str, session: aiohttp.ClientSession, cookie_header: str = ""
     ) -> str:
         """根据season_id解析首个可用ep_id。"""
         api = "https://api.bilibili.com/pgc/view/web/season"
@@ -1478,7 +1564,7 @@ class BilibiliParser(BaseVideoParser):
             api,
             params={"season_id": season_id},
             headers=self._build_api_headers(cookie_header=cookie_header),
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "pgc season view by season_id")
@@ -1498,7 +1584,7 @@ class BilibiliParser(BaseVideoParser):
         bvid: str = None,
         aid: str = None,
         session: aiohttp.ClientSession = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ):
         """获取分P列表
 
@@ -1526,7 +1612,7 @@ class BilibiliParser(BaseVideoParser):
             api,
             params=params,
             headers=self._build_api_headers(cookie_header=cookie_header),
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "pagelist")
@@ -1541,7 +1627,7 @@ class BilibiliParser(BaseVideoParser):
         fnval: int = None,
         referer: str = None,
         session: aiohttp.ClientSession = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ):
         """获取UGC视频播放地址（优先使用BV号，aid作为备用）
 
@@ -1561,16 +1647,16 @@ class BilibiliParser(BaseVideoParser):
             ValueError: bvid和aid都未提供时
             RuntimeError: 当API返回错误时
         """
-        api = "https://api.bilibili.com/x/player/playurl"
+        api = UGC_PLAYURL_API
         params = {
             "cid": cid,
-            "qn": qn,
+            "qn": qn or 80,
             "fnver": 0,
-            "fnval": fnval,
+            "fnval": fnval if fnval is not None else FNVAL_DASH,
             "fourk": 1,
             "otype": "json",
-            "platform": "html5",
-            "high_quality": 1
+            "platform": "pc",
+            "high_quality": 1,
         }
         if bvid:
             params["bvid"] = bvid
@@ -1578,15 +1664,17 @@ class BilibiliParser(BaseVideoParser):
             params["aid"] = self._prepare_aid_param(aid)
         else:
             raise ValueError("必须提供bvid或aid参数")
-        headers = self._build_api_headers(
-            referer=referer,
-            cookie_header=cookie_header
+        headers = self._build_api_headers(referer=referer, cookie_header=cookie_header)
+        mixin_key = await self._get_wbi_mixin_key(session, headers)
+        signed_params = self._sign_wbi_params(
+            {key: value for key, value in params.items() if value is not None},
+            mixin_key,
         )
         async with session.get(
             api,
-            params=params,
+            params=signed_params,
             headers=headers,
-            timeout=aiohttp.ClientTimeout(total=10)
+            timeout=aiohttp.ClientTimeout(total=10),
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "playurl")
@@ -1599,7 +1687,7 @@ class BilibiliParser(BaseVideoParser):
         fnval: int,
         referer: str,
         session: aiohttp.ClientSession,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ):
         """获取PGC视频播放地址
 
@@ -1616,24 +1704,18 @@ class BilibiliParser(BaseVideoParser):
         Raises:
             RuntimeError: API返回错误时
         """
-        api = "https://api.bilibili.com/pgc/player/web/v2/playurl"
+        api = PGC_PLAYURL_API
         params = {
             "ep_id": ep_id,
             "qn": qn,
             "fnver": 0,
             "fnval": fnval,
             "fourk": 1,
-            "otype": "json"
+            "otype": "json",
         }
-        headers = self._build_api_headers(
-            referer=referer,
-            cookie_header=cookie_header
-        )
+        headers = self._build_api_headers(referer=referer, cookie_header=cookie_header)
         async with session.get(
-            api,
-            params=params,
-            headers=headers,
-            timeout=aiohttp.ClientTimeout(total=10)
+            api, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
         ) as resp:
             j = await self._check_json_response(resp)
         await self._handle_api_response(j, "pgc playurl v2")
@@ -1694,9 +1776,7 @@ class BilibiliParser(BaseVideoParser):
             if limited_vids:
                 vids = limited_vids
         return sorted(
-            vids,
-            key=lambda x: (x.get("id", 0), x.get("bandwidth", 0)),
-            reverse=True
+            vids, key=lambda x: (x.get("id", 0), x.get("bandwidth", 0)), reverse=True
         )[0]
 
     def pick_best_audio(self, dash_obj: Dict[str, Any]):
@@ -1705,9 +1785,7 @@ class BilibiliParser(BaseVideoParser):
         if not audios:
             return None
         return sorted(
-            audios,
-            key=lambda x: (x.get("id", 0), x.get("bandwidth", 0)),
-            reverse=True
+            audios, key=lambda x: (x.get("id", 0), x.get("bandwidth", 0)), reverse=True
         )[0]
 
     def _build_dash_download_url(self, dash_obj: Dict[str, Any]) -> Optional[str]:
@@ -1723,8 +1801,8 @@ class BilibiliParser(BaseVideoParser):
         best_audio = self.pick_best_audio(dash_obj)
         audio_url = (
             (best_audio.get("baseUrl") or best_audio.get("base_url"))
-            if best_audio else
-            ""
+            if best_audio
+            else ""
         )
         if audio_url:
             return f"dash:{video_url}||{audio_url}"
@@ -1781,7 +1859,7 @@ class BilibiliParser(BaseVideoParser):
         self,
         access_info: Dict[str, Any],
         content_meta: Optional[Dict[str, Any]] = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> Tuple[str, str]:
         """根据响应内容推断访问受限原因。"""
         hint = ""
@@ -1857,7 +1935,7 @@ class BilibiliParser(BaseVideoParser):
         data: Optional[Dict[str, Any]] = None,
         error: Optional[Exception] = None,
         content_meta: Optional[Dict[str, Any]] = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> Dict[str, Any]:
         """分析播放接口响应并判断可访问性。"""
         if error is not None:
@@ -1876,9 +1954,7 @@ class BilibiliParser(BaseVideoParser):
                 "available_length_ms": None,
             }
             restriction_type, restriction_label = self._resolve_restriction_hint(
-                access_info,
-                content_meta,
-                cookie_header=cookie_header
+                access_info, content_meta, cookie_header=cookie_header
             )
             access_info["restriction_type"] = restriction_type
             access_info["restriction_label"] = restriction_label
@@ -1889,8 +1965,7 @@ class BilibiliParser(BaseVideoParser):
         payload = self._unwrap_playurl_data(wrapper)
         support_formats = payload.get("support_formats") or []
         need_vip = any(
-            isinstance(item, dict) and item.get("need_vip")
-            for item in support_formats
+            isinstance(item, dict) and item.get("need_vip") for item in support_formats
         )
         need_login = any(
             isinstance(item, dict) and item.get("need_login")
@@ -1906,10 +1981,14 @@ class BilibiliParser(BaseVideoParser):
         has_durl = bool(payload.get("durl") or payload.get("durls"))
         has_stream = has_dash or has_durl
 
-        is_preview_only = bool(payload.get("is_preview")) or play_detail == "PLAY_PREVIEW"
+        is_preview_only = (
+            bool(payload.get("is_preview")) or play_detail == "PLAY_PREVIEW"
+        )
         if (
-            not is_preview_only and timelength_ms and available_length_ms and
-            int(available_length_ms) < int(timelength_ms)
+            not is_preview_only
+            and timelength_ms
+            and available_length_ms
+            and int(available_length_ms) < int(timelength_ms)
         ):
             is_preview_only = True
 
@@ -1941,9 +2020,7 @@ class BilibiliParser(BaseVideoParser):
             "available_length_ms": available_length_ms,
         }
         restriction_type, restriction_label = self._resolve_restriction_hint(
-            access_info,
-            content_meta,
-            cookie_header=cookie_header
+            access_info, content_meta, cookie_header=cookie_header
         )
         access_info["restriction_type"] = restriction_type
         access_info["restriction_label"] = restriction_label
@@ -1973,7 +2050,7 @@ class BilibiliParser(BaseVideoParser):
                     fnval=4048,
                     referer=referer,
                     session=session,
-                    cookie_header=cookie_header
+                    cookie_header=cookie_header,
                 )
             else:
                 data = await self.pgc_playurl_v2(
@@ -1982,22 +2059,20 @@ class BilibiliParser(BaseVideoParser):
                     fnval=4048,
                     referer=referer,
                     session=session,
-                    cookie_header=cookie_header
+                    cookie_header=cookie_header,
                 )
             return self._analyze_play_access(
-                data=data,
-                content_meta=content_meta,
-                cookie_header=cookie_header
+                data=data, content_meta=content_meta, cookie_header=cookie_header
             )
         except Exception as e:
             return self._analyze_play_access(
-                error=e,
-                content_meta=content_meta,
-                cookie_header=cookie_header
+                error=e, content_meta=content_meta, cookie_header=cookie_header
             )
 
     @staticmethod
-    def _access_fields_from_info(access_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _access_fields_from_info(
+        access_info: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         """从访问分析信息中提取对外字段。"""
         if not isinstance(access_info, dict):
             return {}
@@ -2019,7 +2094,7 @@ class BilibiliParser(BaseVideoParser):
         cid: int = None,
         referer: str = None,
         session: aiohttp.ClientSession = None,
-        cookie_header: str = ""
+        cookie_header: str = "",
     ) -> Optional[str]:
         """获取UGC视频直链（统一处理bvid和aid）
 
@@ -2033,7 +2108,7 @@ class BilibiliParser(BaseVideoParser):
         Returns:
             视频直链，失败时为None
         """
-        FNVAL_MAX = 4048
+        FNVAL_MAX = FNVAL_DASH
         if bvid:
             probe = await self.ugc_playurl(
                 bvid=bvid,
@@ -2042,7 +2117,7 @@ class BilibiliParser(BaseVideoParser):
                 fnval=FNVAL_MAX,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         else:
             probe = await self.ugc_playurl(
@@ -2052,32 +2127,32 @@ class BilibiliParser(BaseVideoParser):
                 fnval=FNVAL_MAX,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         target_qn = (
-            self.best_qn_from_data(probe) or
-            self._unwrap_playurl_data(probe).get("quality") or
-            80
+            self.best_qn_from_data(probe)
+            or self._unwrap_playurl_data(probe).get("quality")
+            or 80
         )
         if bvid:
             merged_try = await self.ugc_playurl(
                 bvid=bvid,
                 cid=cid,
                 qn=target_qn,
-                fnval=0,
+                fnval=FNVAL_MP4,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         else:
             merged_try = await self.ugc_playurl(
                 aid=aid,
                 cid=cid,
                 qn=target_qn,
-                fnval=0,
+                fnval=FNVAL_MP4,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         merged_payload = self._unwrap_playurl_data(merged_try)
         if merged_payload.get("durl"):
@@ -2090,7 +2165,7 @@ class BilibiliParser(BaseVideoParser):
                 fnval=FNVAL_MAX,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         else:
             dash_try = await self.ugc_playurl(
@@ -2100,7 +2175,7 @@ class BilibiliParser(BaseVideoParser):
                 fnval=FNVAL_MAX,
                 referer=referer,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         dash_payload = self._unwrap_playurl_data(dash_try)
         return self._build_dash_download_url(dash_payload.get("dash") or {})
@@ -2110,7 +2185,7 @@ class BilibiliParser(BaseVideoParser):
         url: str,
         session: aiohttp.ClientSession,
         cookie_header: str = "",
-        enable_hot_comments: bool = True
+        enable_hot_comments: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """解析B站动态链接
 
@@ -2126,10 +2201,12 @@ class BilibiliParser(BaseVideoParser):
         """
         original_url = url
 
-        if B23_HOST in urlparse(url).netloc.lower():
+        if _is_b23_url(url):
             expanded_url = await self.expand_b23(url, session)
 
-            if '/opus/' not in expanded_url.lower() and 't.bilibili.com' not in expanded_url.lower():
+            if not (
+                _is_bilibili_opus_url(expanded_url) or _is_t_bilibili_url(expanded_url)
+            ):
                 raise RuntimeError(f"短链指向的不是动态链接: {url}")
 
             url = expanded_url
@@ -2145,16 +2222,13 @@ class BilibiliParser(BaseVideoParser):
                     session=session,
                     opus_url=url,
                     headers=self._build_api_headers(
-                        referer=url,
-                        cookie_header=cookie_header
-                    )
+                        referer=url, cookie_header=cookie_header
+                    ),
                 )
                 if subject:
                     comment_oid, comment_type = subject
             except Exception as e:
-                logger.debug(
-                    f"[{self.name}] 解析动态评论主体失败: {url}, 错误: {e}"
-                )
+                logger.debug(f"[{self.name}] 解析动态评论主体失败: {url}, 错误: {e}")
             if comment_oid is None:
                 try:
                     comment_oid = int(opus_id)
@@ -2162,10 +2236,7 @@ class BilibiliParser(BaseVideoParser):
                     comment_oid = None
 
         data = await self.get_opus_info(
-            opus_id,
-            session,
-            referer=url,
-            cookie_header=cookie_header
+            opus_id, session, referer=url, cookie_header=cookie_header
         )
 
         if isinstance(data, dict) and data.get("item"):
@@ -2181,7 +2252,7 @@ class BilibiliParser(BaseVideoParser):
                 cookie_header=cookie_header,
                 enable_hot_comments=enable_hot_comments,
                 comment_oid=comment_oid,
-                comment_type=comment_type
+                comment_type=comment_type,
             )
 
         card_data = data.get("card", {})
@@ -2282,13 +2353,13 @@ class BilibiliParser(BaseVideoParser):
                 video_url,
                 session=session,
                 cookie_header_override=cookie_header,
-                enable_hot_comments=False
+                enable_hot_comments=False,
             )
 
             if not video_result:
                 raise RuntimeError(f"视频解析器返回空结果: {video_url}")
 
-            is_forward = (dynamic_type == 1 and orig_type == 8)
+            is_forward = dynamic_type == 1 and orig_type == 8
 
             if is_forward:
                 origin_title = video_result.get("title", "")
@@ -2297,7 +2368,9 @@ class BilibiliParser(BaseVideoParser):
                 origin_url = video_result.get("url", video_url)
 
                 origin_timestamp = ""
-                if origin_data_for_timestamp and isinstance(origin_data_for_timestamp, dict):
+                if origin_data_for_timestamp and isinstance(
+                    origin_data_for_timestamp, dict
+                ):
                     pubdate = origin_data_for_timestamp.get("pubdate")
                     ctime = origin_data_for_timestamp.get("ctime")
                     ts_value = pubdate if pubdate else ctime
@@ -2342,7 +2415,7 @@ class BilibiliParser(BaseVideoParser):
                 else:
                     final_timestamp = timestamp
 
-                dynamic_url = original_url if B23_HOST in urlparse(original_url).netloc.lower() else url
+                dynamic_url = original_url if _is_b23_url(original_url) else url
                 if dynamic_url and origin_url and dynamic_url != origin_url:
                     final_url = f"{dynamic_url} ({origin_url})"
                 else:
@@ -2351,9 +2424,7 @@ class BilibiliParser(BaseVideoParser):
                 referer = url
                 origin = "https://www.bilibili.com"
                 image_headers, video_headers = self._build_media_headers(
-                    referer=referer,
-                    origin=origin,
-                    cookie_header=cookie_header
+                    referer=referer, origin=origin, cookie_header=cookie_header
                 )
                 result = {
                     "url": final_url,
@@ -2361,7 +2432,9 @@ class BilibiliParser(BaseVideoParser):
                     "author": final_author,
                     "desc": final_desc,
                     "timestamp": final_timestamp,
-                    "video_urls": self._add_range_prefix_to_video_urls(video_result.get("video_urls", [])),
+                    "video_urls": self._add_range_prefix_to_video_urls(
+                        video_result.get("video_urls", [])
+                    ),
                     "image_urls": video_result.get("image_urls", []),
                     "image_headers": image_headers,
                     "video_headers": video_headers,
@@ -2381,7 +2454,7 @@ class BilibiliParser(BaseVideoParser):
                         oid=comment_oid,
                         comment_type=comment_type,
                         referer=url,
-                        cookie_header=cookie_header
+                        cookie_header=cookie_header,
                     )
                 return result
             else:
@@ -2400,17 +2473,17 @@ class BilibiliParser(BaseVideoParser):
                 referer = url
                 origin = "https://www.bilibili.com"
                 image_headers, video_headers = self._build_media_headers(
-                    referer=referer,
-                    origin=origin,
-                    cookie_header=cookie_header
+                    referer=referer, origin=origin, cookie_header=cookie_header
                 )
                 result = {
-                    "url": original_url if B23_HOST in urlparse(original_url).netloc.lower() else url,
+                    "url": original_url if _is_b23_url(original_url) else url,
                     "title": final_title,
                     "author": author,
                     "desc": final_desc,
                     "timestamp": timestamp,
-                    "video_urls": self._add_range_prefix_to_video_urls(video_result.get("video_urls", [])),
+                    "video_urls": self._add_range_prefix_to_video_urls(
+                        video_result.get("video_urls", [])
+                    ),
                     "image_urls": video_result.get("image_urls", []),
                     "image_headers": image_headers,
                     "video_headers": video_headers,
@@ -2430,7 +2503,7 @@ class BilibiliParser(BaseVideoParser):
                         oid=comment_oid,
                         comment_type=comment_type,
                         referer=url,
-                        cookie_header=cookie_header
+                        cookie_header=cookie_header,
                     )
                 return result
 
@@ -2440,20 +2513,20 @@ class BilibiliParser(BaseVideoParser):
             if isinstance(pictures, list):
                 for pic in pictures:
                     if isinstance(pic, dict):
-                        pic_url = pic.get("img_src") or pic.get("imgSrc") or pic.get("url")
+                        pic_url = (
+                            pic.get("img_src") or pic.get("imgSrc") or pic.get("url")
+                        )
                         if pic_url:
                             image_urls.append([pic_url])
                     elif isinstance(pic, str):
                         image_urls.append([pic])
 
-        display_url = original_url if B23_HOST in urlparse(original_url).netloc.lower() else url
+        display_url = original_url if _is_b23_url(original_url) else url
 
         referer = url
         origin = "https://www.bilibili.com"
         image_headers, video_headers = self._build_media_headers(
-            referer=referer,
-            origin=origin,
-            cookie_header=cookie_header
+            referer=referer, origin=origin, cookie_header=cookie_header
         )
 
         result = {
@@ -2474,14 +2547,12 @@ class BilibiliParser(BaseVideoParser):
                 oid=comment_oid,
                 comment_type=comment_type,
                 referer=url,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
         return result
 
     async def parse(
-        self,
-        session: aiohttp.ClientSession,
-        url: str
+        self, session: aiohttp.ClientSession, url: str
     ) -> Optional[Dict[str, Any]]:
         """解析单个B站链接
 
@@ -2519,7 +2590,7 @@ class BilibiliParser(BaseVideoParser):
         p: Optional[int] = None,
         session: aiohttp.ClientSession = None,
         cookie_header_override: Optional[str] = None,
-        enable_hot_comments: bool = True
+        enable_hot_comments: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """解析B站链接，返回视频或动态信息
 
@@ -2537,21 +2608,22 @@ class BilibiliParser(BaseVideoParser):
         if session is None:
             timeout = aiohttp.ClientTimeout(total=10)
             async with aiohttp.ClientSession(
-                headers={"User-Agent": UA},
-                timeout=timeout
+                headers={"User-Agent": UA}, timeout=timeout
             ) as sess:
                 return await self.parse_bilibili_minimal(
                     url,
                     p,
                     sess,
                     cookie_header_override=cookie_header_override,
-                    enable_hot_comments=enable_hot_comments
+                    enable_hot_comments=enable_hot_comments,
                 )
         logger.debug(f"[{self.name}] parse_bilibili_minimal: 开始处理 {url}")
         original_url = url
         page_url = await self.expand_b23(url, session)
         if page_url != url:
-            logger.debug(f"[{self.name}] parse_bilibili_minimal: b23短链展开 {url} -> {page_url}")
+            logger.debug(
+                f"[{self.name}] parse_bilibili_minimal: b23短链展开 {url} -> {page_url}"
+            )
 
         if cookie_header_override is not None:
             cookie_header = cookie_header_override
@@ -2559,17 +2631,20 @@ class BilibiliParser(BaseVideoParser):
             cookie_header = await self._resolve_cookie_header(session)
 
         if is_live_url(page_url) or is_live_url(original_url):
-            logger.debug(f"[{self.name}] parse_bilibili_minimal: 检测到直播域名链接，跳过解析 {original_url} -> {page_url}")
+            logger.debug(
+                f"[{self.name}] parse_bilibili_minimal: 检测到直播域名链接，跳过解析 {original_url} -> {page_url}"
+            )
             raise SkipParse("直播域名链接不解析")
 
-        page_url_lower = page_url.lower()
-        if '/opus/' in page_url_lower or 't.bilibili.com' in page_url_lower:
-            logger.debug(f"[{self.name}] parse_bilibili_minimal: 检测到动态链接，使用动态解析器")
+        if _is_bilibili_opus_url(page_url) or _is_t_bilibili_url(page_url):
+            logger.debug(
+                f"[{self.name}] parse_bilibili_minimal: 检测到动态链接，使用动态解析器"
+            )
             return await self.parse_opus(
                 page_url,
                 session,
                 cookie_header=cookie_header,
-                enable_hot_comments=enable_hot_comments
+                enable_hot_comments=enable_hot_comments,
             )
 
         if not self.can_parse(page_url):
@@ -2582,32 +2657,26 @@ class BilibiliParser(BaseVideoParser):
         comment_oid: Optional[int] = None
         comment_type = 1
         if vtype == "ugc":
-            logger.debug(f"[{self.name}] parse_bilibili_minimal: 处理UGC视频，分P={p_index}")
+            logger.debug(
+                f"[{self.name}] parse_bilibili_minimal: 处理UGC视频，分P={p_index}"
+            )
             bvid = ident.get("bvid")
             aid = ident.get("aid")
             if bvid:
                 logger.debug(f"[{self.name}] parse_bilibili_minimal: 使用BV号 {bvid}")
                 info = await self.get_ugc_info(
-                    bvid=bvid,
-                    session=session,
-                    cookie_header=cookie_header
+                    bvid=bvid, session=session, cookie_header=cookie_header
                 )
                 pages = await self.get_pagelist(
-                    bvid=bvid,
-                    session=session,
-                    cookie_header=cookie_header
+                    bvid=bvid, session=session, cookie_header=cookie_header
                 )
             elif aid:
                 logger.debug(f"[{self.name}] parse_bilibili_minimal: 使用AV号 {aid}")
                 info = await self.get_ugc_info(
-                    aid=aid,
-                    session=session,
-                    cookie_header=cookie_header
+                    aid=aid, session=session, cookie_header=cookie_header
                 )
                 pages = await self.get_pagelist(
-                    aid=aid,
-                    session=session,
-                    cookie_header=cookie_header
+                    aid=aid, session=session, cookie_header=cookie_header
                 )
             else:
                 raise RuntimeError(f"无法获取视频信息: {url}")
@@ -2615,10 +2684,14 @@ class BilibiliParser(BaseVideoParser):
             if comment_oid_raw is None:
                 comment_oid_raw = aid
             try:
-                comment_oid = int(comment_oid_raw) if comment_oid_raw is not None else None
+                comment_oid = (
+                    int(comment_oid_raw) if comment_oid_raw is not None else None
+                )
             except (TypeError, ValueError):
                 comment_oid = None
-            logger.debug(f"[{self.name}] parse_bilibili_minimal: 视频信息获取成功，共{len(pages)}个分P")
+            logger.debug(
+                f"[{self.name}] parse_bilibili_minimal: 视频信息获取成功，共{len(pages)}个分P"
+            )
             if p_index > len(pages):
                 raise RuntimeError(f"分P序号超出范围: {p_index}")
             cid = pages[p_index - 1]["cid"]
@@ -2630,7 +2703,7 @@ class BilibiliParser(BaseVideoParser):
                 cookie_header=cookie_header,
                 bvid=bvid,
                 aid=aid,
-                cid=cid
+                cid=cid,
             )
             logger.debug(f"[{self.name}] parse_bilibili_minimal: 获取分P{cid}的直链")
             direct_url = await self._get_ugc_direct_url(
@@ -2639,14 +2712,14 @@ class BilibiliParser(BaseVideoParser):
                 cid=cid,
                 referer=page_url,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
             if not direct_url:
                 raise RuntimeError(f"无法获取视频直链: {url}")
             logger.debug(f"[{self.name}] parse_bilibili_minimal: 直链获取成功")
         elif vtype == "pgc":
             logger.debug(f"[{self.name}] parse_bilibili_minimal: 处理PGC番剧")
-            FNVAL_MAX = 4048
+            FNVAL_MAX = FNVAL_DASH
             ep_id = ident.get("ep_id")
             if not ep_id:
                 season_id = ident.get("season_id")
@@ -2654,18 +2727,18 @@ class BilibiliParser(BaseVideoParser):
                     ep_id = await self.get_first_ep_id_by_season(
                         season_id=season_id,
                         session=session,
-                        cookie_header=cookie_header
+                        cookie_header=cookie_header,
                     )
                 else:
                     raise RuntimeError(f"无法解析番剧标识: {url}")
             info = await self.get_pgc_info_by_ep(
-                ep_id,
-                session,
-                cookie_header=cookie_header
+                ep_id, session, cookie_header=cookie_header
             )
             comment_oid_raw = info.get("aid")
             try:
-                comment_oid = int(comment_oid_raw) if comment_oid_raw is not None else None
+                comment_oid = (
+                    int(comment_oid_raw) if comment_oid_raw is not None else None
+                )
             except (TypeError, ValueError):
                 comment_oid = None
             access_info = await self._analyze_target_access(
@@ -2674,7 +2747,7 @@ class BilibiliParser(BaseVideoParser):
                 session=session,
                 content_meta=info,
                 cookie_header=cookie_header,
-                ep_id=ep_id
+                ep_id=ep_id,
             )
             probe = await self.pgc_playurl_v2(
                 ep_id,
@@ -2682,21 +2755,19 @@ class BilibiliParser(BaseVideoParser):
                 fnval=FNVAL_MAX,
                 referer=page_url,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
             probe_payload = self._unwrap_playurl_data(probe)
             target_qn = (
-                self.best_qn_from_data(probe) or
-                probe_payload.get("quality") or
-                80
+                self.best_qn_from_data(probe) or probe_payload.get("quality") or 80
             )
             merged_try = await self.pgc_playurl_v2(
                 ep_id,
                 qn=target_qn,
-                fnval=0,
+                fnval=FNVAL_MP4,
                 referer=page_url,
                 session=session,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
             merged_payload = self._unwrap_playurl_data(merged_try)
             if merged_payload.get("durl"):
@@ -2708,12 +2779,11 @@ class BilibiliParser(BaseVideoParser):
                     fnval=FNVAL_MAX,
                     referer=page_url,
                     session=session,
-                    cookie_header=cookie_header
+                    cookie_header=cookie_header,
                 )
                 dash_payload = self._unwrap_playurl_data(dash_try)
                 direct_url = (
-                    self._build_dash_download_url(dash_payload.get("dash") or {}) or
-                    ""
+                    self._build_dash_download_url(dash_payload.get("dash") or {}) or ""
                 )
         else:
             raise RuntimeError(f"无法识别视频类型: {url}")
@@ -2721,12 +2791,10 @@ class BilibiliParser(BaseVideoParser):
             referer = page_url
             origin = "https://www.bilibili.com"
             image_headers, video_headers = self._build_media_headers(
-                referer=referer,
-                origin=origin,
-                cookie_header=cookie_header
+                referer=referer, origin=origin, cookie_header=cookie_header
             )
             result = {
-                "url": original_url if urlparse(original_url).netloc.lower() == B23_HOST else page_url,
+                "url": original_url if _is_b23_url(original_url) else page_url,
                 "title": info.get("title", ""),
                 "author": info.get("author", ""),
                 "desc": info.get("desc", ""),
@@ -2737,7 +2805,11 @@ class BilibiliParser(BaseVideoParser):
                 "video_headers": video_headers,
             }
             result.update(self._access_fields_from_info(access_info))
-            if result.get("access_status") in ("preview_only", "restricted", "unavailable"):
+            if result.get("access_status") in (
+                "preview_only",
+                "restricted",
+                "unavailable",
+            ):
                 if enable_hot_comments:
                     await self._attach_hot_comments_to_result(
                         session=session,
@@ -2745,19 +2817,17 @@ class BilibiliParser(BaseVideoParser):
                         oid=comment_oid,
                         comment_type=comment_type,
                         referer=page_url,
-                        cookie_header=cookie_header
+                        cookie_header=cookie_header,
                     )
                 return result
             raise RuntimeError(f"无法获取视频直链: {url}")
-        is_b23_short = urlparse(original_url).netloc.lower() == B23_HOST
+        is_b23_short = _is_b23_url(original_url)
         display_url = original_url if is_b23_short else page_url
-        
+
         referer = page_url
         origin = "https://www.bilibili.com"
         image_headers, video_headers = self._build_media_headers(
-            referer=referer,
-            origin=origin,
-            cookie_header=cookie_header
+            referer=referer, origin=origin, cookie_header=cookie_header
         )
         result = {
             "url": display_url,
@@ -2778,8 +2848,9 @@ class BilibiliParser(BaseVideoParser):
                 oid=comment_oid,
                 comment_type=comment_type,
                 referer=page_url,
-                cookie_header=cookie_header
+                cookie_header=cookie_header,
             )
-        logger.debug(f"[{self.name}] parse_bilibili_minimal: 解析完成 {url}, title={result.get('title', '')[:50]}")
+        logger.debug(
+            f"[{self.name}] parse_bilibili_minimal: 解析完成 {url}, title={result.get('title', '')[:50]}"
+        )
         return result
-

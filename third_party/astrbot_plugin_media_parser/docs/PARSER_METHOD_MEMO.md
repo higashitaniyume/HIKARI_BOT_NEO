@@ -107,7 +107,7 @@ opus_id
 
 ### Cookie 与评论
 
-Cookie 在 B站是增强条件，不是解析前提。Cookie 可用时，播放接口可能返回更完整的清晰度、时长或可访问内容；不可用时仍然走无 Cookie 解析。
+Cookie 在 B站是增强条件，不是解析前提。Cookie 可用时，Web 播放接口可能返回更完整的清晰度、时长或可访问内容；不可用时仍然走无 Cookie 解析。UGC 播放使用 `/x/player/wbi/playurl` 并按导航接口动态生成 WBI 签名，DASH 请求使用 `fnval=4048`，MP4 兼容回退使用 `fnval=1`；不再使用旧的 `/x/player/playurl`、HTML5 平台或 `fnval=0` FLV 回退。
 
 评论和热评接口依赖 WBI 签名。解析思路是先从导航接口拿到签名材料，再按 B站前端的规则生成请求参数，而不是硬编码一个固定签名。
 
@@ -124,14 +124,15 @@ HEAD 展开，失败再 GET 展开
   ↓
 判断 video、note 或 slides
   ↓
-请求 iesdouyin.com/share/video/{id}/
-或 iesdouyin.com/share/note/{id}/
-或 iesdouyin.com/web/api/v2/aweme/slidesinfo/
-  ↓
-读取 window._ROUTER_DATA
+优先请求 douyin.com/aweme/v1/web/aweme/detail/
+（a_bogus 签名 + 有界 ttwid 会话）
+  ├─ 成功 -> 使用目标作品详情
+  └─ 失败 -> slidesinfo 或 iesdouyin.com/share/{type}/{id}/
+                         ↓
+                    读取 window._ROUTER_DATA
 ```
 
-抖音移动分享页是主要数据源。它相对轻量，并且通常保留 `window._ROUTER_DATA`，这正是前端渲染分享页时使用的状态。
+当前抖音解析优先使用 Web 详情接口：请求只携带作品 ID 等稳定参数，并用 `a_bogus` 签名和短生命周期 `ttwid` 会话完成访问；目标作品 ID 会再次校验，遇到会话失效、非 JSON 或目标不匹配时最多刷新一次会话。详情接口不可用时，再回退到 slidesinfo 或抖音分享页。移动分享页相对轻量，并且通常保留 `window._ROUTER_DATA`，仍是重要的兜底数据源。
 
 视频和图文的结构不同：
 
@@ -255,10 +256,10 @@ Component_Play_Playinfo
 
 支持能力：视频 / 图片 / 文本 / 热评
 
-小红书要兼容移动端和 PC 端两套状态树。短链 `xhslink.com` 只是入口，必须先展开到正式笔记页。
+小红书要兼容移动端和 PC 端两套状态树。短链 `xhslink.com` / `xhslink.cn` 只是入口，必须先展开到正式笔记页。
 
 ```text
-xhslink.com / xiaohongshu.com
+xhslink.com / xhslink.cn / xiaohongshu.com
   ↓
 展开短链
   ↓
@@ -271,11 +272,11 @@ xhslink.com / xiaohongshu.com
   └─ PC 端: note.noteDetailMap[*].note
 ```
 
-参数清理要谨慎。移动端分享链接可以去掉部分来源参数，但 PC 链接中的访问参数可能影响页面能否返回完整状态，不能盲目删除。
+参数清理要谨慎。移动端 `discovery/item` 分享链接只去掉 `source` 和 `xhsshare` 参数；随后优先改写为对应的 PC `explore` 页面，并完整保留其余查询参数。PC 链接中的访问参数可能影响页面能否返回完整状态，不能盲目删除。
 
 拿到笔记数据后，按类型处理：
 
-- 视频笔记：从 `video.media.stream.h264` 等结构里取播放地址，并统一协议。
+- 视频笔记：优先从 `video.media.stream.h264` 的 `masterUrl` 中选择最高质量、兼容性更好的 H.264 地址；没有 H.264 时再回退 H.265、AV1 或 H.266，并统一协议。PC `explore` 页面通常能提供无水印播放地址。
 - 图文笔记：从 `imageList`、`urlDefault`、`url`、`infoList` 中选择可用图片地址。
 
 正文里的话题标签带有前端标记，解析时会清理成可读文本。评论信息如果已经随页面状态下发，可以从状态树中收集并按点赞数排序；如果状态里没有，就不额外强行请求高风险接口。
@@ -423,6 +424,8 @@ Result.Data.PlayInfoList
 
 帖子正文可能是富文本 JSON 数组，里面混有 HTML、纯文本、图片、视频和 GIF。解析时要逐项解释：文本拼成正文，图片进入图片候选，视频和 M3U8 保留为视频线索，GIF 根据资源形态判断是图片还是视频。
 
+接口返回的 `link_id`、`linkid` 或 `id` 不一定是分享 URL 中的字符串 ID，部分响应会返回数字内部别名。解析器会优先用返回的 `share_url` 校验规范分享 ID；规范 ID 与请求一致时接受该数字别名，无法建立对应关系或明确指向其他帖子时拒绝响应，避免把其他帖子的媒体归到当前链接。
+
 ### 游戏详情页
 
 游戏分享链接会先归一成标准 Web 详情页：
@@ -491,7 +494,44 @@ Twitter 的响应嵌套很深，不能假设固定路径永远存在。解析时
 
 如果一条推文没有图片和视频，但有正文，也仍然是可解析内容。
 
-## 十二、维护原则
+## 十二、Pixiv
+
+支持能力：图片 / 文本
+
+Pixiv 的稳定入口是作品 ID。解析器支持 `artworks/{id}`、`i/{id}` 以及带 `/en/` 前缀的链接；提链时保留原始匹配文本，并按作品 ID 去重，避免规范化链接后无法在原消息中定位。
+
+```text
+pixiv.net/artworks/{illust_id} / pixiv.net/i/{illust_id}
+  ↓
+提取 illust_id
+  ↓
+/ajax/illust/{illust_id}
+  └─ 标题、作者、标签、访问限制、AI 类型
+  ↓
+/ajax/illust/{illust_id}/pages?lang=zh
+  └─ 每页 original / regular / small 图片地址
+```
+
+元信息接口的 `body` 提供 `illustTitle`、`userName`、`userId`、`tags`、`xRestrict`、`aiType` 和 `sl`。标签最多取前 20 个用于文本描述；`xRestrict` 映射为 R-18 或 R-18G，`aiType=2` 标记为 AI 生成。
+
+分页接口按作品页返回图片 URL。每一页必须保持为一个独立候选组：
+
+```text
+image_urls = [
+  [original_page_0, regular_or_small_page_0],
+  [original_page_1, regular_or_small_page_1],
+]
+```
+
+下载管理器会按组内顺序尝试，原图失败后再降级较低分辨率，同一作品的不同页面不能合并成一个候选组。
+
+请求头需要桌面 User-Agent、Accept-Language 和指向当前作品页的 Referer。公开作品可不带 Cookie；登录或年龄限制作品需要配置包含 `PHPSESSID` 的完整 Cookie。API 返回 HTML 时要先识别 Cloudflare 防护页，再处理 HTTP 状态和 JSON，避免把拦截页面误报为普通 JSON 错误。
+
+Pixiv 的代理开关同时覆盖 Web Ajax API 和 `i.pximg.net` 图片下载。解析结果写入 `use_image_proxy` 与 `proxy_url`，图片下载继续携带作品页 Referer。图片只能缓存后发送，因此缓存目录不可用时会按统一下载规则标记为 `skip`。
+
+单个作品依次请求元信息和分页接口；多个作品并发解析时由 `Config.PARSER_MAX_CONCURRENT` 限制，避免一条消息中的大量链接形成无界请求突发。
+
+## 十三、维护原则
 
 修改平台解析逻辑时，优先问这些问题：
 
