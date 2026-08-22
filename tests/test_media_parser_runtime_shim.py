@@ -7,9 +7,12 @@ config_manager then calls `logger.setLevel(...)`, which crashed in Docker with
 parser runtime init fail. The shim must therefore expose instance-style methods.
 """
 
+import asyncio
 import sys
 import unittest
 from pathlib import Path
+
+import aiohttp
 
 # 与 plugins/astrbot_compat/__init__.py 一致：shim/ 加入 sys.path 后
 # vendored core/logger.py 才会成功导入 shim 的 astrbot.api.logger 模块。
@@ -18,7 +21,10 @@ if _SHIM not in sys.path:
     sys.path.insert(0, _SHIM)
 
 import astrbot.api.logger  # noqa: E402
-from plugins.media_parser.runtime import create_runtime  # noqa: E402
+from plugins.media_parser.runtime import create_media_session, create_runtime  # noqa: E402
+from third_party.astrbot_plugin_media_parser.core.downloader.security import (  # noqa: E402
+    session_uses_public_only_connector,
+)
 
 
 class ShimLoggerModuleApiTests(unittest.TestCase):
@@ -56,6 +62,34 @@ class MediaParserRuntimeWithShimTests(unittest.TestCase):
 
     def test_shim_exception_logs_without_error(self):
         astrbot.api.logger.exception("shim exception smoke: %s", "boom")
+
+
+class SecureMediaSessionTests(unittest.TestCase):
+    """vendored v7.0.0 safe_request 拒绝无安全连接器的会话（Docker 实况：
+    “下载会话未使用公共地址安全连接器”），媒体下载会话必须走工厂创建。"""
+
+    def test_media_session_uses_public_only_connector(self):
+        async def run():
+            session = create_media_session(
+                aiohttp.ClientTimeout(total=5),
+                proxy_addr="http://127.0.0.1:7890",
+            )
+            try:
+                self.assertTrue(session_uses_public_only_connector(session))
+            finally:
+                await session.close()
+
+        asyncio.run(run())
+
+    def test_plain_session_is_rejected(self):
+        async def run():
+            session = aiohttp.ClientSession()
+            try:
+                self.assertFalse(session_uses_public_only_connector(session))
+            finally:
+                await session.close()
+
+        asyncio.run(run())
 
 
 if __name__ == "__main__":

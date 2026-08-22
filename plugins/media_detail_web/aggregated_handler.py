@@ -10,7 +10,7 @@ import aiohttp
 
 from plugins.media_parser.cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
 from plugins.media_parser.config import get_config as get_media_parser_config
-from plugins.media_parser.runtime import create_runtime
+from plugins.media_parser.runtime import create_media_session, create_runtime
 
 from .registry import register_file, register_remote
 from .utils import (
@@ -51,7 +51,11 @@ async def _parse_aggregated_links(
 
     timeout = aiohttp.ClientTimeout(total=max(30, int(cfg.get("api_timeout", 120))))
     max_proxy_bytes = _max_proxy_bytes(web_cfg)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    # vendored v7.0.0 下载加固要求会话带公共地址安全连接器，否则媒体下载被拒。
+    async with create_media_session(
+        timeout,
+        proxy_addr=runtime.config_manager.proxy.address,
+    ) as session:
         metadata_list = await runtime.parser_manager.parse_text(
             text,
             session,

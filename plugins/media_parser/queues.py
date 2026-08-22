@@ -19,7 +19,7 @@ from third_party.astrbot_plugin_media_parser.core.storage.parse_record import Pa
 
 from .bilibili_cookie_assist import bilibili_cookie_assist
 from .config import get_config
-from .runtime import MediaParserRuntime, create_runtime
+from .runtime import MediaParserRuntime, create_media_session, create_runtime
 from .sender import send_metadata_result
 
 logger = logging.getLogger("HikariBot.MediaParser")
@@ -39,6 +39,7 @@ _runtime_cache_mtime: float = 0.0
 _runtime_cache_size: int = 0
 _runtime_cache_path = Path("BotData/plugin_configs/media_parser.json")
 _session_cache: aiohttp.ClientSession | None = None
+_session_cache_proxy: str = ""
 
 
 @dataclass
@@ -103,12 +104,26 @@ def _get_runtime() -> MediaParserRuntime | None:
 
 
 async def _get_session() -> aiohttp.ClientSession:
-    """Return the cached aiohttp session, creating on demand."""
-    global _session_cache
-    if _session_cache is None or _session_cache.closed:
-        _session_cache = aiohttp.ClientSession(
+    """Return the cached aiohttp session, creating on demand.
+
+    会话必须带 vendored 公共地址安全连接器（见 create_media_session），
+    否则 v7.0.0 下载加固会拒绝媒体下载；代理地址变更时重建会话。
+    """
+    global _session_cache, _session_cache_proxy
+    proxy_raw = get_config().get("proxy")
+    proxy_addr = str((proxy_raw or {}).get("address") or "").strip() if isinstance(proxy_raw, dict) else ""
+    if (
+        _session_cache is None
+        or _session_cache.closed
+        or _session_cache_proxy != proxy_addr
+    ):
+        if _session_cache is not None and not _session_cache.closed:
+            await _session_cache.close()
+        _session_cache = create_media_session(
             timeout=aiohttp.ClientTimeout(total=120),
+            proxy_addr=proxy_addr,
         )
+        _session_cache_proxy = proxy_addr
     return _session_cache
 
 

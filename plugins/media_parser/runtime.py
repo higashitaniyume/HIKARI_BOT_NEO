@@ -5,8 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import aiohttp
+
 from third_party.astrbot_plugin_media_parser.core.config_manager import ConfigManager
-from third_party.astrbot_plugin_media_parser.core.downloader.manager import DownloadManager
+from third_party.astrbot_plugin_media_parser.core.downloader import (
+    DownloadManager,
+    create_public_only_connector,
+)
 from third_party.astrbot_plugin_media_parser.core.parser.manager import ParserManager
 
 
@@ -36,3 +41,21 @@ def create_runtime(config: dict[str, Any]) -> MediaParserRuntime:
         parser_manager=parser_manager,
         download_manager=download_manager,
     )
+
+
+def create_media_session(
+    timeout: aiohttp.ClientTimeout,
+    proxy_addr: str = "",
+) -> aiohttp.ClientSession:
+    """Create a session carrying the vendored public-only security connector.
+
+    vendored v7.0.0 下载加固（safe_request）要求媒体下载会话由
+    create_public_only_connector 创建，否则抛 UnsafeMediaURLError
+    “下载会话未使用公共地址安全连接器”。配置了代理时需把代理地址
+    作为受信代理传入，代理本身解析到私网/_fake-ip 时才会被放行。
+    """
+    proxy_addr = str(proxy_addr or "").strip()
+    connector = create_public_only_connector(
+        trusted_proxy_urls=[proxy_addr] if proxy_addr else [],
+    )
+    return aiohttp.ClientSession(timeout=timeout, connector=connector)
