@@ -1,6 +1,6 @@
 # 从零开始用 Python 解析小红书笔记
 
-小红书的分享链接以 `xhslink.com` 短链或 `xiaohongshu.com/explore/` 长链的形式出现。和抖音类似，小红书也没有公开 API，但它的 Web 页面里注入了完整的笔记数据——藏在 `window.__INITIAL_STATE__` 中。
+小红书的分享链接以 `xhslink.com` / `xhslink.cn` 短链或 `xiaohongshu.com/explore/` 长链的形式出现。和抖音类似，小红书也没有公开 API，但它的 Web 页面里注入了完整的笔记数据——藏在 `window.__INITIAL_STATE__` 中。
 
 本文从零开始，用 Python 解析小红书笔记，支持视频笔记和图文笔记两种形态。
 

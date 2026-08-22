@@ -33,9 +33,9 @@
 
 基于 vendored 的 [`drdon1234/astrbot_plugin_media_parser`](../third_party/astrbot_plugin_media_parser) 解析多个平台链接，使用 HIKARI 的 OneBot 发送链发送文本、图片和视频。
 
-**支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X
+**支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X（各平台短链均可识别，如 `b23.tv`、`v.douyin.com`、`xhslink.com` / `xhslink.cn`、`vm.tiktok.com`）
 
-> YouTube 由独立的 `youtube_downloader` 插件处理。
+> YouTube 由独立的 `youtube_downloader` 插件处理；上游 v6.4.0 起自带的 Pixiv 解析在 vendored 副本中已剔除，Pixiv 链接继续由独立的 `pixiv_parser` 插件处理，避免重复解析。
 
 **关键配置：**
 
@@ -50,12 +50,17 @@
 | `max_send` | 单条链接最多发送多少媒体，默认 80 |
 | `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` |
 | `permissions` | QQ/群黑白名单 |
-| `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890` |
+| `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890`（TikTok / 小黑盒视频 / Twitter 等分平台开关在 `proxy` 下） |
 | `bilibili_enhanced.cookie` | B站 Cookie（高画质和受限内容） |
+| `bilibili_enhanced.max_quality` | Cookie 模式下的画质上限（`不限制` / `4K` / `1080P60` / `1080P+` / …） |
 | `bilibili_enhanced.admin_assist.enable` | Cookie 失效时私聊管理员协助扫码登录 |
 | `download.max_video_size_mb` | 单个视频大小上限 |
+| `download.cache_dir` | 媒体缓存目录（需与 NapCat 容器共享，默认 `/tmp/hikari_bot/media_parser`） |
+| `parse_rate_limit.same_link` / `same_user` | 解析频控：时间窗内同链接 / 同用户最多解析次数，`0` 为不限制（记录持久化在缓存目录） |
 
 **B站 Cookie 辅助登录：** 开启 `bilibili_enhanced.use_cookie` 和 `admin_assist.enable` 后，Cookie 缺失或失效时 Bot 会私聊超级管理员。回复"确定"后会收到 Bilibili 登录二维码图片和备用链接；扫码成功后新 Cookie 自动保存，无需手动替换。超级管理员也可发送 `B站登录` / `B站Cookie` 手动触发。
+
+> **未接入的上游能力：** vendored 的 ZIP 归档（`message.archive`）、LLM 翻译（`translation`）、媒体中转（`media_relay`）和消息聚合（`message.packing`）依赖上游 AstrBot 的消息链。本仓库用自己的发送链（`send_strategy` 控制合并转发与回退，文本由本地组装），这些配置键保留在示例配置中但不生效。
 
 **显式命令：**
 ```text
@@ -71,6 +76,8 @@ B站Cookie
 .\scripts\update_media_parser_vendor.ps1
 uv run python -m compileall plugins\media_parser third_party\astrbot_plugin_media_parser
 ```
+
+脚本克隆上游 `main` 全量替换 vendored 目录后，会**自动剔除上游的 Pixiv 解析**并校验零残留；若上游重构导致剔除正则失配，脚本会报错并列出残留位置，需手动清理后再提交。
 
 ---
 
@@ -143,17 +150,27 @@ docker run -d -p 3000:3000 moefurina/ncm-api:latest
 - `https://163cn.tv/xxxxx`（QQ 分享短链接）
 - QQ 音乐分享卡片（自动提取 URL）
 
+**触发方式：**
+- 私聊：直接发送链接即自动解析（`auto_parse`）
+- 群聊：默认需 `引用` 分享卡片或链接消息并 `@机器人`；加入 `auto_parse_groups` 白名单的群发链接即自动解析
+- 非白名单群里未 @bot 的网易云链接/卡片：回复一句「引用 + @bot」引导提示（`card_hint` 控制，同群默认冷却 300 秒，避免刷屏）
+
+**切换音质：** 回复 Bot 刚发送的网易云文件消息，内容包含 `mp3` 或 `flac`，Bot 会按目标格式重新发送，并把这个格式记为你的默认偏好（按用户持久化，无偏好默认 FLAC，之后解析链接直接按偏好请求；`quality_switch` 可关闭）。@bot、普通消息或非引用来源不会触发。
+
 **关键配置：**
 
 | 字段 | 说明 |
 |------|------|
-| `auto_parse` | 是否自动解析网易云链接 |
+| `auto_parse` | 是否自动解析网易云链接（私聊；群聊见 `auto_parse_groups`） |
 | `api_base_url` | api-enhanced 服务地址 |
 | `api_timeout` | API 超时，默认 30s |
-| `high_quality` | 是否请求最高音质（`br=999000`） |
+| `high_quality` | 默认请求最高可用音质（FLAC > 320k > 192k），关闭则固定 320kbps MP3 |
+| `quality_switch` | 是否启用「回复换音质」，默认开 |
+| `auto_parse_groups` | 群白名单（`enable` + `groups`），名单内发链接即自动解析 |
+| `card_hint.enabled` / `card_hint.cooldown_seconds` | 非白名单群引导提示开关与同群冷却秒数 |
 | `cookie` | 网易云登录 Cookie（VIP 歌曲完整播放） |
 | `real_ip` | 国内 IP（海外服务器绕过地区限制） |
-| `max_file_mb` | 单文件大小上限，默认 50 MB |
+| `max_file_mb` | 单文件大小上限，默认 200 MB |
 
 ---
 
