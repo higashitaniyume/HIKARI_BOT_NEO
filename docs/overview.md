@@ -82,6 +82,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | 空 @ 表情回应 | 群聊只 @机器人 | [plugins.md](plugins.md#空--表情回应) |
 | 戳一戳回戳 | 自动 | [plugins.md](plugins.md#戳一戳回戳) |
 | 媒体转码 | 自动（贴纸转换） | [plugins.md](plugins.md#媒体转码) |
+| 动图/视频互转 | 引用媒体后回复 `转mp4` / `转gif` | [plugins.md](plugins.md#动图视频互转) |
 | JMComic PDF | `jm <id>` | [plugins.md](plugins.md#jmcomic-pdf-下载) |
 | 好友管理 | 自动 | [plugins.md](plugins.md#好友管理) |
 | 帮助信息 | `帮助` | [plugins.md](plugins.md#帮助与关于) |

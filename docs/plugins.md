@@ -938,6 +938,48 @@ async def build_message(ctx: PushContext):
 
 ---
 
+## 动图/视频互转
+
+**配置文件：** `BotData/plugin_configs/media_convert.json`
+
+通过「引用媒体消息 + 回复命令」把动图和视频互转，私聊、群聊均可用，群聊无需 @机器人。不支持同消息直接带图；非引用方式回复用法提示。
+
+**指令：**
+
+| 命令 | 引用的媒体 | 行为 |
+|------|-----------|------|
+| `转mp4` | 动图（GIF / 动态WebP / APNG 等 PIL 判定为动画的格式） | ffmpeg 转 MP4 发回 |
+| `转gif` | 视频（MP4 等，≤30MB） | 转 GIF（调色板优化）发回 |
+
+**边界行为：**
+
+| 情况 | 回复 |
+|------|------|
+| 未引用 / 引用的消息没有媒体 | 用法提示 |
+| `转mp4` 引用静态图片 | 提示静态图片转换不了 |
+| `转mp4` 引用视频 | 提示改用 `转gif` |
+| `转gif` 引用动图 | 提示已经是动图，不用转 |
+| `转gif` 视频超过大小上限 | 提示视频超过 {max_mb}MB |
+| 媒体文件拿不到（无 url 且本地文件不存在） | 提示重新发送媒体后再试 |
+| 下载/转码异常 | 日志留详情，回复通用失败提示 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 插件总开关 |
+| `max_video_mb` | 视频 → GIF 方向的输入大小上限（MB） |
+| `max_image_mb` | 动图 → MP4 方向的下载大小上限（MB） |
+| `download_timeout_seconds` | 媒体下载超时秒数 |
+| `ffmpeg_timeout_seconds` | 动图 → MP4 的 ffmpeg 超时秒数（视频 → GIF 复用媒体转码服务，内部固定 180s） |
+| `output_ttl_seconds` | 输出文件保留时间，超时自动清理 |
+| `gif_fps` | 视频 → GIF 帧率 |
+| `gif_width` | GIF 宽度（0 = 保持原宽） |
+| `gif_max_colors` | GIF 调色板颜色数 |
+| `temp_root` | 转换临时目录（需与 NapCat 容器共享，默认 `/tmp/hikari_bot/media_convert`） |
+
+---
+
 ## JMComic PDF 下载
 
 **配置文件：** `BotData/plugin_configs/jmcomic_api.json` + `BotData/jmcomic/option.yml`
