@@ -11,7 +11,7 @@ from PIL import Image
 
 import plugins.media_convert as plugin
 from core import bot_messages
-from core.command_router import iter_commands
+from core.command_router import _match_command, iter_commands
 
 
 def _default_message(key: str, **kwargs) -> str:
@@ -100,6 +100,36 @@ class MediaConvertRegistrationTests(unittest.TestCase):
             self.assertFalse(spec.group_only)
             self.assertEqual(spec.category, "媒体")
             self.assertEqual(spec.detail_key, "media_convert.help")
+
+    def test_natural_language_aliases_registered(self) -> None:
+        specs = {spec.name: spec for spec in iter_commands()}
+
+        self.assertEqual(specs["转mp4"].aliases, ("转MP4", "转视频"))
+        self.assertEqual(specs["转gif"].aliases, ("转GIF", "转动图", "转贴纸"))
+
+    def test_aliases_route_to_expected_command(self) -> None:
+        expected = {
+            "转mp4": "转mp4",
+            "转MP4": "转mp4",
+            "转视频": "转mp4",
+            "转gif": "转gif",
+            "转GIF": "转gif",
+            "转动图": "转gif",
+            "转贴纸": "转gif",
+        }
+        for text, command_name in expected.items():
+            with self.subTest(text=text):
+                matched = _match_command(text)
+                self.assertIsNotNone(matched, f"{text} 未命中任何命令")
+                spec, matched_name, args = matched
+                self.assertEqual(spec.name, command_name)
+                self.assertEqual(matched_name.casefold(), text.casefold())
+                self.assertEqual(args, "")
+
+    def test_usage_message_lists_all_aliases(self) -> None:
+        usage = _default_message("media_convert.usage")
+        for keyword in ("转mp4", "转视频", "转gif", "转动图", "转贴纸"):
+            self.assertIn(keyword, usage)
 
 
 class IsAnimatedImageTests(unittest.IsolatedAsyncioTestCase):

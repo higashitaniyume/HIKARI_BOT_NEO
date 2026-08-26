@@ -1,4 +1,4 @@
-"""动图 ⇄ MP4 互转：引用媒体消息后回复「转mp4」/「转gif」触发。"""
+"""动图 ⇄ MP4 互转：引用媒体消息后回复「转mp4/转视频」「转gif/转动图/转贴纸」触发。"""
 
 from __future__ import annotations
 
@@ -56,11 +56,13 @@ class ResolvedMedia:
     owned: bool
 
 
+# 「贴纸」在本项目里等价于 GIF（见 media_transcoder：进入本地贴纸包必须是 GIF），
+# 所以「转贴纸」和「转动图」都指向视频 → GIF 方向。
 @command(
     "转mp4",
-    aliases=("转MP4",),
+    aliases=("转MP4", "转视频"),
     description="把引用的动图转换为 MP4",
-    usage="引用动图消息后回复 转mp4",
+    usage="引用动图消息后回复 转mp4 / 转视频",
     detail_key="media_convert.help",
     category="媒体",
 )
@@ -70,9 +72,9 @@ async def cmd_to_mp4(ctx: CommandContext) -> None:
 
 @command(
     "转gif",
-    aliases=("转GIF",),
+    aliases=("转GIF", "转动图", "转贴纸"),
     description="把引用的视频转换为 GIF",
-    usage="引用视频消息后回复 转gif",
+    usage="引用视频消息后回复 转gif / 转动图 / 转贴纸",
     detail_key="media_convert.help",
     category="媒体",
 )
@@ -83,7 +85,10 @@ async def cmd_to_gif(ctx: CommandContext) -> None:
 async def _handle_convert(ctx: CommandContext, *, to_gif: bool) -> None:
     cfg = get_config()
     if not cfg.get("enabled", True):
-        logger.info("[MediaConvert] 插件已关闭，忽略 %s 命令", "转gif" if to_gif else "转mp4")
+        logger.info(
+            "[MediaConvert] 插件已关闭，忽略 %s 命令",
+            getattr(ctx, "matched", "") or ("转gif" if to_gif else "转mp4"),
+        )
         return
 
     try:

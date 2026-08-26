@@ -195,10 +195,10 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "bilibili_cookie_assist_manual_started": "已向超级管理员私发 B站登录二维码。",
     },
     "media_convert": {
-        "help": "转mp4：引用一条动图（GIF/动态WebP/APNG）消息后回复「转mp4」，转换成 MP4 发送。\n转gif：引用一条不超过 30MB 的视频消息后回复「转gif」，转换成 GIF 发送。\n私聊群聊均可用；必须先引用媒体消息再回复命令，不支持同消息直接带图。",
-        "usage": "用法：先引用一条动图或视频消息，再回复「转mp4」或「转gif」。",
+        "help": "转mp4（也可说「转视频」）：引用一条动图（GIF/动态WebP/APNG）消息后回复，转换成 MP4 发送。\n转gif（也可说「转动图」「转贴纸」）：引用一条不超过 30MB 的视频消息后回复，转换成 GIF 发送。\n私聊群聊均可用；必须先引用媒体消息再回复命令，不支持同消息直接带图。",
+        "usage": "用法：先引用一条动图或视频消息，再回复「转mp4」/「转视频」或「转gif」/「转动图」/「转贴纸」。",
         "not_animated": "这是一张静态图片，转换不了哦。",
-        "use_convert_gif": "引用的是视频哦，想转成 GIF 请回复「转gif」。",
+        "use_convert_gif": "引用的是视频哦，想转成 GIF 请回复「转gif」（或「转动图」「转贴纸」）。",
         "already_gif": "这已经是动图了，不用转。",
         "video_too_large": "视频超过 {max_mb}MB，转换不了。",
         "media_unavailable": "拿不到这条消息的媒体文件了，请重新发送媒体后再回复命令试试。",
