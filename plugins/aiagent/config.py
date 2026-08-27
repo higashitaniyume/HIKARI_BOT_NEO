@@ -102,6 +102,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "b23.tv",
             "xiaohongshu.com",
             "xhslink.com",
+            "xhslink.cn",
             "xiaoheihe.cn",
             "heybox.cn",
             "twitter.com",

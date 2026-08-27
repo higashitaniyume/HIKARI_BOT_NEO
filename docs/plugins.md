@@ -35,6 +35,8 @@
 
 **支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X（各平台短链均可识别，如 `b23.tv`、`v.douyin.com`、`xhslink.com` / `xhslink.cn`、`vm.tiktok.com`）
 
+**QQ 分享卡片：** 直接分享成 QQ 小程序 / 新闻 / 音乐卡片（json / xml 消息段）时，会从卡片元数据里取回真实链接再解析——除 `meta.detail_1.qqdocurl`、`meta.news.jumpUrl` 外，也会扫描 `detail_1.url` 等其他字段，并还原 `\/` 与 HTML 转义；只有命中受支持平台域名的链接才会进入解析。
+
 > YouTube 由独立的 `youtube_downloader` 插件处理；上游 v6.4.0 起自带的 Pixiv 解析在 vendored 副本中已剔除，Pixiv 链接继续由独立的 `pixiv_parser` 插件处理，避免重复解析。
 
 **关键配置：**

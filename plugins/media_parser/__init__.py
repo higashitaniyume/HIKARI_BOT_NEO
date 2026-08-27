@@ -27,32 +27,12 @@ from .prepare import (
     _prepare_text,
     _should_retry_prepare_result,
     is_platform_allowed,
+    text_has_supported_link,
 )
 
 logger = logging.getLogger("HikariBot.MediaParser")
 
 get_config()
-
-SUPPORTED_LINK_MARKERS = (
-    "bilibili.com",
-    "b23.tv",
-    "douyin.com",
-    "iesdouyin.com",
-    "tiktok.com",
-    "kuaishou.com",
-    "gifshow.com",
-    "chenzhongtech.com",
-    "weibo.com",
-    "weibo.cn",
-    "xiaohongshu.com",
-    "xhslink.com",
-    "goofish.com",
-    "m.tb.cn",
-    "toutiao.com",
-    "xiaoheihe.cn",
-    "twitter.com",
-    "x.com",
-)
 
 
 class BilibiliCookieAssistReplyHandler:
@@ -76,8 +56,7 @@ class AutoMediaParserHandler:
         if bilibili_cookie_assist.should_handle_reply(event):
             return False
         parse_text = _event_text(event)
-        lowered = parse_text.casefold()
-        if not any(marker in lowered for marker in SUPPORTED_LINK_MARKERS):
+        if not text_has_supported_link(parse_text):
             return False
         runtime = _get_runtime()
         if runtime is None:

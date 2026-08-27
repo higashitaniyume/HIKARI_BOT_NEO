@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, Message
 
@@ -60,6 +63,55 @@ def _normalize_url_key(url: str) -> str:
     return html.unescape(url).strip()
 
 
+# 受支持平台的域名标记（含各平台短链域名）。
+# handler 触发粗筛与 QQ 卡片链接过滤共用这一份，避免两处各写一份导致漏配（例如 xhslink.cn）。
+SUPPORTED_LINK_MARKERS = (
+    "bilibili.com",
+    "b23.tv",
+    "douyin.com",
+    "iesdouyin.com",
+    "tiktok.com",
+    "kuaishou.com",
+    "gifshow.com",
+    "chenzhongtech.com",
+    "weibo.com",
+    "weibo.cn",
+    "xiaohongshu.com",
+    "xhslink.com",
+    "xhslink.cn",
+    "goofish.com",
+    "m.tb.cn",
+    "toutiao.com",
+    "xiaoheihe.cn",
+    "twitter.com",
+    "x.com",
+)
+
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s\"'<>\\]+", re.IGNORECASE)
+_URL_TRAILING_CHARS = ".,;:!?、，。！？；）】》”’>"
+_CARD_SCAN_MAX_DEPTH = 6
+
+
+def text_has_supported_link(text: str) -> bool:
+    """粗筛：文本里是否出现受支持平台的域名标记（转义后的卡片文本也能命中）。"""
+    lowered = html.unescape(text or "").casefold()
+    return any(marker in lowered for marker in SUPPORTED_LINK_MARKERS)
+
+
+def is_supported_platform_url(url: str) -> bool:
+    """按主机名判断 URL 是否属于受支持平台（含子域名）。"""
+    try:
+        host = (urlparse(_normalize_url_key(url)).hostname or "").lower().rstrip(".")
+    except (TypeError, ValueError):
+        return False
+    if not host:
+        return False
+    return any(
+        host == marker or host.endswith(f".{marker}")
+        for marker in SUPPORTED_LINK_MARKERS
+    )
+
+
 def dedupe_links(links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
     """按归一化 URL 去重（保留首个出现的链接），避免同一链接的转义/未转义形态被重复解析。"""
     seen: set[str] = set()
@@ -87,6 +139,8 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
     for segment in event.get_message():
+        if getattr(segment, "type", "") == "text":
+            continue
         data = getattr(segment, "data", None)
         if data is None:
             continue
@@ -95,20 +149,74 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
             if candidate and key not in seen:
                 seen.add(key)
                 urls.append(candidate)
+    if urls:
+        logger.debug(
+            "[MediaParser] 从 QQ 卡片提取到 %d 个平台链接: %s",
+            len(urls),
+            [url[:80] for url in urls],
+        )
     return urls
 
 
 def _card_url_candidates(data: Any) -> list[str]:
+    """从单个消息段的 data 中提取受支持平台的链接。
+
+    QQ 卡片的 data 形态不一：已解析 dict、`{"data": "{...json...}"}` 嵌套、纯 JSON/XML 字符串。
+    vendored 提取器只认 `meta.detail_1.qqdocurl` 与 `meta.news.jumpUrl`，
+    而小红书等小程序卡片的跳转地址可能落在 `detail_1.url`、`music.jumpUrl` 等字段上，
+    因此在优先字段之后再对整张卡片做一次平台域名扫描兜底。
+    """
     candidates: list[str] = []
-    card_url = extract_url_from_card_data(data)
-    if card_url:
-        candidates.append(card_url)
+
+    def add(url: Any) -> None:
+        if not isinstance(url, str):
+            return
+        cleaned = _normalize_url_key(url).rstrip(_URL_TRAILING_CHARS)
+        if cleaned and is_supported_platform_url(cleaned):
+            candidates.append(cleaned)
+
+    add(extract_url_from_card_data(data))
     if isinstance(data, dict):
         for value in data.values():
-            card_url = extract_url_from_card_data(value)
-            if card_url:
-                candidates.append(card_url)
+            add(extract_url_from_card_data(value))
+
+    for url in _scan_card_urls(data):
+        add(url)
+
     return candidates
+
+
+def _scan_card_urls(value: Any, depth: int = 0) -> list[str]:
+    """递归扫描卡片结构中的所有 http(s) 链接（含嵌套 JSON 字符串与 `\\/` 转义）。"""
+    if depth > _CARD_SCAN_MAX_DEPTH:
+        return []
+
+    found: list[str] = []
+    if isinstance(value, str):
+        text = html.unescape(value).replace("\\/", "/")
+        found.extend(match.group(0) for match in _URL_IN_TEXT_RE.finditer(text))
+        nested = _loads_json_container(value)
+        if nested is not None:
+            found.extend(_scan_card_urls(nested, depth + 1))
+    elif isinstance(value, dict):
+        for item in value.values():
+            found.extend(_scan_card_urls(item, depth + 1))
+    elif isinstance(value, list):
+        for item in value:
+            found.extend(_scan_card_urls(item, depth + 1))
+    return found
+
+
+def _loads_json_container(raw: str) -> Any:
+    """把卡片里嵌套的 JSON 字符串解析成 dict/list，失败时返回 None。"""
+    text = raw.strip()
+    if not text.startswith(("{", "[")):
+        return None
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
 
 
 def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
