@@ -10,6 +10,7 @@ import aiohttp
 
 from plugins.media_parser.cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
 from plugins.media_parser.config import get_config as get_media_parser_config
+from plugins.media_parser.prepare import dedupe_links
 from plugins.media_parser.runtime import create_media_session, create_runtime
 
 from .registry import register_file, register_remote
@@ -45,7 +46,8 @@ async def _parse_aggregated_links(
         logger.warning("[MediaDetailWeb] media parser runtime unavailable: %s", e)
         return []
 
-    links = budget.take(runtime.parser_manager.extract_all_links(text))
+    # 去重同时还原 `&amp;` 等转义，否则带签名参数的地址（小红书 xsec_token）会请求失败。
+    links = budget.take(dedupe_links(runtime.parser_manager.extract_all_links(text)))
     if not links:
         return []
 

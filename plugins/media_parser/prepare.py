@@ -58,9 +58,14 @@ def is_platform_allowed(platform: str, event: MessageEvent) -> bool:
     return is_event_allowed(mock_config, event)
 
 
-def _normalize_url_key(url: str) -> str:
-    """归一化 URL 用于去重：QQ 卡片经 CQ 码序列化后 `&` 会变成 `&amp;`，二者是同一链接。"""
-    return html.unescape(url).strip()
+def normalize_link_url(url: str) -> str:
+    """还原链接里的转义：CQ 码序列化会把 `&` 写成 `&amp;`、`,` 写成 `&#44;`。
+
+    这既用于去重（转义/未转义是同一链接），也必须在真正发起解析前生效：
+    带 `&amp;` 的地址请求出去后，`xsec_token` 会被当成 `amp;xsec_token`，
+    小红书这类依赖签名参数的平台会直接报"无法获取作品信息"。
+    """
+    return html.unescape(url or "").strip()
 
 
 # 受支持平台的域名标记（含各平台短链域名）。
@@ -101,7 +106,7 @@ def text_has_supported_link(text: str) -> bool:
 def is_supported_platform_url(url: str) -> bool:
     """按主机名判断 URL 是否属于受支持平台（含子域名）。"""
     try:
-        host = (urlparse(_normalize_url_key(url)).hostname or "").lower().rstrip(".")
+        host = (urlparse(normalize_link_url(url)).hostname or "").lower().rstrip(".")
     except (TypeError, ValueError):
         return False
     if not host:
@@ -113,15 +118,19 @@ def is_supported_platform_url(url: str) -> bool:
 
 
 def dedupe_links(links: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
-    """按归一化 URL 去重（保留首个出现的链接），避免同一链接的转义/未转义形态被重复解析。"""
+    """去重并归一化链接：同一链接的转义/未转义形态只保留一条，且统一输出未转义地址。
+
+    归一化后的地址会直接进入解析队列，因此这里必须返回 `normalize_link_url` 的结果，
+    否则 QQ 卡片/CQ 码文本里的 `&amp;` 会被原样请求出去。
+    """
     seen: set[str] = set()
     result: list[tuple[str, Any]] = []
     for url, parser in links:
-        key = _normalize_url_key(url)
-        if key in seen:
+        normalized = normalize_link_url(url)
+        if not normalized or normalized in seen:
             continue
-        seen.add(key)
-        result.append((url, parser))
+        seen.add(normalized)
+        result.append((normalized, parser))
     return result
 
 
@@ -145,7 +154,7 @@ def _extract_card_urls(event: MessageEvent) -> list[str]:
         if data is None:
             continue
         for candidate in _card_url_candidates(data):
-            key = _normalize_url_key(candidate)
+            key = normalize_link_url(candidate)
             if candidate and key not in seen:
                 seen.add(key)
                 urls.append(candidate)
@@ -171,7 +180,7 @@ def _card_url_candidates(data: Any) -> list[str]:
     def add(url: Any) -> None:
         if not isinstance(url, str):
             return
-        cleaned = _normalize_url_key(url).rstrip(_URL_TRAILING_CHARS)
+        cleaned = normalize_link_url(url).rstrip(_URL_TRAILING_CHARS)
         if cleaned and is_supported_platform_url(cleaned):
             candidates.append(cleaned)
 
