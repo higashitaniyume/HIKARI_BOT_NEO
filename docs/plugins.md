@@ -51,6 +51,8 @@
 | `parse_queue.max_concurrent` | 同时解析的最大链接数 |
 | `max_send` | 单条链接最多发送多少媒体，默认 80 |
 | `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` |
+| `message.text_metadata.show_url` | 是否在解析结果里附上"原始链接：…"，默认 `true` |
+| `message.text_metadata.max_desc_chars` | 简介/正文最多显示多少字符，默认 600 |
 | `permissions` | QQ/群黑白名单 |
 | `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890`（TikTok / 小黑盒视频 / Twitter 等分平台开关在 `proxy` 下） |
 | `bilibili_enhanced.cookie` | B站 Cookie（高画质和受限内容） |

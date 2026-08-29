@@ -41,6 +41,7 @@ def build_metadata_text(
     *,
     max_desc_chars: int,
     simplified_platforms: list[str] | None = None,
+    show_url: bool = True,
 ) -> str:
     """Build a compact text summary for one parsed link."""
     if metadata.get("error"):
@@ -96,7 +97,7 @@ def build_metadata_text(
         lines.append(msg("media_parser.info_skip", reason=_truncate("; ".join(map(str, skip_reasons)), 180)))
 
     source_url = metadata.get("source_url") or metadata.get("url") or ""
-    if source_url:
+    if show_url and source_url:
         lines.append(msg("media_parser.info_url", url=_truncate(str(source_url), 160)))
 
     desc = metadata.get("desc")
@@ -167,13 +168,19 @@ async def send_metadata_result(
     send_strategy = config.get("send_strategy") or {}
     max_send = max(1, int(config.get("max_send", 8)))
     max_desc_chars = max(0, int(text_cfg.get("max_desc_chars", 600)))
+    show_url = bool(text_cfg.get("show_url", True))
     simplified_platforms = message_cfg.get("simplified_output") or []
 
     text_enabled = bool(metadata.get("_enable_text_metadata", True))
     rich_enabled = bool(metadata.get("_enable_rich_media", True))
 
     text = (
-        build_metadata_text(metadata, max_desc_chars=max_desc_chars, simplified_platforms=simplified_platforms)
+        build_metadata_text(
+            metadata,
+            max_desc_chars=max_desc_chars,
+            simplified_platforms=simplified_platforms,
+            show_url=show_url,
+        )
         if text_enabled else
         ""
     )
