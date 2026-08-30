@@ -143,6 +143,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "category_default": "其他",
         "category_media_platforms": "Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Instagram / Facebook / YouTube / 网易云",
     },
+    "contact_card": {
+        "usage": "用法：名片 QQ号",
+        "not_numeric": "QQ号必须是纯数字。",
+        "bad_length": "QQ号位数不正确，请检查后重试。",
+        "send_failed": "名片发送失败，请检查 NapCat 是否正常连接。",
+        "help": "名片 QQ号：发送该 QQ 的原生个人名片，点击可直接打开对方资料页。\n例：名片 123456789\n群聊里发到当前群，私聊里发给你自己；QQ号只能是纯数字。",
+    },
     "profile_like": {
         "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。",
     },

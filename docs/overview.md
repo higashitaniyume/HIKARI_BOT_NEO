@@ -79,6 +79,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | 杀戮尖塔 2 Wiki | `塔2wiki <关键词>` / `sts2 <关键词>` | [plugins.md](plugins.md#杀戮尖塔-2-wiki) |
 | osu! 信息查询 | `osu` 系列命令 | [plugins.md](plugins.md#osu-信息查询) |
 | QQ 资料卡点赞 | `点赞` | [plugins.md](plugins.md#qq-资料卡点赞) |
+| QQ 个人名片 | `名片 QQ号` | [plugins.md](plugins.md#qq-个人名片) |
 | 空 @ 表情回应 | 群聊只 @机器人 | [plugins.md](plugins.md#空--表情回应) |
 | 戳一戳回戳 | 自动 | [plugins.md](plugins.md#戳一戳回戳) |
 | 媒体转码 | 自动（贴纸转换） | [plugins.md](plugins.md#媒体转码) |

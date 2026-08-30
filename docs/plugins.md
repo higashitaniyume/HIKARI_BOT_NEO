@@ -886,6 +886,40 @@ async def build_message(ctx: PushContext):
 
 ---
 
+## QQ 个人名片
+
+**配置文件：** `BotData/plugin_configs/contact_card.json`
+
+发送 OneBot V11 的 `contact` 消息段（`{"type": "contact", "data": {"type": "qq", "id": "<QQ号>"}}`），由 NapCat 渲染成 QQ 客户端里的原生联系人卡片，点击可直接打开对方资料页。不是链接、图片或 Ark 卡片模拟。
+
+发送目标按事件自动判定：群聊发到当前群，私聊发给触发者。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `名片 QQ号` | 发送该 QQ 的原生个人名片 |
+| `个人名片 QQ号` / `qq名片 QQ号` / `card QQ号` | 同上 |
+
+**提示文案：**
+
+| 情况 | 回复 |
+|------|------|
+| 没有参数 | `用法：名片 QQ号` |
+| 参数含非数字 | `QQ号必须是纯数字。` |
+| 位数超出范围 | `QQ号位数不正确，请检查后重试。` |
+| NapCat 拒绝或连接异常 | `名片发送失败，请检查 NapCat 是否正常连接。`（完整 traceback 只记日志） |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `min_digits` | QQ 号最少位数，默认 5 |
+| `max_digits` | QQ 号最多位数，默认 11 |
+
+---
+
 ## 空 @ 表情回应
 
 **配置文件：** `BotData/plugin_configs/mention_reaction.json`
