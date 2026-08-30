@@ -43,7 +43,8 @@
     },
     "text_metadata": {
       "quote_user_message": false,
-      "max_desc_chars": 600
+      "max_desc_chars": 600,
+      "show_url": true
     },
     "simplified_output": [],
     "opening": {

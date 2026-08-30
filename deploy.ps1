@@ -157,8 +157,8 @@ if ($Local) {
     Write-VersionFile
 
     Write-Host "从当前源码目录启动本机 hikaribot（不构建镜像）..." -ForegroundColor Yellow
-    docker compose -f $LocalCompose up -d --no-deps hikari-ai hikaribot
-    docker compose -f $LocalCompose restart hikaribot hikari-ai
+    docker compose -f $LocalCompose up -d --no-deps hikaribot
+    docker compose -f $LocalCompose restart hikaribot
 
     Write-Host "本地 hikaribot 已启动。" -ForegroundColor Green
     Write-Host "日志: docker compose -f `"$LocalCompose`" logs -f hikaribot" -ForegroundColor Gray
@@ -211,20 +211,6 @@ try {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# 同步 HIKARI_AI 的 config.json（gitignored 不会出现在主封包中）
-$localAiConfig = Join-Path $ProjectRoot "Officials\HIKARI_AI\config.json"
-if (Test-Path $localAiConfig) {
-    Write-Host "同步 HIKARI_AI 配置文件..." -ForegroundColor Yellow
-    $remoteAiConfigDir = "$DeployPath/app/Officials/HIKARI_AI/config.json"
-    scp -- $localAiConfig "${ServerUser}@${ServerIP}:$remoteAiConfigDir"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "⚠️  HIKARI_AI 配置文件同步失败，请手动上传。" -ForegroundColor Red
-    }
-} else {
-    Write-Host "⚠️  未找到 Officials/HIKARI_AI/config.json，请先创建。" -ForegroundColor Yellow
-    Write-Host "   参考: cp Officials/HIKARI_AI/config.example.json Officials/HIKARI_AI/config.json" -ForegroundColor Gray
-}
-
 $quotedSearxngSettingsPath = Quote-RemoteSingle "$DeployPath/searxng/core-config/settings.yml"
 $quotedSearxngTemplatePath = Quote-RemoteSingle "$DeployPath/app/deploy/searxng/core-config/settings.yml"
 Run-Remote "if [ ! -f $quotedSearxngSettingsPath ]; then cp $quotedSearxngTemplatePath $quotedSearxngSettingsPath && secret=`$(openssl rand -hex 32 2>/dev/null || date +%s) && sed -i `"s/__SEARXNG_SECRET__/`$secret/g`" $quotedSearxngSettingsPath; fi"
@@ -242,11 +228,11 @@ Run-Remote "cd $quotedDeployPath && docker compose config -q"
 Write-Host "启动并重启 hikaribot（无需构建项目镜像）..." -ForegroundColor Yellow
 if ($AllServices) {
     # 全栈部署：新服务器首次部署或需要重建全部服务时使用（会拉取 napcat/astrbot/cobalt/searxng 等镜像）
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot hikari-ai"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --remove-orphans && docker compose restart hikaribot"
 } else {
     # 默认只管理机器人本体（与 -l 本地模式一致），不会拉取 napcat 等镜像；
     # --no-deps 阻止 depends_on 链（napcat/cobalt/searxng）被自动拉起；已运行的服务不受影响
-    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikari-ai hikaribot --remove-orphans && docker compose restart hikaribot hikari-ai"
+    Run-Remote "cd $quotedDeployPath && docker compose up -d --no-deps hikaribot --remove-orphans && docker compose restart hikaribot"
 }
 
 Write-Host ""

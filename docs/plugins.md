@@ -35,6 +35,8 @@
 
 **支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X（各平台短链均可识别，如 `b23.tv`、`v.douyin.com`、`xhslink.com` / `xhslink.cn`、`vm.tiktok.com`）
 
+**QQ 分享卡片：** 直接分享成 QQ 小程序 / 新闻 / 音乐卡片（json / xml 消息段）时，会从卡片元数据里取回真实链接再解析——除 `meta.detail_1.qqdocurl`、`meta.news.jumpUrl` 外，也会扫描 `detail_1.url` 等其他字段，并还原 `\/` 与 HTML 转义；只有命中受支持平台域名的链接才会进入解析。
+
 > YouTube 由独立的 `youtube_downloader` 插件处理；上游 v6.4.0 起自带的 Pixiv 解析在 vendored 副本中已剔除，Pixiv 链接继续由独立的 `pixiv_parser` 插件处理，避免重复解析。
 
 **关键配置：**
@@ -49,6 +51,8 @@
 | `parse_queue.max_concurrent` | 同时解析的最大链接数 |
 | `max_send` | 单条链接最多发送多少媒体，默认 80 |
 | `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` |
+| `message.text_metadata.show_url` | 是否在解析结果里附上"原始链接：…"，默认 `true` |
+| `message.text_metadata.max_desc_chars` | 简介/正文最多显示多少字符，默认 600 |
 | `permissions` | QQ/群黑白名单 |
 | `proxy.address` | 代理地址，例如 `http://127.0.0.1:7890`（TikTok / 小黑盒视频 / Twitter 等分平台开关在 `proxy` 下） |
 | `bilibili_enhanced.cookie` | B站 Cookie（高画质和受限内容） |
@@ -882,6 +886,40 @@ async def build_message(ctx: PushContext):
 
 ---
 
+## QQ 个人名片
+
+**配置文件：** `BotData/plugin_configs/contact_card.json`
+
+发送 OneBot V11 的 `contact` 消息段（`{"type": "contact", "data": {"type": "qq", "id": "<QQ号>"}}`），由 NapCat 渲染成 QQ 客户端里的原生联系人卡片，点击可直接打开对方资料页。不是链接、图片或 Ark 卡片模拟。
+
+发送目标按事件自动判定：群聊发到当前群，私聊发给触发者。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `名片 QQ号` | 发送该 QQ 的原生个人名片 |
+| `个人名片 QQ号` / `qq名片 QQ号` / `card QQ号` | 同上 |
+
+**提示文案：**
+
+| 情况 | 回复 |
+|------|------|
+| 没有参数 | `用法：名片 QQ号` |
+| 参数含非数字 | `QQ号必须是纯数字。` |
+| 位数超出范围 | `QQ号位数不正确，请检查后重试。` |
+| NapCat 拒绝或连接异常 | `名片发送失败，请检查 NapCat 是否正常连接。`（完整 traceback 只记日志） |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `min_digits` | QQ 号最少位数，默认 5 |
+| `max_digits` | QQ 号最多位数，默认 11 |
+
+---
+
 ## 空 @ 表情回应
 
 **配置文件：** `BotData/plugin_configs/mention_reaction.json`
@@ -935,6 +973,50 @@ async def build_message(ctx: PushContext):
 | `sticker_gif_dither` | 抖动算法 |
 | `sticker_ffmpeg_concurrency` | 同时转码数量 |
 | `tgs_converter_cmd` | TGS 转 GIF 外部命令 |
+
+---
+
+## 动图/视频互转
+
+**配置文件：** `BotData/plugin_configs/media_convert.json`
+
+通过「引用媒体消息 + 回复命令」把动图和视频互转，私聊、群聊均可用，群聊无需 @机器人。不支持同消息直接带图；非引用方式回复用法提示。
+
+**指令：**
+
+| 命令 | 别名 | 引用的媒体 | 行为 |
+|------|------|-----------|------|
+| `转mp4` | `转MP4`、`转视频` | 动图（GIF / 动态WebP / APNG 等 PIL 判定为动画的格式） | ffmpeg 转 MP4 发回 |
+| `转gif` | `转GIF`、`转动图`、`转贴纸` | 视频（MP4 等，≤30MB） | 转 GIF（调色板优化）发回 |
+
+别名与主命令行为完全一致，只是换个说法。「转贴纸」归到 GIF 方向，因为本项目的贴纸包一律以 GIF 存储（见[媒体转码](#媒体转码)）。
+
+**边界行为：**
+
+| 情况 | 回复 |
+|------|------|
+| 未引用 / 引用的消息没有媒体 | 用法提示 |
+| `转mp4` 引用静态图片 | 提示静态图片转换不了 |
+| `转mp4` 引用视频 | 提示改用 `转gif` |
+| `转gif` 引用动图 | 提示已经是动图，不用转 |
+| `转gif` 视频超过大小上限 | 提示视频超过 {max_mb}MB |
+| 媒体文件拿不到（无 url 且本地文件不存在） | 提示重新发送媒体后再试 |
+| 下载/转码异常 | 日志留详情，回复通用失败提示 |
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 插件总开关 |
+| `max_video_mb` | 视频 → GIF 方向的输入大小上限（MB） |
+| `max_image_mb` | 动图 → MP4 方向的下载大小上限（MB） |
+| `download_timeout_seconds` | 媒体下载超时秒数 |
+| `ffmpeg_timeout_seconds` | 动图 → MP4 的 ffmpeg 超时秒数（视频 → GIF 复用媒体转码服务，内部固定 180s） |
+| `output_ttl_seconds` | 输出文件保留时间，超时自动清理 |
+| `gif_fps` | 视频 → GIF 帧率 |
+| `gif_width` | GIF 宽度（0 = 保持原宽） |
+| `gif_max_colors` | GIF 调色板颜色数 |
+| `temp_root` | 转换临时目录（需与 NapCat 容器共享，默认 `/tmp/hikari_bot/media_convert`） |
 
 ---
 

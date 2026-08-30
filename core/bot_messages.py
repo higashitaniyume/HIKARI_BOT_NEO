@@ -143,6 +143,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "category_default": "其他",
         "category_media_platforms": "Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Instagram / Facebook / YouTube / 网易云",
     },
+    "contact_card": {
+        "usage": "用法：名片 QQ号",
+        "not_numeric": "QQ号必须是纯数字。",
+        "bad_length": "QQ号位数不正确，请检查后重试。",
+        "send_failed": "名片发送失败，请检查 NapCat 是否正常连接。",
+        "help": "名片 QQ号：发送该 QQ 的原生个人名片，点击可直接打开对方资料页。\n例：名片 123456789\n群聊里发到当前群，私聊里发给你自己；QQ号只能是纯数字。",
+    },
     "profile_like": {
         "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。",
     },
@@ -193,6 +200,16 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "bilibili_cookie_assist_permission_denied": "只有超级管理员可以发起 B站 Cookie 登录。",
         "bilibili_cookie_assist_manual_unavailable": "B站 Cookie 登录未启用。请确认聚合媒体解析已启用、B站解析器未关闭，并开启 bilibili_enhanced.use_cookie。",
         "bilibili_cookie_assist_manual_started": "已向超级管理员私发 B站登录二维码。",
+    },
+    "media_convert": {
+        "help": "转mp4（也可说「转视频」）：引用一条动图（GIF/动态WebP/APNG）消息后回复，转换成 MP4 发送。\n转gif（也可说「转动图」「转贴纸」）：引用一条不超过 30MB 的视频消息后回复，转换成 GIF 发送。\n私聊群聊均可用；必须先引用媒体消息再回复命令，不支持同消息直接带图。",
+        "usage": "用法：先引用一条动图或视频消息，再回复「转mp4」/「转视频」或「转gif」/「转动图」/「转贴纸」。",
+        "not_animated": "这是一张静态图片，转换不了哦。",
+        "use_convert_gif": "引用的是视频哦，想转成 GIF 请回复「转gif」（或「转动图」「转贴纸」）。",
+        "already_gif": "这已经是动图了，不用转。",
+        "video_too_large": "视频超过 {max_mb}MB，转换不了。",
+        "media_unavailable": "拿不到这条消息的媒体文件了，请重新发送媒体后再回复命令试试。",
+        "failed": "转换失败了，请稍后再试。",
     },
     "stardew_wiki": {
         "result": "标题：{title}\n简介：{summary}\nURL：{url}",

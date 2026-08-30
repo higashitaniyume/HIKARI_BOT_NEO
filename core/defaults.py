@@ -180,6 +180,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "text_metadata": {
             "quote_user_message": False,
             "max_desc_chars": 600,
+            "show_url": True,
         },
         "simplified_output": [],
         "opening": {

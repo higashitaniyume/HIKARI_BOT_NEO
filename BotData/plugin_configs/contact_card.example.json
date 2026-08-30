@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "min_digits": 5,
+  "max_digits": 11
+}

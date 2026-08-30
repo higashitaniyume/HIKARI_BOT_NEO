@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "max_video_mb": 30,
+  "max_image_mb": 50,
+  "download_timeout_seconds": 60,
+  "ffmpeg_timeout_seconds": 300,
+  "output_ttl_seconds": 600,
+  "gif_fps": 15,
+  "gif_width": 0,
+  "gif_max_colors": 256,
+  "temp_root": "/tmp/hikari_bot/media_convert"
+}
