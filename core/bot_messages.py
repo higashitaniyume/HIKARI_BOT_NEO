@@ -410,6 +410,10 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "risk_group_notice": "检测到违规内容，已撤回该消息。",
         "risk_superuser_notify": "群风控命中\n群号：{group_id}\n发送者：{user_id}\n处理结果：{result}\n判定理由：{reason}\n消息内容：{text}",
     },
+    "self_review": {
+        "risk_chat_notice": "这条回复被出站自审查拦下了，换个问法试试。",
+        "risk_superuser_notify": "出站自审查拦截\n接口：{api}\n目标：{target}\n判定理由：{reason}\n拦截内容：{text}",
+    },
     "friend_manager": {
         "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
         "superuser_notify": "新好友添加通知\nQQ：{user_id}\n昵称：{nickname}\n时间：{time}",
