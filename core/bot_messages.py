@@ -400,6 +400,16 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "fish_auth_failed": "Fish Audio API Key 无效或没有权限，请在 Bot 后台更新 API Key。",
         "failed": "语音生成失败，请稍后再试。",
     },
+    "group_guard": {
+        "recall_help": "撤回：引用一条消息后回复「撤回」。\n- 引用机器人自己的消息：机器人撤回自己那条消息，群聊私聊都可用。\n- 引用别人的消息：正文必须只有「撤回」两个字且不能带任何 @，同时机器人得是群管理员，发起者得是群主 / 群管理员 / 超级管理员。\n撤回窗口约 2 分钟，超时后 QQ 不再允许撤回。",
+        "recall_need_reply": "请先引用一条消息，再回复「撤回」。",
+        "recall_only_own": "私聊里我只能撤回自己的消息。",
+        "recall_failed": "撤回失败了，可能这条消息已经超过 2 分钟或已经被撤回。",
+        "recall_bot_not_admin": "我不是这个群的管理员，撤不了别人的消息。",
+        "recall_permission_denied": "只有群主、群管理员或超级管理员可以让我撤回别人的消息。",
+        "risk_group_notice": "检测到违规内容，已撤回该消息。",
+        "risk_superuser_notify": "群风控命中\n群号：{group_id}\n发送者：{user_id}\n处理结果：{result}\n判定理由：{reason}\n消息内容：{text}",
+    },
     "friend_manager": {
         "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
         "superuser_notify": "新好友添加通知\nQQ：{user_id}\n昵称：{nickname}\n时间：{time}",
