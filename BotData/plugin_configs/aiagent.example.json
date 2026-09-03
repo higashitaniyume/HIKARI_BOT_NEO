@@ -22,6 +22,14 @@
         "enabled": true,
         "reasoning_effort": "high"
       },
+      "vision": {
+        "enabled": false,
+        "max_images": 2,
+        "detail": "low",
+        "include_quoted": true,
+        "max_bytes": 5242880,
+        "download_timeout_seconds": 20
+      },
       "persona": {
         "skill_path": "BotData/agent_personas/default",
         "max_chars": 12000,

@@ -43,7 +43,7 @@ logger = logging.getLogger("HikariBot.AIAgent.Config")
 CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 
 # 属于单个配置文件的段（后台「AI」页编辑）。
-PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "persona", "chat", "memory", "tools")
+PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "vision", "persona", "chat", "memory", "tools")
 # 所有配置文件共用的全局段（后台「AI 配额」页编辑）。
 GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions")
 
@@ -77,6 +77,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "thinking": {
         "enabled": True,
         "reasoning_effort": "high",
+    },
+    # 图片输入。需要视觉模型（如 deepseek-v4-flash-vision-exp）；模型不支持时
+    # 会自动去掉图片重试一次，所以开错了不会让机器人失声，只是白下载一遍。
+    "vision": {
+        "enabled": False,
+        "max_images": 2,
+        # low 会把图片缩到 512×512，每张最多按 384 token 计费，最省钱。
+        "detail": "low",
+        "include_quoted": True,
+        "max_bytes": 5242880,
+        "download_timeout_seconds": 20,
     },
     "persona": {
         "skill_path": "BotData/agent_personas/default",

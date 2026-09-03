@@ -427,6 +427,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "failed": "AI Agent 暂时聊不动，请稍后再试。",
         "reset_done": "已清空当前会话的 AI Agent 上下文和持久化记忆。",
         "reply_truncated": "（回复过长，已截断）",
+        "vision_image_only": "（用户只发了图片，没有文字）",
         "tool_limit_reached": "这个问题我暂时回答不了，换个问法试试？",
         "quota_exhausted": "{who}{period} AI 对话次数已用完（{used}/{limit}），{resets} 恢复。发送「额度」可查看详情。",
         "quota_usage": "今日：已用 {daily_used} / {daily_limit} 次 · 剩余 {daily_remaining} 次\n本小时：已用 {hourly_used} / {hourly_limit} 次 · 剩余 {hourly_remaining} 次\n重置：每日 {daily_resets}，每小时 {hourly_resets}",

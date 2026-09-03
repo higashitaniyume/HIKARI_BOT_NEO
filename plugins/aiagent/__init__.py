@@ -38,6 +38,7 @@ from .memory import (
 )
 from .tools import available_tools, execute_tool_call
 from .utils import normalize_text, safe_int, strip_markdown
+from .vision import build_image_blocks, collect_image_urls, text_block
 
 logger = logging.getLogger("HikariBot.AIAgent")
 
@@ -66,7 +67,13 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
     return 0
 
 
-def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user_text: str) -> list[dict[str, str]]:
+def _build_messages(
+    cfg: dict[str, Any],
+    event: MessageEvent,
+    session: str,
+    user_text: str,
+    image_blocks: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
 
     # Part 1: 稳定的 system prompt（persona + 固定指令）
@@ -101,13 +108,17 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user
     else:
         memory_context = time_notice
 
-    messages: list[dict[str, str]] = [{"role": "system", "content": stable_prompt}]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
     if memory_context:
         messages.append({"role": "system", "content": memory_context})
 
     history = get_history(session, chat_cfg.get("max_history_messages"))
     messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
+    if image_blocks:
+        messages.append({"role": "user", "content": [text_block(user_text), *image_blocks]})
+    else:
+        messages.append({"role": "user", "content": user_text})
     return messages
 
 
@@ -183,7 +194,9 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         if quoted_text:
             text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
             logger.debug("[AIAgent] 注入引用内容: %.80s", quoted_text)
-    if not text:
+
+    image_urls = collect_image_urls(event, cfg)
+    if not text and not image_urls:
         return
     if _is_blocked_media_link(text, cfg):
         return
@@ -210,8 +223,6 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         return
 
     try:
-        messages = _build_messages(cfg, event, session, text)
-
         # 配额前置检查：今日/本小时对话次数超限则拦截
         quota_block = check_quota(cfg, event)
         if quota_block is not None:
@@ -221,6 +232,15 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
             mark_event_handled(event)
             return
+
+        image_blocks = await build_image_blocks(image_urls, cfg)
+        if image_blocks:
+            logger.info("[AIAgent] 附带 %d 张图片送模型 -> %s", len(image_blocks), session)
+            if not text:
+                text = msg("aiagent.vision_image_only")
+        elif not text:
+            return
+        messages = _build_messages(cfg, event, session, text, image_blocks)
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")

@@ -17,6 +17,7 @@ from plugins.aiagent.config import set_binding as set_aiagent_binding
 from plugins.aiagent.persona import list_persona_skills as list_aiagent_persona_skills
 from plugins.aiagent.persona import resolve_persona_path as resolve_aiagent_persona_path
 from plugins.aiagent.config import save_config as save_aiagent_config
+from plugins.aiagent.vision import VISION_DETAILS
 from plugins.tts_speaker.config import DEFAULT_VOICES
 from plugins.tts_speaker.config import get_config as get_tts_config
 from plugins.tts_speaker.config import save_config as save_tts_config
@@ -258,6 +259,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
     current_thinking = current.get("thinking") if isinstance(current.get("thinking"), dict) else {}
+    current_vision = current.get("vision") if isinstance(current.get("vision"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
@@ -268,6 +270,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
     input_thinking = data.get("thinking") if isinstance(data.get("thinking"), dict) else {}
+    input_vision = data.get("vision") if isinstance(data.get("vision"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
@@ -291,6 +294,9 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     search_mode = _parse_str(input_search.get("mode", current_search.get("mode", "builtin")), max_length=16).strip().lower()
     if search_mode not in {"builtin", "searxng"}:
         search_mode = "builtin"
+    vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "low")), max_length=16).strip().lower()
+    if vision_detail not in VISION_DETAILS:
+        vision_detail = "low"
 
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
@@ -309,6 +315,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         "thinking": {
             "enabled": _parse_bool(input_thinking.get("enabled", current_thinking.get("enabled", True))),
             "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
+        },
+        "vision": {
+            "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", False))),
+            "max_images": _parse_int(input_vision.get("max_images", current_vision.get("max_images", 2)), 2, minimum=1, maximum=8),
+            "detail": vision_detail,
+            "include_quoted": _parse_bool(input_vision.get("include_quoted", current_vision.get("include_quoted", True))),
+            "max_bytes": _parse_int(input_vision.get("max_bytes", current_vision.get("max_bytes", 5242880)), 5242880, minimum=65536, maximum=33554432),
+            "download_timeout_seconds": _parse_int(input_vision.get("download_timeout_seconds", current_vision.get("download_timeout_seconds", 20)), 20, minimum=3, maximum=120),
         },
         "persona": {
             "skill_path": _parse_str(input_persona.get("skill_path", current_persona.get("skill_path", "BotData/agent_personas/default")), max_length=512),

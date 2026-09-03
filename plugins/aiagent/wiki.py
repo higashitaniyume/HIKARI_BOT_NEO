@@ -13,6 +13,7 @@ from typing import Any
 from core.ai_tool_registry import AIToolContext
 
 from .tools import execute_tool_call
+from .vision import content_text
 
 logger = logging.getLogger("HikariBot.AIAgent.Wiki")
 
@@ -87,7 +88,7 @@ _LEADING_PUNCT_RE = re.compile(r"^[\s:：,，.。;；!?！？\-_/\\|]+")
 def _latest_user_text(messages: list[dict[str, Any]]) -> str:
     for message in reversed(messages):
         if message.get("role") == "user":
-            return str(message.get("content") or "").strip()
+            return content_text(message.get("content")).strip()
     return ""
 
 
