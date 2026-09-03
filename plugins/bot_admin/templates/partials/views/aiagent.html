@@ -127,6 +127,59 @@
             <textarea id="aiagentSystemExtra" rows="4" placeholder="可选，会追加在人格 skill 后"></textarea>
           </label>
 
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentVisionTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentVisionTitle">思考与图片输入</h3>
+                <p>图片输入需要模型本身支持视觉（例如 deepseek-v4-flash-vision-exp）；模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentThinkingEnabled" type="checkbox">
+                  <span>启用思考模式</span>
+                </label>
+                <label>
+                  <span>思考强度</span>
+                  <select id="aiagentReasoningEffort">
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="max">max</option>
+                  </select>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentVisionEnabled" type="checkbox">
+                  <span>启用图片输入</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentVisionIncludeQuoted" type="checkbox">
+                  <span>连带读取被引用消息里的图片</span>
+                </label>
+                <label>
+                  <span>单次最多图片数</span>
+                  <input id="aiagentVisionMaxImages" type="number" min="1" max="8" step="1">
+                </label>
+                <label>
+                  <span>图片精度</span>
+                  <select id="aiagentVisionDetail">
+                    <option value="low">low（512×512，最省 token）</option>
+                    <option value="high">high</option>
+                    <option value="original">original</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </label>
+                <label>
+                  <span>单张图片上限（KB）</span>
+                  <input id="aiagentVisionMaxKb" type="number" min="64" max="32768" step="64">
+                </label>
+                <label>
+                  <span>图片下载超时（秒）</span>
+                  <input id="aiagentVisionTimeout" type="number" min="3" max="120" step="1">
+                </label>
+              </div>
+            </div>
+          </section>
+
           <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentToolsTitle">
             <div class="aiagent-tools-head">
               <div>

@@ -11,10 +11,16 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
+import threading
+from pathlib import Path
 from typing import Any
 
-from core.access_control import DEFAULT_ACCESS_RULES
+from core.access_control import DEFAULT_ACCESS_RULES, normalize_access_rules
 from core.config_loader import load_plugin_config
+
+CONFIG_PATH = Path("BotData/plugin_configs/group_guard.json")
 
 DEFAULT_REVIEW_PROMPT = (
     "你是 QQ 群的内容合规检查器。判断给定消息是否属于「极度政治敏感」内容。\n\n"
@@ -101,8 +107,76 @@ def get_config() -> dict[str, Any]:
             "other_requires_admin": _safe_bool(recall.get("other_requires_admin"), True),
             "reply_on_failure": _safe_bool(recall.get("reply_on_failure"), True),
         },
-        "permissions": cfg.get("permissions") if isinstance(cfg.get("permissions"), dict) else copy.deepcopy(defaults["permissions"]),
+        "permissions": normalize_access_rules(cfg.get("permissions", defaults["permissions"])),
     }
+
+
+def normalize_config(data: dict[str, Any]) -> dict[str, Any]:
+    """把 web 面板提交的配置合并到当前配置上并规范化。"""
+    if not isinstance(data, dict):
+        raise ValueError("群风控配置必须是 JSON 对象。")
+
+    current = get_config()
+    review = data.get("review") if isinstance(data.get("review"), dict) else {}
+    action = data.get("action") if isinstance(data.get("action"), dict) else {}
+    recall = data.get("recall_command") if isinstance(data.get("recall_command"), dict) else {}
+    cur_review = current["review"]
+    cur_action = current["action"]
+    cur_recall = current["recall_command"]
+
+    merged: dict[str, Any] = {
+        "enabled": _safe_bool(data.get("enabled", current["enabled"]), current["enabled"]),
+        "review": {
+            key: _safe_bool(review.get(key, cur_review[key]), cur_review[key])
+            for key in ("enabled", "require_group_whitelist", "skip_handled", "skip_superuser")
+        },
+        "action": {
+            key: _safe_bool(action.get(key, cur_action[key]), cur_action[key])
+            for key in ("recall", "notify_group", "notify_superuser")
+        },
+        "recall_command": {
+            key: _safe_bool(recall.get(key, cur_recall[key]), cur_recall[key])
+            for key in (
+                "enabled",
+                "allow_self_recall",
+                "allow_other_recall",
+                "other_requires_admin",
+                "reply_on_failure",
+            )
+        },
+        "permissions": normalize_access_rules(
+            data.get("permissions", current["permissions"]),
+        ),
+    }
+    merged["review"].update(
+        {
+            "min_chars": _safe_int(review.get("min_chars", cur_review["min_chars"]), 4, minimum=1, maximum=200),
+            "max_chars": _safe_int(review.get("max_chars", cur_review["max_chars"]), 800, minimum=50, maximum=4000),
+            "temperature": _safe_float(
+                review.get("temperature", cur_review["temperature"]), 0.0, minimum=0.0, maximum=2.0
+            ),
+            "max_tokens": _safe_int(review.get("max_tokens", cur_review["max_tokens"]), 300, minimum=64, maximum=4000),
+            "timeout_seconds": _safe_int(
+                review.get("timeout_seconds", cur_review["timeout_seconds"]), 20, minimum=5, maximum=120
+            ),
+            "max_concurrent": _safe_int(
+                review.get("max_concurrent", cur_review["max_concurrent"]), 2, minimum=1, maximum=16
+            ),
+            "prompt": str(review.get("prompt", cur_review["prompt"]) or "").strip() or DEFAULT_REVIEW_PROMPT,
+        }
+    )
+    if merged["review"]["min_chars"] > merged["review"]["max_chars"]:
+        raise ValueError("最短字数不能大于最长字数。")
+    return merged
+
+
+def save_config(data: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_config(data)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = CONFIG_PATH.with_name(f"{CONFIG_PATH.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, CONFIG_PATH)
+    return normalized
 
 
 def _safe_bool(value: Any, default: bool) -> bool:

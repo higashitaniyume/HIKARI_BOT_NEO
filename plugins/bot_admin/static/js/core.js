@@ -32,6 +32,7 @@ const state = {
   selectedRssSubscriptionId: "",
   accessRules: [],
   selectedAccessPlugin: "",
+  guardConfig: {},
   activities: [],
   activitiesError: "",
   queues: {},
@@ -65,6 +66,7 @@ const VIEW_TITLES = {
   push: "推送",
   rss: "RSS",
   access: "权限",
+  guard: "风控",
   configs: "配置",
   logs: "日志",
 };
@@ -102,6 +104,9 @@ function setView(view) {
   }
   if (target === "access" && !state.accessRules.length) {
     fetchAccessRules().catch((err) => showToast(err.message, true));
+  }
+  if (target === "guard" && !Object.keys(state.guardConfig || {}).length) {
+    fetchGuardConfig().catch((err) => showToast(err.message, true));
   }
   if (target === "aiagent_quota" && !state.aiagentQuota) {
     fetchAiAgentQuota().catch((err) => showToast(err.message, true));

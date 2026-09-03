@@ -132,6 +132,15 @@ async function fetchRssConfig(shouldRender = true) {
   }
 }
 
+async function fetchGuardConfig(shouldRender = true) {
+  const res = await fetch("/api/guard-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取风控配置失败");
+  state.guardConfig = data || {};
+  if (shouldRender) {
+    renderGuardConfig();
+  }
+}
+
 async function fetchAccessRules(shouldRender = true) {
   const res = await fetch("/api/access-rules", { cache: "no-store" });
   const data = await readJsonResponse(res, "读取权限规则失败");

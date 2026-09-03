@@ -10,10 +10,17 @@ from urllib.parse import unquote
 
 from core.access_control import normalize_access_rules
 from core.config_loader import clear_plugin_config_cache
+from plugins.aiagent.review import model_label as review_model_label
+from plugins.group_guard.config import DEFAULT_REVIEW_PROMPT
+from plugins.group_guard.config import get_config as get_guard_config
+from plugins.group_guard.config import save_config as save_guard_config
 from plugins.push_framework.config import get_config as get_push_config
 from plugins.push_framework.registry import iter_push_sources
 from plugins.rss_subscriber.config import get_config as get_rss_config
 from plugins.rss_subscriber.config import save_config as save_rss_config
+from plugins.self_review.config import DEFAULT_SELF_REVIEW_PROMPT
+from plugins.self_review.config import get_config as get_self_review_config
+from plugins.self_review.config import save_config as save_self_review_config
 
 from .constants import (
     _ACCESS_RULE_PLUGINS,
@@ -143,6 +150,55 @@ def _write_rss_config(data: dict[str, Any]) -> dict[str, Any]:
     payload = _rss_config_state()
     payload["config"] = saved
     payload["message"] = "RSS 订阅设置已保存。"
+    return payload
+
+
+_GUARD_PLUGINS: dict[str, dict[str, Any]] = {
+    "group_guard": {
+        "label": "群风控",
+        "get": get_guard_config,
+        "save": save_guard_config,
+        "default_prompt": DEFAULT_REVIEW_PROMPT,
+        "message": "群风控设置已保存。",
+    },
+    "self_review": {
+        "label": "出站自审查",
+        "get": get_self_review_config,
+        "save": save_self_review_config,
+        "default_prompt": DEFAULT_SELF_REVIEW_PROMPT,
+        "message": "出站自审查设置已保存。",
+    },
+}
+
+
+def _guard_config_state() -> dict[str, Any]:
+    """风控页读取：group_guard + self_review 两份配置、文件信息与默认提示词。"""
+    _PLUGIN_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    plugins: dict[str, Any] = {}
+    for name, meta in _GUARD_PLUGINS.items():
+        path = _PLUGIN_CONFIG_DIR / f"{name}.json"
+        plugins[name] = {
+            "label": meta["label"],
+            "config": meta["get"](),
+            "default_prompt": meta["default_prompt"],
+            "file": _file_meta(path) if path.is_file() else None,
+        }
+    return {"plugins": plugins, "review_model": review_model_label()}
+
+
+def _write_guard_config(data: dict[str, Any]) -> dict[str, Any]:
+    name = str(data.get("plugin") or "").strip()
+    meta = _GUARD_PLUGINS.get(name)
+    if meta is None:
+        raise ValueError("不支持保存这个插件的风控配置。")
+    config = data.get("config")
+    if not isinstance(config, dict):
+        raise ValueError("config 必须是 JSON 对象。")
+
+    meta["save"](config)
+    clear_plugin_config_cache(name)
+    payload = _guard_config_state()
+    payload["message"] = meta["message"]
     return payload
 
 

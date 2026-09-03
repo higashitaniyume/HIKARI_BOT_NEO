@@ -256,6 +256,18 @@ function buildAiAgentPayload() {
       timeout_seconds: Number($("#aiagentTimeout").value || 60),
       proxy: $("#aiagentProxy").value.trim(),
     },
+    thinking: {
+      enabled: $("#aiagentThinkingEnabled").checked,
+      reasoning_effort: $("#aiagentReasoningEffort").value,
+    },
+    vision: {
+      enabled: $("#aiagentVisionEnabled").checked,
+      include_quoted: $("#aiagentVisionIncludeQuoted").checked,
+      max_images: Number($("#aiagentVisionMaxImages").value || 2),
+      detail: $("#aiagentVisionDetail").value,
+      max_bytes: Number($("#aiagentVisionMaxKb").value || 5120) * 1024,
+      download_timeout_seconds: Number($("#aiagentVisionTimeout").value || 20),
+    },
     persona: {
       skill_path: $("#aiagentPersonaPath").value.trim(),
       max_chars: Number($("#aiagentPersonaMaxChars").value || 12000),

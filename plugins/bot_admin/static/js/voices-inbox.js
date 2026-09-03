@@ -679,6 +679,18 @@ function renderAiAgentConfig() {
 
   const tools = cfg.tools || {};
   const search = tools.search || {};
+  const thinking = cfg.thinking || {};
+  const vision = cfg.vision || {};
+  $("#aiagentThinkingEnabled").checked = thinking.enabled !== false;
+  $("#aiagentReasoningEffort").value = ["low", "medium", "high", "max"].includes(thinking.reasoning_effort)
+    ? thinking.reasoning_effort
+    : "high";
+  $("#aiagentVisionEnabled").checked = vision.enabled === true;
+  $("#aiagentVisionIncludeQuoted").checked = vision.include_quoted !== false;
+  $("#aiagentVisionMaxImages").value = vision.max_images ?? 2;
+  $("#aiagentVisionDetail").value = ["low", "high", "original", "auto"].includes(vision.detail) ? vision.detail : "low";
+  $("#aiagentVisionMaxKb").value = Math.round((vision.max_bytes ?? 5242880) / 1024);
+  $("#aiagentVisionTimeout").value = vision.download_timeout_seconds ?? 20;
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
