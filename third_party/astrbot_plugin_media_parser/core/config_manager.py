@@ -982,6 +982,16 @@ class ConfigManager:
             admin_cookie_update_command=admin_cookie_update_command,
         )
 
+        # --- steam ---
+        steam_raw = self._as_dict(config.get("steam"))
+        self.steam = SteamConfig(
+            use_xiaoheihe=self._parse_bool(
+                steam_raw.get("use_xiaoheihe", False),
+                False,
+                "steam.use_xiaoheihe",
+            )
+        )
+
         # --- proxy ---
         proxy_raw = self._as_dict(config.get("proxy"))
         steam_proxy = self._as_dict(proxy_raw.get("steam"))
