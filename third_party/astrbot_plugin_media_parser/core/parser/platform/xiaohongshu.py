@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List
 from urllib.parse import (
     parse_qsl,
     urlencode,
-    urljoin,
+    unquote,
     urlparse,
     urlunparse,
 )
@@ -17,9 +17,9 @@ import aiohttp
 
 from ...logger import logger
 
-from .base import BaseVideoParser
-from ..utils import build_request_headers, is_live_url, SkipParse
 from ...constants import Config
+from ..utils import build_request_headers, is_live_url, SkipParse
+from .base import BaseVideoParser
 
 
 ANDROID_UA = (
@@ -33,11 +33,7 @@ PC_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0"
 )
-
 XHS_DOMAINS = ("xiaohongshu.com", "xhslink.com", "xhslink.cn")
-REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-MAX_REDIRECTS = 5
-
 
 class XiaohongshuParser(BaseVideoParser):
     "XiaohongshuParser 类。"
@@ -210,28 +206,17 @@ class XiaohongshuParser(BaseVideoParser):
         Raises:
             RuntimeError: 当无法获取重定向URL时
         """
-        current_url = short_url
-        for _ in range(MAX_REDIRECTS + 1):
-            if not self._is_trusted_xhs_url(current_url):
-                raise RuntimeError("小红书短链重定向到非受信域名")
-            async with session.get(
-                current_url,
-                headers=self.headers,
-                allow_redirects=False,
-            ) as response:
-                if response.status in REDIRECT_STATUSES:
-                    redirect_url = response.headers.get("Location", "")
-                    if not redirect_url:
-                        raise RuntimeError("无法获取重定向URL")
-                    next_url = urljoin(current_url, redirect_url)
-                    if not self._is_trusted_xhs_url(next_url):
-                        raise RuntimeError("小红书短链重定向到非受信域名")
-                    current_url = next_url
-                    continue
-                if response.status < 400:
-                    return self._recover_original_note_url(str(response.url))
-                raise RuntimeError(f"无法获取重定向URL，状态码: {response.status}")
-        raise RuntimeError("小红书短链重定向次数过多")
+        async with session.get(
+            short_url,
+            headers=self.headers,
+            allow_redirects=False,
+        ) as response:
+            if response.status == 302:
+                redirect_url = response.headers.get("Location", "")
+                if not redirect_url:
+                    raise RuntimeError("无法获取重定向URL")
+                return unquote(redirect_url)
+            raise RuntimeError(f"无法获取重定向URL，状态码: {response.status}")
 
     def _get_headers_for_url(self, url: str) -> dict:
         """根据URL类型获取对应的请求头
@@ -267,31 +252,11 @@ class XiaohongshuParser(BaseVideoParser):
         Raises:
             RuntimeError: 当无法获取页面内容时
         """
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            if not self._is_trusted_xhs_url(current_url):
-                raise RuntimeError("拒绝访问非小红书域名")
-            headers = self._get_headers_for_url(current_url)
-            async with session.get(
-                current_url,
-                headers=headers,
-                allow_redirects=False,
-            ) as response:
-                if response.status in REDIRECT_STATUSES:
-                    location = response.headers.get("Location", "")
-                    if not location:
-                        raise RuntimeError("页面重定向缺少Location")
-                    next_url = urljoin(current_url, location)
-                    if is_live_url(next_url):
-                        raise SkipParse("直播域名链接不解析")
-                    if not self._is_trusted_xhs_url(next_url):
-                        raise RuntimeError("小红书页面重定向到非受信域名")
-                    current_url = next_url
-                    continue
-                if response.status == 200:
-                    return await response.text()
-                raise RuntimeError(f"无法获取页面内容，状态码: {response.status}")
-        raise RuntimeError("小红书页面重定向次数过多")
+        headers = self._get_headers_for_url(url)
+        async with session.get(url, headers=headers) as response:
+            if response.status == 200:
+                return await response.text()
+            raise RuntimeError(f"无法获取页面内容，状态码: {response.status}")
 
     def _extract_initial_state(self, html: str) -> dict:
         """从HTML中提取window.__INITIAL_STATE__的JSON数据

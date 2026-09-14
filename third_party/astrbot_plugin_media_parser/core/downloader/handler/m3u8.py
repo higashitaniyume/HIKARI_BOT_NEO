@@ -22,7 +22,6 @@ from ..budget import (
     MAX_MANIFEST_BYTES,
     resolve_max_bytes,
 )
-from ..security import safe_request
 from ..fileio import gather_cancel_on_error, run_blocking
 from .base import (
     _format_download_error,
@@ -120,15 +119,14 @@ class M3U8Handler:
         attempts = Config.DOWNLOAD_RETRY_ATTEMPTS
         for attempt in range(1, attempts + 1):
             try:
-                response = await safe_request(
-                    self.session,
-                    "GET",
+                response = await self.session.get(
                     url,
                     headers=self.headers,
                     proxy=self.proxy,
                     timeout=aiohttp.ClientTimeout(
                         total=Config.VIDEO_SIZE_CHECK_TIMEOUT
                     ),
+                    allow_redirects=True,
                 )
                 async with response:
                     response.raise_for_status()
@@ -177,13 +175,12 @@ class M3U8Handler:
         for attempt in range(1, attempts + 1):
             consumed = 0
             try:
-                response = await safe_request(
-                    self.session,
-                    "GET",
+                response = await self.session.get(
                     url,
                     headers=self.headers,
                     proxy=self.proxy,
                     timeout=aiohttp.ClientTimeout(total=Config.VIDEO_DOWNLOAD_TIMEOUT),
+                    allow_redirects=True,
                 )
                 async with response:
                     response.raise_for_status()
@@ -234,13 +231,12 @@ class M3U8Handler:
                 await run_blocking(
                     os.makedirs, os.path.dirname(output_path), exist_ok=True
                 )
-                response = await safe_request(
-                    self.session,
-                    "GET",
+                response = await self.session.get(
                     url,
                     headers=self.headers,
                     proxy=self.proxy,
                     timeout=aiohttp.ClientTimeout(total=Config.VIDEO_DOWNLOAD_TIMEOUT),
+                    allow_redirects=True,
                 )
                 async with response:
                     response.raise_for_status()

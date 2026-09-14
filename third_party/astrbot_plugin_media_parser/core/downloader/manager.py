@@ -5,7 +5,6 @@ import hashlib
 import math
 import os
 import re
-import shutil
 import time
 import uuid
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -184,17 +183,12 @@ class DownloadManager:
 
         cover_groups = self._normalize_video_cover_url_groups(metadata, len(video_urls))
         converted_images: List[List[str]] = []
-        retained_videos: List[List[str]] = []
         fallback_items = []
         fallback_indexes = []
-        ffmpeg_available = self._ffmpeg_available()
         for idx, url_list in enumerate(video_urls):
             cover_urls = cover_groups[idx] if idx < len(cover_groups) else []
             if cover_urls:
                 converted_images.append(cover_urls)
-                continue
-            if not ffmpeg_available:
-                retained_videos.append(url_list)
                 continue
             converted_images.append([f"video-cover://{idx}"])
             fallback_indexes.append(len(converted_images) - 1)
@@ -210,12 +204,10 @@ class DownloadManager:
         metadata["video_cover_fallbacks"] = fallback_items
         metadata["video_cover_fallback_indexes"] = fallback_indexes
         converted_images.extend(image_urls)
-        metadata["video_urls"] = retained_videos
+        metadata["video_urls"] = []
         metadata["video_force_download"] = False
         metadata["video_force_downloads"] = []
-        if retained_videos:
-            logger.warning("ffmpeg不可用，视频封面模式回退为原始视频格式")
-        return retained_videos, converted_images
+        return [], converted_images
 
     @staticmethod
     def _is_dash_url(url: str) -> bool:
@@ -235,27 +227,6 @@ class DownloadManager:
             if self._is_dash_url(url) or self._is_m3u8_url(url):
                 return True
         return False
-
-    @staticmethod
-    def _ffmpeg_available() -> bool:
-        """检查流媒体转换依赖；缺失时由调用层回退为原始直链。"""
-        return shutil.which("ffmpeg") is not None
-
-    @staticmethod
-    def _is_ffmpeg_unavailable_error(error: Any) -> bool:
-        text = str(error or "").strip().lower()
-        if "ffmpeg" not in text:
-            return False
-        return any(
-            marker in text
-            for marker in (
-                "未找到",
-                "not found",
-                "no such file",
-                "无法合并",
-                "cannot find",
-            )
-        )
 
     @staticmethod
     def _effective_force_flags(
@@ -601,30 +572,57 @@ class DownloadManager:
             contains_stream = any(
                 self._is_dash_url(u) or self._is_m3u8_url(u) for u in url_list
             )
+            direct_fallback_selected = False
 
             if not url_list:
                 video_skip_reasons[idx] = "未找到视频URL"
                 continue
 
-            # HLS/DASH 的本地封装依赖 ffmpeg。缺失时保留解析器给出的
-            # 原始流地址，交给消息平台按原格式处理，不伪造失败结果。
-            if contains_stream and not self._ffmpeg_available():
-                video_modes[idx] = "direct"
-                if on_sendable_media:
-                    await on_sendable_media()
-                continue
-
             if requires_local and not self.cache_dir_available:
-                video_skip_reasons[idx] = (
-                    "媒体文件缓存目录不可用，无法处理必须下载到缓存的视频"
+                if force_download:
+                    video_skip_reasons[idx] = (
+                        "媒体文件缓存目录不可用，无法处理必须下载到缓存的视频"
+                    )
+                    continue
+
+                # 混合候选无缓存时，跳过需本地封装的流媒体，只预检普通直链。
+                direct_candidates = [
+                    candidate
+                    for candidate in url_list
+                    if not (
+                        self._is_dash_url(candidate)
+                        or self._is_m3u8_url(candidate)
+                    )
+                ]
+                if not direct_candidates:
+                    video_skip_reasons[idx] = (
+                        "媒体文件缓存目录不可用，候选视频均需要本地处理"
+                    )
+                    continue
+
+                size_mb, status_code, reason, denied = await self._precheck_video(
+                    session=session,
+                    url_list=direct_candidates,
+                    metadata=metadata,
+                    proxy_addr=proxy_addr,
+                    require_accessible_for_direct=True,
                 )
-                continue
+                video_sizes[idx] = size_mb
+                video_status_codes[idx] = status_code
+                has_access_denied = has_access_denied or denied
+                if reason:
+                    if "超过限制" in reason:
+                        size_exceeded = True
+                    video_skip_reasons[idx] = reason
+                    continue
+
+                video_urls[idx] = direct_candidates
+                url_list = direct_candidates
+                direct_fallback_selected = True
 
             mode = "local" if self.cache_dir_available else "direct"
-            if requires_local:
-                mode = "local"
 
-            if not contains_stream:
+            if not contains_stream and not direct_fallback_selected:
                 size_mb, status_code, reason, denied = await self._precheck_video(
                     session=session,
                     url_list=url_list,
@@ -722,17 +720,6 @@ class DownloadManager:
                     idx = position
                     if status_code is not None:
                         video_status_codes[idx] = status_code
-                    if self._is_ffmpeg_unavailable_error(reason) and any(
-                        self._is_dash_url(url) or self._is_m3u8_url(url)
-                        for url in (result.get("url_list") or [])
-                    ):
-                        video_modes[idx] = "direct"
-                        video_skip_reasons[idx] = None
-                        logger.warning(
-                            f"ffmpeg不可用，保留原始流直链: "
-                            f"{(result.get('url_list') or [''])[0]}"
-                        )
-                        continue
                     video_modes[idx] = "skip"
                     video_skip_reasons[idx] = f"缓存下载失败: {reason}"
                 else:

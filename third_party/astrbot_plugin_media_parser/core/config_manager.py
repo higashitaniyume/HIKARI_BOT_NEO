@@ -19,7 +19,9 @@ from .parser.platform import (
     XianyuParser,
     ToutiaoParser,
     XiaoheiheParser,
+    SteamParser,
     TwitterParser,
+    XueqiuParser,
 )
 from .translation.provider_defs import (
     LLM_PROVIDER_DEFAULTS,
@@ -48,7 +50,9 @@ PARSER_OUTPUT_KEYS = (
     "xianyu",
     "toutiao",
     "xiaoheihe",
+    "steam",
     "twitter",
+    "xueqiu",
 )
 
 OUTPUT_MODE_DISABLED = "关闭"
@@ -86,6 +90,59 @@ TRANSLATION_TARGET_LANGUAGES = {
 TRANSLATION_CONTENT_SCOPES = {
     "仅正文",
     "正文和标题",
+}
+
+TEXT_RENDER_STYLE_ALIASES = {
+    "清新便签": "fresh",
+    "清新": "fresh",
+    "便签": "fresh",
+    "粉色便签": "fresh",
+    "fresh": "fresh",
+    "bilinote": "fresh",
+    "科技感": "tech",
+    "科技": "tech",
+    "tech": "tech",
+    "technology": "tech",
+    "专业严肃": "serious",
+    "严肃": "serious",
+    "专业": "serious",
+    "serious": "serious",
+    "professional": "serious",
+    "温和卡片": "card",
+    "卡片": "card",
+    "card": "card",
+    "soft_card": "card",
+}
+
+TEXT_RENDER_FONT_ALIASES = {
+    "默认黑体": "noto_sans",
+    "黑体": "noto_sans",
+    "思源黑体": "noto_sans",
+    "noto_sans": "noto_sans",
+    "noto sans": "noto_sans",
+    "default": "noto_sans",
+    "专业宋体": "noto_serif",
+    "宋体": "noto_serif",
+    "思源宋体": "noto_serif",
+    "noto_serif": "noto_serif",
+    "noto serif": "noto_serif",
+    "serif": "noto_serif",
+    "清新文楷": "lxgw_wenkai",
+    "文楷": "lxgw_wenkai",
+    "霞鹜文楷": "lxgw_wenkai",
+    "lxgw_wenkai": "lxgw_wenkai",
+    "lxgw wenkai": "lxgw_wenkai",
+    "wenkai": "lxgw_wenkai",
+    "标题手札": "zcool_xiaowei",
+    "站酷小薇": "zcool_xiaowei",
+    "zcool_xiaowei": "zcool_xiaowei",
+    "zcool xiaowei": "zcool_xiaowei",
+    "xiaowei": "zcool_xiaowei",
+    "科技窄体": "zcool_qingke",
+    "站酷庆科黄油体": "zcool_qingke",
+    "zcool_qingke": "zcool_qingke",
+    "zcool qingke": "zcool_qingke",
+    "qingke": "zcool_qingke",
 }
 
 
@@ -249,6 +306,10 @@ class TextMetadataConfig:
     show_original_link: bool = True
     show_description: bool = True
     quote_user_message: bool = False
+    render_to_image: bool = False
+    render_style: str = "fresh"
+    render_font_family: str = "noto_sans"
+    render_font_size: int = 24
 
     def visibility(self) -> Dict[str, bool]:
         """返回写入 metadata 的稳定字段名与展示开关。"""
@@ -371,6 +432,9 @@ class ParseRateLimitConfig:
 class ProxyConfig:
     address: str = ""
     xiaoheihe_use_video_proxy: bool = True
+    steam_use_parse_proxy: bool = False
+    steam_use_image_proxy: bool = True
+    steam_use_video_proxy: bool = True
     twitter_use_parse_proxy: bool = False
     twitter_use_image_proxy: bool = True
     twitter_use_video_proxy: bool = True
@@ -389,6 +453,11 @@ class BilibiliEnhancedConfig:
     admin_reply_timeout_minutes: int = 1440
     admin_request_cooldown_minutes: int = 1440
     admin_cookie_update_command: str = "B站更新Cookie"
+
+
+@dataclass
+class SteamConfig:
+    use_xiaoheihe: bool = False
 
 
 @dataclass
@@ -502,7 +571,9 @@ class ConfigManager:
         self._enable_xianyu = self._parser_enabled("xianyu")
         self._enable_toutiao = self._parser_enabled("toutiao")
         self._enable_xiaoheihe = self._parser_enabled("xiaoheihe")
+        self._enable_steam = self._parser_enabled("steam")
         self._enable_twitter = self._parser_enabled("twitter")
+        self._enable_xueqiu = self._parser_enabled("xueqiu")
 
         # --- message ---
         message_raw = self._as_dict(config.get("message"))
@@ -605,6 +676,27 @@ class ConfigManager:
                     text_metadata.get("quote_user_message", False),
                     False,
                     "message.text_metadata.quote_user_message",
+                ),
+                render_to_image=self._parse_bool(
+                    text_metadata.get("render_to_image", False),
+                    False,
+                    "message.text_metadata.render_to_image",
+                ),
+                render_style=self._parse_text_render_style(
+                    text_metadata.get("render_style", "清新便签")
+                ),
+                render_font_family=self._parse_text_render_font_family(
+                    text_metadata.get("render_font_family", "默认黑体")
+                ),
+                render_font_size=min(
+                    42,
+                    max(
+                        16,
+                        self._parse_non_negative_int(
+                            text_metadata.get("render_font_size", 24),
+                            24,
+                        ),
+                    ),
                 ),
             ),
             hot_comments=HotCommentConfig(
@@ -892,6 +984,7 @@ class ConfigManager:
 
         # --- proxy ---
         proxy_raw = self._as_dict(config.get("proxy"))
+        steam_proxy = self._as_dict(proxy_raw.get("steam"))
         twitter_proxy = self._as_dict(proxy_raw.get("twitter"))
         self.proxy = ProxyConfig(
             address=str(proxy_raw.get("address", "") or "").strip(),
@@ -899,6 +992,21 @@ class ConfigManager:
                 proxy_raw.get("xiaoheihe_video", True),
                 True,
                 "proxy.xiaoheihe_video",
+            ),
+            steam_use_parse_proxy=self._parse_bool(
+                steam_proxy.get("parse", False),
+                False,
+                "proxy.steam.parse",
+            ),
+            steam_use_image_proxy=self._parse_bool(
+                steam_proxy.get("image", True),
+                True,
+                "proxy.steam.image",
+            ),
+            steam_use_video_proxy=self._parse_bool(
+                steam_proxy.get("video", True),
+                True,
+                "proxy.steam.video",
             ),
             twitter_use_parse_proxy=self._parse_bool(
                 twitter_proxy.get("parse", False),
@@ -1021,6 +1129,17 @@ class ConfigManager:
                     proxy_url=proxy_addr,
                 )
             )
+        if self._enable_steam:
+            parsers.append(
+                SteamParser(
+                    use_xiaoheihe=self.steam.use_xiaoheihe,
+                    use_parse_proxy=self.proxy.steam_use_parse_proxy,
+                    use_image_proxy=self.proxy.steam_use_image_proxy,
+                    use_video_proxy=self.proxy.steam_use_video_proxy,
+                    xiaoheihe_use_video_proxy=self.proxy.xiaoheihe_use_video_proxy,
+                    proxy_url=proxy_addr,
+                )
+            )
         if self._enable_twitter:
             parsers.append(
                 TwitterParser(
@@ -1075,6 +1194,24 @@ class ConfigManager:
         if scope in TRANSLATION_CONTENT_SCOPES:
             return scope
         return "正文和标题"
+
+    @staticmethod
+    def _parse_text_render_style(value: Any) -> str:
+        text = str(value or "").strip()
+        lowered = text.casefold()
+        return TEXT_RENDER_STYLE_ALIASES.get(
+            text,
+            TEXT_RENDER_STYLE_ALIASES.get(lowered, "fresh"),
+        )
+
+    @staticmethod
+    def _parse_text_render_font_family(value: Any) -> str:
+        text = str(value or "").strip()
+        lowered = text.casefold()
+        return TEXT_RENDER_FONT_ALIASES.get(
+            text,
+            TEXT_RENDER_FONT_ALIASES.get(lowered, "noto_sans"),
+        )
 
     @staticmethod
     def _parse_positive_int(value, default: int) -> int:

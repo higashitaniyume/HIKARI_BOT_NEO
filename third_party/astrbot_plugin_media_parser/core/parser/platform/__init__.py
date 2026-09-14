@@ -8,7 +8,9 @@ from .xiaohongshu import XiaohongshuParser
 from .xianyu import XianyuParser
 from .toutiao import ToutiaoParser
 from .xiaoheihe import XiaoheiheParser
+from .steam import SteamParser
 from .twitter import TwitterParser
+from .xueqiu import XueqiuParser
 from .base import BaseVideoParser
 
 __all__ = [
@@ -21,7 +23,9 @@ __all__ = [
     'XianyuParser',
     'ToutiaoParser',
     'XiaoheiheParser',
+    'SteamParser',
     'TwitterParser',
+    'XueqiuParser',
     'BaseVideoParser'
 ]
 

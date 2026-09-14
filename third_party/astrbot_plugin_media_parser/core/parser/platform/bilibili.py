@@ -8,16 +8,16 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple, List
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs, urlencode
 
 import aiohttp
 
 from ...logger import logger
 
-from .base import BaseVideoParser
+from ...constants import Config
 from ..runtime_manager.bilibili.auth import BilibiliAuthRuntime
 from ..utils import build_request_headers, is_live_url, SkipParse, format_duration_ms
-from ...constants import Config
+from .base import BaseVideoParser
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -25,9 +25,6 @@ UA = (
 )
 B23_HOST = "b23.tv"
 T_BILIBILI_HOST = "t.bilibili.com"
-B23_MAX_REDIRECTS = 5
-B23_EXPANSION_TIMEOUT_SECONDS = 10
-B23_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 BV_RE = re.compile(r"[Bb][Vv][0-9A-Za-z]{10,}")
 AV_RE = re.compile(r"[Aa][Vv](\d+)")
 EP_PATH_RE = re.compile(r"/bangumi/play/ep(\d+)", re.IGNORECASE)
@@ -35,7 +32,7 @@ EP_QS_RE = re.compile(r"(?:^|[?&])ep_id=(\d+)", re.IGNORECASE)
 SS_PATH_RE = re.compile(r"/bangumi/play/ss(\d+)", re.IGNORECASE)
 SS_QS_RE = re.compile(r"(?:^|[?&])season_id=(\d+)", re.IGNORECASE)
 OPUS_RE = re.compile(r"/opus/(\d+)", re.IGNORECASE)
-T_BILIBILI_PATH_RE = re.compile(r"^/(\d+)(?:/|$)")
+T_BILIBILI_RE = re.compile(r"t\.bilibili\.com/(\d+)", re.IGNORECASE)
 BV_TABLE = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
 XOR_CODE = 23442827791579
 MAX_AID = 1 << 51
@@ -116,26 +113,17 @@ MIXIN_KEY_ENC_TAB = [
 ]
 
 
-class B23ExpansionError(RuntimeError):
-    """Raised when a B23 short URL cannot be expanded to a trusted target."""
-
-
 def _is_trusted_bilibili_host(hostname: str) -> bool:
-    """Return whether a hostname belongs to Bilibili's primary web domain."""
-    normalized = str(hostname or "").strip().lower().rstrip(".")
+    """判断主机名是否属于 B 站主域或其子域。"""
+    normalized = str(hostname or "").lower().rstrip(".")
     return normalized == "bilibili.com" or normalized.endswith(".bilibili.com")
 
 
-def _url_hostname(url: str) -> str:
-    """Extract a normalized hostname without treating netloc text as authority."""
-    try:
-        return (urlparse(url).hostname or "").lower().rstrip(".")
-    except (AttributeError, TypeError, ValueError):
-        return ""
-
-
 def _is_b23_url(url: str) -> bool:
-    return _url_hostname(url) == B23_HOST
+    try:
+        return (urlparse(url).hostname or "").lower().rstrip(".") == B23_HOST
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 
 def _is_t_bilibili_url(url: str) -> bool:
@@ -145,7 +133,7 @@ def _is_t_bilibili_url(url: str) -> bool:
         return False
     return (
         parsed.scheme.lower() in {"http", "https"}
-        and _url_hostname(url) == T_BILIBILI_HOST
+        and (parsed.hostname or "").lower().rstrip(".") == T_BILIBILI_HOST
     )
 
 
@@ -154,9 +142,10 @@ def _is_bilibili_opus_url(url: str) -> bool:
         parsed = urlparse(url)
     except (AttributeError, TypeError, ValueError):
         return False
+    host = (parsed.hostname or "").lower().rstrip(".")
     return (
         parsed.scheme.lower() in {"http", "https"}
-        and _is_trusted_bilibili_host(parsed.hostname or "")
+        and _is_trusted_bilibili_host(host)
         and bool(OPUS_RE.search(parsed.path))
     )
 
@@ -582,7 +571,6 @@ class BilibiliParser(BaseVideoParser):
             return True
         if not _is_trusted_bilibili_host(hostname):
             return False
-
         if hostname == "live.bilibili.com":
             logger.debug(f"[{self.name}] can_parse: 跳过直播链接 {url}")
             return False
@@ -760,81 +748,24 @@ class BilibiliParser(BaseVideoParser):
         return result
 
     async def expand_b23(self, url: str, session: aiohttp.ClientSession) -> str:
-        """展开b23短链
-
-        Args:
-            url: 原始URL
-            session: aiohttp会话
-
-        Returns:
-            非短链原样返回；短链成功时返回经过校验的 B 站目标 URL。
-
-        Raises:
-            B23ExpansionError: 短链请求失败，或最终响应不是可信 B 站目标。
-        """
-        if not _is_b23_url(url):
-            return url
-        parsed_input = urlparse(url)
-        if parsed_input.scheme.lower() not in {"http", "https"}:
-            raise B23ExpansionError("B23 短链展开失败：仅支持 HTTP(S) URL")
-
-        headers = {
-            "User-Agent": UA,
-            "Referer": "https://www.bilibili.com",
-            "Accept-Encoding": "gzip, deflate",
-        }
-        current_url = url
-        deadline = time.monotonic() + B23_EXPANSION_TIMEOUT_SECONDS
-        try:
-            for redirect_count in range(B23_MAX_REDIRECTS):
-                remaining_timeout = deadline - time.monotonic()
-                if remaining_timeout <= 0:
-                    raise asyncio.TimeoutError
+        """展开b23短链"""
+        if urlparse(url).netloc.lower() == B23_HOST:
+            headers = {
+                "User-Agent": UA,
+                "Referer": "https://www.bilibili.com",
+                "Accept-Encoding": "gzip, deflate",
+            }
+            try:
                 async with session.get(
-                    current_url,
+                    url,
                     headers=headers,
-                    allow_redirects=False,
-                    timeout=aiohttp.ClientTimeout(total=remaining_timeout),
+                    allow_redirects=True,
+                    timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
-                    response.raise_for_status()
-                    status = int(getattr(response, "status", 0) or 0)
-                    if status not in B23_REDIRECT_STATUSES:
-                        if redirect_count == 0:
-                            raise B23ExpansionError(
-                                "B23 短链展开失败：服务端未返回重定向"
-                            )
-                        raise B23ExpansionError(
-                            "B23 短链展开失败：目标不是受支持的 B 站作品"
-                        )
-
-                    response_headers = getattr(response, "headers", {}) or {}
-                    location = str(response_headers.get("Location", "") or "").strip()
-                    if not location:
-                        raise B23ExpansionError(
-                            "B23 短链展开失败：重定向响应缺少 Location"
-                        )
-                    expanded_url = urljoin(current_url, location)
-
-                parsed_target = urlparse(expanded_url)
-                target_host = _url_hostname(expanded_url)
-                if parsed_target.scheme.lower() not in {"http", "https"}:
-                    raise B23ExpansionError("B23 短链展开失败：目标协议不受信任")
-                if target_host == B23_HOST:
-                    current_url = expanded_url
-                    continue
-                if not _is_trusted_bilibili_host(target_host):
-                    raise B23ExpansionError("B23 短链展开失败：目标不是可信 B 站域名")
-                if self.can_parse(expanded_url) or is_live_url(expanded_url):
-                    return expanded_url
-                current_url = expanded_url
-
-            raise B23ExpansionError("B23 短链展开失败：重定向次数过多")
-        except asyncio.CancelledError:
-            raise
-        except B23ExpansionError:
-            raise
-        except Exception as exc:
-            raise B23ExpansionError(f"B23 短链展开失败：{type(exc).__name__}") from exc
+                    return str(response.url)
+            except Exception:
+                return url
+        return url
 
     def extract_p(self, url: str) -> int:
         """提取分P序号
@@ -865,11 +796,11 @@ class BilibiliParser(BaseVideoParser):
             return None
 
         if _is_t_bilibili_url(url):
-            match = T_BILIBILI_PATH_RE.search(parsed.path)
+            match = re.search(r"^/(\d+)(?:/|$)", parsed.path)
             if match:
                 return match.group(1)
 
-        if not _is_trusted_bilibili_host(parsed.hostname or ""):
+        if not _is_bilibili_opus_url(url):
             return None
         match = OPUS_RE.search(parsed.path)
         if match:
@@ -2202,14 +2133,7 @@ class BilibiliParser(BaseVideoParser):
         original_url = url
 
         if _is_b23_url(url):
-            expanded_url = await self.expand_b23(url, session)
-
-            if not (
-                _is_bilibili_opus_url(expanded_url) or _is_t_bilibili_url(expanded_url)
-            ):
-                raise RuntimeError(f"短链指向的不是动态链接: {url}")
-
-            url = expanded_url
+            url = await self.expand_b23(url, session)
 
         opus_id = self.extract_opus_id(url)
         if not opus_id:

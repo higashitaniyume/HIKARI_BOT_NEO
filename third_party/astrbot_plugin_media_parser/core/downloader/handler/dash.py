@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import shutil
 from typing import Dict, Any, Optional
 
 import aiohttp
@@ -116,9 +115,6 @@ async def _merge_dash_streams(
     max_bytes: Optional[int] = None,
 ) -> bool:
     """使用 ffmpeg 异步合并 DASH 音视频。"""
-    if shutil.which("ffmpeg") is None:
-        logger.warning("ffmpeg 未找到，无法合并DASH音视频")
-        return False
     process = None
     try:
         temp_output = f"{output_path}.part.mp4"
@@ -321,11 +317,7 @@ async def download_dash_to_cache(
                         video_result.get("status_code")
                         or audio_result.get("status_code")
                     ),
-                    "error": (
-                        "ffmpeg未找到，无法合并DASH音视频"
-                        if shutil.which("ffmpeg") is None
-                        else "DASH音视频合并失败"
-                    ),
+                    "error": "DASH音视频合并失败",
                 }
         else:
             if not _replace_as_output(video_file_path, output_path):
