@@ -4,7 +4,7 @@
 
 本项目采用**源码挂载部署**方式，不再构建或分发 Docker 镜像。Compose 直接拉取官方 Python 基础镜像，将项目源码目录只读挂载进容器；依赖安装在名为 `hikaribot_venv` 的 Docker volume 中。更新代码时仅同步源码并重启 `hikaribot`，启动过程会按 `uv.lock` 自动同步 Python 依赖。
 
-Docker 启动脚本（`docker/entrypoint.sh`）负责：创建目录、检查/安装系统依赖（ffmpeg、cairo、pango、Noto CJK 字体、7zip）、创建 venv、复制示例配置、执行 `uv sync --frozen --no-dev`，最后启动机器人。
+Docker 启动脚本（`docker/entrypoint.sh`）负责：创建目录、检查/安装系统依赖（ffmpeg、cairo、pango、Noto CJK 字体、7zip）、创建 venv、确保 venv 包含 pip 后安装 uv、复制示例配置、执行 `uv sync --frozen --no-dev`，最后启动机器人。若已有旧的 `hikaribot_venv` 卷且日志提示 `No module named pip`，重启时脚本会自动通过 `ensurepip` 修复，无需手动删除数据卷。
 
 ## 一键安装脚本
 

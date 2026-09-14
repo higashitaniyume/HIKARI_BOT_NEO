@@ -32,6 +32,12 @@ if [ "$SYSTEM_DEPS_READY" -eq 0 ]; then
   rm -rf /var/lib/apt/lists/*
 fi
 
+# uv-created environments may not contain pip. Restore it before using pip to
+# bootstrap uv, including when a persisted venv volume was created previously.
+if ! "$VENV_DIR/bin/python" -m pip --version >/dev/null 2>&1; then
+  "$VENV_DIR/bin/python" -m ensurepip --upgrade
+fi
+
 if [ ! -x "$VENV_DIR/bin/uv" ]; then
   "$VENV_DIR/bin/python" -m pip install --no-cache-dir uv
 fi
