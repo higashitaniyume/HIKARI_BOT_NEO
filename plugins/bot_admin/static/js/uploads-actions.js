@@ -294,6 +294,10 @@ function buildAiAgentPayload() {
       files: {
         allow_writes: $("#aiagentAllowFileWrites").checked,
       },
+      wiki_prefetch: {
+        enabled: $("#aiagentWikiPrefetch").checked,
+        web_search: $("#aiagentWikiPrefetchSearch").checked,
+      },
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
   };

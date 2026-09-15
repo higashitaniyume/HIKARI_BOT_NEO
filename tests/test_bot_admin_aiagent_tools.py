@@ -151,6 +151,23 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         too_large = self._save_with(current, {"tools": {"tool_timeout_seconds": 10**6}})
         self.assertEqual(too_large["tools"]["tool_timeout_seconds"], 600.0)
 
+    def test_update_aiagent_config_round_trips_wiki_prefetch(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {"tools": {}})
+        self.assertTrue(default["tools"]["wiki_prefetch"]["enabled"])
+        self.assertTrue(default["tools"]["wiki_prefetch"]["web_search"])
+
+        saved = self._save_with(
+            current,
+            {"tools": {"wiki_prefetch": {"enabled": False, "web_search": False}}},
+        )
+        self.assertFalse(saved["tools"]["wiki_prefetch"]["enabled"])
+        self.assertFalse(saved["tools"]["wiki_prefetch"]["web_search"])
+
+        # 未携带时保留当前状态，不会静默改回开启
+        kept = self._save_with(saved, {"tools": {"max_tool_rounds": 3}})
+        self.assertFalse(kept["tools"]["wiki_prefetch"]["enabled"])
+
     def test_update_aiagent_config_round_trips_context_budget(self) -> None:
         current = self._base_config()
         saved = self._save_with(current, {"chat": {"max_context_chars": 4000}})

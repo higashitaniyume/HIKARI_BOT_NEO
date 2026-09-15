@@ -16,6 +16,7 @@ from core.ai_tool_registry import AIToolSpec
 from plugins.aiagent import client as aiagent_client
 from plugins.aiagent.tools import registry as tool_registry
 from plugins.aiagent.tools import search as search_tool
+from plugins.aiagent import wiki as wiki_mod
 from plugins.mc_wiki.api import McWikiResult
 from plugins.stardew_wiki.api import StardewWikiResult
 from plugins.sts2_wiki.models import Sts2WikiResult
@@ -229,6 +230,59 @@ def _cfg_with_plugin_tool(tool_name: str) -> dict[str, object]:
         "disabled_names": [],
     }
     return cfg
+
+
+class WikiPrefetchPolicyTests(unittest.IsolatedAsyncioTestCase):
+    """wiki 预取是可关闭、可拆分的外部调用，默认保持原行为。"""
+
+    def _tools(self) -> list[dict[str, object]]:
+        return [
+            {"type": "function", "function": {"name": "mc_wiki_search"}},
+            {"type": "function", "function": {"name": "web_search"}},
+        ]
+
+    def test_default_enables_wiki_and_web_search(self) -> None:
+        calls = wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), {})
+
+        self.assertEqual(
+            [call["function"]["name"] for call in calls],
+            ["mc_wiki_search", "web_search"],
+        )
+
+    def test_disabled_prefetch_returns_nothing(self) -> None:
+        cfg = {"tools": {"wiki_prefetch": {"enabled": False}}}
+        self.assertEqual(wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), cfg), [])
+
+    def test_web_search_can_be_excluded(self) -> None:
+        cfg = {"tools": {"wiki_prefetch": {"enabled": True, "web_search": False}}}
+        calls = wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), cfg)
+
+        self.assertEqual([call["function"]["name"] for call in calls], ["mc_wiki_search"])
+
+    def test_non_wiki_question_is_untouched(self) -> None:
+        self.assertEqual(wiki_mod._wiki_prefetch_calls("今天天气怎么样", self._tools(), {}), [])
+
+    async def test_disabled_prefetch_keeps_request_free_of_wiki_items(self) -> None:
+        WikiPriorityAsyncClient.post_payloads = []
+        WikiPriorityAsyncClient.get_calls = []
+        cfg = _cfg_with_plugin_tool("mc_wiki_search")
+        tools_cfg = cfg["tools"]
+        assert isinstance(tools_cfg, dict)
+        tools_cfg["wiki_prefetch"] = {"enabled": False}
+
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", WikiPriorityAsyncClient),
+        ):
+            await aiagent._request_chat_completion(
+                cfg,
+                [{"role": "user", "content": "mcwiki 苦力怕"}],
+            )
+
+        messages = WikiPriorityAsyncClient.post_payloads[0]["messages"]
+        assert isinstance(messages, list)
+        self.assertEqual([message for message in messages if message.get("role") == "tool"], [])
+        self.assertEqual(WikiPriorityAsyncClient.get_calls, [])
 
 
 class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):

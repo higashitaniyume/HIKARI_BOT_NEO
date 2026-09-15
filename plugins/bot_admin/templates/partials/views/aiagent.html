@@ -216,6 +216,16 @@
                   <input id="aiagentAllowFileWrites" type="checkbox">
                   <span>允许 AI 写 UserData 文件</span>
                 </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWikiPrefetch" type="checkbox">
+                  <span>启用 Wiki 优先预取</span>
+                  <small>命中 mcwiki / 星露谷 wiki 等别名时，先替模型跑一次 wiki 查询</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWikiPrefetchSearch" type="checkbox">
+                  <span>预取时附带网页搜索</span>
+                  <small>关闭后预取只跑 wiki，不再强制一次 web_search</small>
+                </label>
                 <label>
                   <span>网页搜索</span>
                   <select id="aiagentSearchMode">

@@ -266,6 +266,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
+    current_wiki_prefetch = current_tools.get("wiki_prefetch") if isinstance(current_tools.get("wiki_prefetch"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
@@ -278,6 +279,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
     input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
+    input_wiki_prefetch = input_tools.get("wiki_prefetch") if isinstance(input_tools.get("wiki_prefetch"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -381,6 +383,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
+            "wiki_prefetch": {
+                "enabled": _parse_bool(input_wiki_prefetch.get("enabled", current_wiki_prefetch.get("enabled", True))),
+                "web_search": _parse_bool(input_wiki_prefetch.get("web_search", current_wiki_prefetch.get("web_search", True))),
+            },
             "tool_timeout_seconds": _parse_float(
                 input_tools.get("tool_timeout_seconds", current_tools.get("tool_timeout_seconds", 30)),
                 30.0,

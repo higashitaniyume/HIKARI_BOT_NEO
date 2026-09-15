@@ -402,6 +402,8 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `tools.files.allow_writes` | 是否允许 AI 写入 `UserData`（默认 **false**，写入工具不下发给模型；后台「AI Agent」页 Tools 管理里对应「允许 AI 写 UserData 文件」） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
 | `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
+| `tools.wiki_prefetch.enabled` | 是否启用 wiki 优先预取（默认开，命中 wiki 别名时先跑一次 wiki） |
+| `tools.wiki_prefetch.web_search` | 预取 wiki 时是否顺带强制一次 `web_search`（默认开，关闭可省一次外部搜索） |
 | `tools.tool_timeout_seconds` | 单个工具调用超时（默认 30 秒；超时按工具报错返回，不拖住整轮回复） |
 | `quota.enabled` | 是否启用对话次数配额（默认关） |
 | `quota.default_user` / `default_group` | 默认额度：每日/每小时对话次数（0 = 不限额） |

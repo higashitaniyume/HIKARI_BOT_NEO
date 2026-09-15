@@ -698,6 +698,9 @@ function renderAiAgentConfig() {
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
   $("#aiagentToolTimeout").value = tools.tool_timeout_seconds ?? 30;
   $("#aiagentAllowFileWrites").checked = (tools.files || {}).allow_writes === true;
+  const wikiPrefetch = tools.wiki_prefetch || {};
+  $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
+  $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
   renderAiAgentProfiles();

@@ -173,6 +173,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "disabled_names": [],
         },
         "max_tool_rounds": 4,
+        # wiki 优先预取：命中 wiki 别名时先替模型跑一次 wiki（可选再跑一次 web_search）
+        "wiki_prefetch": {
+            "enabled": True,
+            "web_search": True,
+        },
         # 单个工具调用的超时（秒）：挂住的工具会拖住整轮回复与当前会话的锁。
         "tool_timeout_seconds": 30,
     },

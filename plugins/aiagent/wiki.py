@@ -178,8 +178,28 @@ def _tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> dict[str, 
     }
 
 
-def _wiki_prefetch_calls(user_text: str, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _wiki_prefetch_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    section = tools_cfg.get("wiki_prefetch")
+    return section if isinstance(section, dict) else {}
+
+
+def prefetch_enabled(cfg: dict[str, Any]) -> bool:
+    """是否启用 wiki 优先预取（默认开启，保持原有行为）。"""
+    return bool(_wiki_prefetch_cfg(cfg).get("enabled", True))
+
+
+def prefetch_web_search(cfg: dict[str, Any]) -> bool:
+    """预取 wiki 时是否顺带强制一次 web_search（默认开启）。"""
+    return bool(_wiki_prefetch_cfg(cfg).get("web_search", True))
+
+
+def _wiki_prefetch_calls(
+    user_text: str, tools: list[dict[str, Any]], cfg: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     """计算 wiki 优先预取的工具调用（聊天格式），含伴随的 web_search 调用。"""
+    if cfg is not None and not prefetch_enabled(cfg):
+        return []
     names = _tool_names(tools)
     wiki_tools = _wiki_priority_tool_names(user_text, names)
     if not wiki_tools:
@@ -194,7 +214,7 @@ def _wiki_prefetch_calls(user_text: str, tools: list[dict[str, Any]]) -> list[di
                 {"query": _wiki_query_from_text(user_text, tool_name)},
             )
         )
-    if _WEB_SEARCH_TOOL in names:
+    if _WEB_SEARCH_TOOL in names and (cfg is None or prefetch_web_search(cfg)):
         calls.append(_tool_call("auto_web_search_after_wiki", _WEB_SEARCH_TOOL, {"query": user_text}))
     return calls
 
@@ -210,7 +230,7 @@ async def _prefetch_wiki_priority_tools(
     if not user_text:
         return
 
-    calls = _wiki_prefetch_calls(user_text, tools)
+    calls = _wiki_prefetch_calls(user_text, tools, cfg)
     if not calls:
         return
 
@@ -237,7 +257,7 @@ async def _prefetch_wiki_priority_items(
     if not user_text:
         return
 
-    for tool_call in _wiki_prefetch_calls(user_text, tools):
+    for tool_call in _wiki_prefetch_calls(user_text, tools, cfg):
         function = tool_call.get("function") if isinstance(tool_call.get("function"), dict) else {}
         call_id = str(tool_call.get("id") or f"auto_{len(input_items)}")
         name = str(function.get("name") or "").strip()
