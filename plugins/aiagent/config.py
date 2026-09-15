@@ -104,6 +104,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_reply_chars": 3500,
         "short_reply_chars": 200,
         "max_history_messages": 10,
+        # 短期上下文总字符预算：超出时从最旧的对话开始丢弃（防止长消息撑爆上下文与费用）
+        "max_context_chars": 12000,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
         # 群聊公共上下文（默认关闭）：开启后把本群最近几轮「成员 ↔ 机器人」的对话

@@ -113,6 +113,12 @@
           </label>
 
           <label>
+            <span>上下文字符预算</span>
+            <input id="aiagentMaxContextChars" type="number" min="0" max="200000" step="1000">
+            <small>短期上下文总字符上限，超出时从最旧的对话开始丢弃（0=不留上下文）</small>
+          </label>
+
+          <label>
             <span>用户冷却（秒）</span>
             <input id="aiagentCooldown" type="number" min="0" max="3600" step="1">
           </label>

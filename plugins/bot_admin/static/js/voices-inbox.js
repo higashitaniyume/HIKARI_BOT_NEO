@@ -666,6 +666,7 @@ function renderAiAgentConfig() {
   $("#aiagentMaxUserChars").value = chat.max_user_chars ?? 2000;
   $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 3500;
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
+  $("#aiagentMaxContextChars").value = chat.max_context_chars ?? 12000;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
   $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
   const sharedChat = chat.group_shared_context || {};

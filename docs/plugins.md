@@ -386,6 +386,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chat.max_reply_chars` | 单次回复最大字符数，默认 3500 |
 | `chat.cooldown_seconds` | 冷却秒数，默认 3 |
 | `chat.max_history_messages` | 上下文保留消息数 |
+| `chat.max_context_chars` | 短期上下文总字符预算（默认 12000，超出从最旧丢起；0 = 不留上下文） |
 | `chat.group_shared_context.enabled` | 是否注入群聊公共上下文（默认 **false**） |
 | `chat.group_shared_context.max_messages` | 公共上下文保留的消息条数（默认 10） |
 | `chat.system_prompt_extra` | 额外系统提示词 |
@@ -497,7 +498,8 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 
 - 群聊短期历史不会把其他群成员与机器人的对话喂给当前用户；群共享记忆是显式的“群级事实”，读取时会同时作为背景注入。
 - 需要多人接话、跨用户话题连续性时，可显式开启 `chat.group_shared_context`（默认关闭）：开启后本群最近的公开对话会作为**不可信背景**注入，并标注发言者 QQ；后台「AI Agent」页可开关与调整条数。
-- 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条）。
+- 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条），并受 `chat.max_context_chars` 字符预算约束（默认 12000，超出从最旧的对话丢起）。
+- 持久化记忆按**参考数据**注入：提示里明确它不是指令，记忆文本内的 `system:`/`assistant:`/`user:` 等角色标记与 `<...>` 会被转义，降低「在聊天里喂指令写进记忆」的提示注入风险。
 - `重置` / `清空上下文` 只清空**当前用户**的短期上下文与记忆文件。
 - 记忆总结（自动或 `总结记忆`）按当前配置的 `api.protocol` 走对应接口，Responses 与 Chat Completions 两种配置都可用。
 - 后台任务（记忆总结）默认按 `quota.count_background` 计入配额。

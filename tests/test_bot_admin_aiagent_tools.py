@@ -151,6 +151,29 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         too_large = self._save_with(current, {"tools": {"tool_timeout_seconds": 10**6}})
         self.assertEqual(too_large["tools"]["tool_timeout_seconds"], 600.0)
 
+    def test_update_aiagent_config_round_trips_context_budget(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(current, {"chat": {"max_context_chars": 4000}})
+
+        self.assertEqual(saved["chat"]["max_context_chars"], 4000)
+        # 未携带该字段时保留当前值
+        kept = self._save_with(saved, {"chat": {"max_history_messages": 6}})
+        self.assertEqual(kept["chat"]["max_context_chars"], 4000)
+        self.assertEqual(kept["chat"]["max_history_messages"], 6)
+
+    def test_update_aiagent_config_round_trips_group_shared_context(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(
+            current,
+            {"chat": {"group_shared_context": {"enabled": True, "max_messages": 6}}},
+        )
+
+        self.assertTrue(saved["chat"]["group_shared_context"]["enabled"])
+        self.assertEqual(saved["chat"]["group_shared_context"]["max_messages"], 6)
+        # 未携带时保留已开启状态，不会静默关闭
+        kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
+        self.assertTrue(kept["chat"]["group_shared_context"]["enabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

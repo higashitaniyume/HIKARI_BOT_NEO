@@ -277,6 +277,7 @@ function buildAiAgentPayload() {
       max_user_chars: Number($("#aiagentMaxUserChars").value || 2000),
       max_reply_chars: Number($("#aiagentMaxReplyChars").value || 3500),
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
+      max_context_chars: Number($("#aiagentMaxContextChars").value || 12000),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
       group_shared_context: {

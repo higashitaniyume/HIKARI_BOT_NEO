@@ -121,7 +121,11 @@ def _build_messages(
     if shared_context:
         messages.append({"role": "system", "content": shared_context})
 
-    history = get_history(session, chat_cfg.get("max_history_messages"))
+    history = get_history(
+        session,
+        chat_cfg.get("max_history_messages"),
+        chat_cfg.get("max_context_chars"),
+    )
     messages.extend(history)
     # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
     if image_blocks:

@@ -45,6 +45,7 @@
         "max_reply_chars": 3500,
         "short_reply_chars": 200,
         "max_history_messages": 10,
+        "max_context_chars": 12000,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
         "group_shared_context": {
