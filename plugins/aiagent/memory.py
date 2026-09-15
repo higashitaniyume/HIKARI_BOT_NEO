@@ -15,9 +15,11 @@ _histories: dict[str, list[dict[str, str]]] = {}
 
 
 def session_key(event: MessageEvent) -> str:
+    """Return an isolated short-term context key for one user in one scope."""
+    user_id = event.get_user_id()
     if isinstance(event, GroupMessageEvent):
-        return f"group:{event.group_id}"
-    return f"private:{event.get_user_id()}"
+        return f"group:{event.group_id}:user:{user_id}"
+    return f"private:{user_id}"
 
 
 def trim_history(history: list[dict[str, str]], max_messages: Any) -> list[dict[str, str]]:
@@ -133,7 +135,7 @@ def clear_memory(event: MessageEvent, cfg: dict[str, Any]) -> None:
 
 # ── 会话摘要 / 自动总结 ──────────────────────────────────────────────
 
-from .client import post_chat_completion
+from .client import request_chat_completion
 from .quota import record_usage
 
 _SESSION_MARKER: str = "\n<!-- current session -->\n"
@@ -228,7 +230,8 @@ async def summarize_session_memory(
                 {"role": "system", "content": _SUMMARIZE_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
             ]
-            summary_msg = await post_chat_completion(cfg, messages, tools=[])
+            summary_text = await request_chat_completion(cfg, messages)
+            summary_msg = {"content": summary_text}
             # 后台总结按 count_background 计入配额（只计不拦；配额未启用/豁免时 record_usage 内部跳过）
             quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}
             if quota_cfg.get("count_background", True):

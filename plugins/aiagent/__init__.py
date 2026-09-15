@@ -43,6 +43,7 @@ from .vision import build_image_blocks, collect_image_urls, text_block
 logger = logging.getLogger("HikariBot.AIAgent")
 
 _last_used_at: dict[str, float] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
 _URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\"]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s<>\"]*)?")
 
 # Backward-compatible aliases for tests and plugin-local imports.
@@ -183,7 +184,7 @@ async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_
         await bot.send(event, Message(truncated))
 
 
-async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
+async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) -> None:
     text = normalize_text(text)
     cfg = get_config_for_event(event)
 
@@ -279,10 +280,24 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         mark_event_handled(event)
 
 
+async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
+    session = session_key(event)
+    async with _session_lock(session):
+        await _handle_chat_event_unlocked(bot, event, text)
+
+
 def _should_auto_reply(event: MessageEvent) -> bool:
     if isinstance(event, GroupMessageEvent):
         return event.is_tome()
     return True
+
+
+def _session_lock(session: str) -> asyncio.Lock:
+    lock = _session_locks.get(session)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[session] = lock
+    return lock
 
 
 aiagent_auto_matcher = on_message(priority=99, block=False)

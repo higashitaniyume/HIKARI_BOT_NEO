@@ -108,6 +108,29 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 admin_settings._update_aiagent_config(payload)
 
+    def _save_with(self, current: dict[str, object], payload: dict[str, object]) -> dict[str, object]:
+        with (
+            patch.object(admin_settings, "get_aiagent_config", Mock(return_value=current)),
+            patch.object(admin_settings, "resolve_aiagent_persona_path", Mock(return_value=Path("BotData/agent_personas/default"))),
+            patch.object(admin_settings, "save_aiagent_config", Mock(side_effect=lambda data: data)),
+        ):
+            return admin_settings._update_aiagent_config(payload)
+
+    def test_update_aiagent_config_keeps_file_writes_disabled_by_default(self) -> None:
+        current = self._base_config()
+        result = self._save_with(current, {"tools": {"max_tool_rounds": 2}})
+
+        self.assertFalse(result["tools"]["files"]["allow_writes"])
+
+    def test_update_aiagent_config_round_trips_allow_writes(self) -> None:
+        current = self._base_config()
+        enabled = self._save_with(current, {"tools": {"files": {"allow_writes": True}}})
+        self.assertTrue(enabled["tools"]["files"]["allow_writes"])
+
+        # 后续保存（表单未携带 files 段）不应把已开启的写入静默改回关闭
+        kept = self._save_with(enabled, {"tools": {"max_tool_rounds": 3}})
+        self.assertTrue(kept["tools"]["files"]["allow_writes"])
+
 
 if __name__ == "__main__":
     unittest.main()

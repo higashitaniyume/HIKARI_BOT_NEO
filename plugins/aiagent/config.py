@@ -154,6 +154,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "files": {
             "enabled": True,
+            "allow_writes": False,
             "max_read_chars": 20000,
             "max_write_chars": 20000,
         },

@@ -30,7 +30,7 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
         else:
             tools.append(search.definition())
     if files.enabled(cfg):
-        tools.extend(files.definitions())
+        tools.extend(files.definitions(cfg))
     if help.enabled(cfg):
         tools.append(help.definition())
     if _plugin_tools_enabled(cfg):

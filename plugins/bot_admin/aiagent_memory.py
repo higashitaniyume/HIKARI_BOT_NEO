@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from plugins.aiagent.client import post_chat_completion
+from plugins.aiagent.client import request_chat_completion
 from plugins.aiagent.config import get_config, resolve_profile_id
 from plugins.aiagent.memory import _SESSION_MARKER, _SUMMARIZE_SYSTEM_PROMPT, _summarizing_locks
 
@@ -233,8 +233,8 @@ async def trigger_summarize(file_path: str) -> dict[str, Any]:
             {"role": "system", "content": _SUMMARIZE_SYSTEM_PROMPT},
             {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
         ]
-        summary_msg = await post_chat_completion(cfg, messages, tools=[])
-        summary = (summary_msg.get("content") or "").strip()
+        # 走协议分发（Responses / Chat Completions），与聊天内总结保持一致
+        summary = (await request_chat_completion(cfg, messages)).strip()
         if summary and "无重要信息" not in summary:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             _write_summary(target, ts, summary)

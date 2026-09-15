@@ -692,6 +692,7 @@ function renderAiAgentConfig() {
   $("#aiagentVisionMaxKb").value = Math.round((vision.max_bytes ?? 5242880) / 1024);
   $("#aiagentVisionTimeout").value = vision.download_timeout_seconds ?? 20;
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
+  $("#aiagentAllowFileWrites").checked = (tools.files || {}).allow_writes === true;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
   renderAiAgentProfiles();

@@ -285,6 +285,9 @@ function buildAiAgentPayload() {
       search: {
         mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
       },
+      files: {
+        allow_writes: $("#aiagentAllowFileWrites").checked,
+      },
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
   };

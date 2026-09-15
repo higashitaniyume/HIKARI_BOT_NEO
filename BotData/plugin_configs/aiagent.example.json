@@ -92,6 +92,7 @@
         },
         "files": {
           "enabled": true,
+          "allow_writes": false,
           "max_read_chars": 20000,
           "max_write_chars": 20000
         },

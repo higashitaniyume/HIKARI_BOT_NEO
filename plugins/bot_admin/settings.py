@@ -362,6 +362,8 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             },
             "files": {
                 "enabled": _parse_bool(input_files.get("enabled", current_files.get("enabled", True))),
+                # 默认 false：AI 不能写 UserData（写入工具不下发给模型）
+                "allow_writes": _parse_bool(input_files.get("allow_writes", current_files.get("allow_writes", False))),
                 "max_read_chars": _parse_int(input_files.get("max_read_chars", current_files.get("max_read_chars", 20000)), 20000, minimum=1000, maximum=200000),
                 "max_write_chars": _parse_int(input_files.get("max_write_chars", current_files.get("max_write_chars", 20000)), 20000, minimum=1000, maximum=200000),
             },

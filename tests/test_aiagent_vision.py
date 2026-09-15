@@ -10,7 +10,7 @@ from __future__ import annotations
 import base64
 import unittest
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import plugins.aiagent as aiagent
 from plugins.aiagent import client as aiagent_client
@@ -50,9 +50,10 @@ class FakeEvent:
 
 
 class FakeStreamResponse:
-    def __init__(self, status_code: int, payload: bytes) -> None:
+    def __init__(self, status_code: int, payload: bytes, headers: dict[str, str] | None = None) -> None:
         self.status_code = status_code
         self._payload = payload
+        self.headers = headers or {}
 
     async def aiter_bytes(self):
         for index in range(0, len(self._payload), 8):
@@ -87,6 +88,35 @@ class DownloadAsyncClient:
         DownloadAsyncClient.requested.append(url)
         status, payload = DownloadAsyncClient.responses.get(url, (404, b""))
         return FakeStreamContext(FakeStreamResponse(status, payload))
+
+
+class RedirectAsyncClient:
+    """按 URL 返回 (status, payload, headers)，用于重定向校验测试。"""
+
+    responses: dict[str, tuple[int, bytes, dict[str, str]]] = {}
+    requested: list[str] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    def stream(self, method: str, url: str) -> FakeStreamContext:
+        RedirectAsyncClient.requested.append(url)
+        status, payload, headers = RedirectAsyncClient.responses.get(url, (404, b"", {}))
+        return FakeStreamContext(FakeStreamResponse(status, payload, headers))
+
+
+PUBLIC_IP = "93.184.216.34"
+
+
+def _public_dns():
+    """把域名解析固定到公网 IP，避免测试依赖真实 DNS。"""
+    return patch.object(vision, "_resolve_host_ips", AsyncMock(return_value=[PUBLIC_IP]))
 
 
 class FakeResponse:
@@ -300,7 +330,7 @@ class BuildImageBlocksTests(unittest.IsolatedAsyncioTestCase):
             "https://img.test/a.jpg": (200, JPEG),
             "https://img.test/b.png": (200, PNG),
         }
-        with patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient):
+        with patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient), _public_dns():
             blocks = await vision.build_image_blocks(
                 ["https://img.test/a.jpg", "https://img.test/b.png"], vision_config(detail="high")
             )
@@ -342,6 +372,7 @@ class BuildImageBlocksTests(unittest.IsolatedAsyncioTestCase):
         ]
         with (
             patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient),
+            _public_dns(),
             patch.object(vision.logger, "warning"),
         ):
             blocks = await vision.build_image_blocks(urls, vision_config(max_images=4, max_bytes=65536))
@@ -354,6 +385,153 @@ class BuildImageBlocksTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient):
             self.assertEqual(await vision.build_image_blocks([], vision_config()), [])
         self.assertEqual(DownloadAsyncClient.requested, [])
+
+
+class UrlSafetyTests(unittest.TestCase):
+    def test_private_loopback_and_metadata_hosts_are_rejected(self) -> None:
+        for url in (
+            "http://127.0.0.1/a.jpg",
+            "http://10.0.0.1/a.jpg",
+            "http://192.168.1.5/a.jpg",
+            "http://172.16.3.4/a.jpg",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[::1]/a.jpg",
+            "http://localhost/a.jpg",
+            "http://LOCALHOST./a.jpg",
+        ):
+            self.assertFalse(vision._is_safe_url(url), url)
+
+    def test_unusual_scheme_port_and_userinfo_are_rejected(self) -> None:
+        self.assertFalse(vision._is_safe_url("http://img.test:8080/a.jpg"))
+        self.assertFalse(vision._is_safe_url("http://user:pass@img.test/a.jpg"))
+        self.assertFalse(vision._is_safe_url("file:///etc/passwd"))
+        self.assertFalse(vision._is_safe_url("ftp://img.test/a.jpg"))
+
+    def test_public_hosts_are_accepted(self) -> None:
+        self.assertTrue(vision._is_safe_url("https://img.test/a.jpg"))
+        self.assertTrue(vision._is_safe_url("https://img.test:443/a.jpg"))
+        self.assertTrue(vision._is_safe_url("http://8.8.8.8/a.jpg"))
+
+    def test_private_image_urls_are_filtered_at_collection(self) -> None:
+        event = FakeEvent(
+            [
+                FakeSegment("image", {"url": "http://127.0.0.1/a.jpg"}),
+                FakeSegment("image", {"url": "https://img.test/ok.jpg"}),
+            ]
+        )
+        self.assertEqual(vision.collect_image_urls(event, vision_config()), ["https://img.test/ok.jpg"])
+
+
+class HostResolutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_domain_resolving_to_private_ip_is_rejected(self) -> None:
+        with patch.object(vision, "_resolve_host_ips", AsyncMock(return_value=["10.0.0.5"])):
+            self.assertFalse(await vision._host_is_allowed("internal.test"))
+
+    async def test_mixed_resolution_is_rejected(self) -> None:
+        with patch.object(
+            vision, "_resolve_host_ips", AsyncMock(return_value=[PUBLIC_IP, "192.168.0.9"])
+        ):
+            self.assertFalse(await vision._host_is_allowed("mixed.test"))
+
+    async def test_public_resolution_is_allowed(self) -> None:
+        with _public_dns():
+            self.assertTrue(await vision._host_is_allowed("img.test"))
+
+    async def test_resolution_failure_is_rejected(self) -> None:
+        with patch.object(vision, "_resolve_host_ips", AsyncMock(side_effect=OSError("dns down"))):
+            self.assertFalse(await vision._host_is_allowed("nxdomain.test"))
+
+
+class VisionSsrfTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_ip_urls_are_never_downloaded(self) -> None:
+        DownloadAsyncClient.requested = []
+        with (
+            patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(
+                ["http://127.0.0.1/a.jpg", "http://169.254.169.254/meta"], vision_config()
+            )
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(DownloadAsyncClient.requested, [])
+
+    async def test_domain_resolving_to_private_ip_is_not_downloaded(self) -> None:
+        DownloadAsyncClient.requested = []
+        DownloadAsyncClient.responses = {"https://internal.test/a.jpg": (200, JPEG)}
+        with (
+            patch.object(vision.httpx, "AsyncClient", DownloadAsyncClient),
+            patch.object(vision, "_resolve_host_ips", AsyncMock(return_value=["10.1.2.3"])),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(["https://internal.test/a.jpg"], vision_config())
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(DownloadAsyncClient.requested, [])
+
+    async def test_redirect_to_private_host_is_blocked(self) -> None:
+        RedirectAsyncClient.requested = []
+        RedirectAsyncClient.responses = {
+            "https://img.test/a.jpg": (302, b"", {"location": "http://169.254.169.254/secret"}),
+        }
+        with (
+            patch.object(vision.httpx, "AsyncClient", RedirectAsyncClient),
+            _public_dns(),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(["https://img.test/a.jpg"], vision_config())
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(RedirectAsyncClient.requested, ["https://img.test/a.jpg"])
+
+    async def test_redirect_to_non_default_port_is_blocked(self) -> None:
+        RedirectAsyncClient.requested = []
+        RedirectAsyncClient.responses = {
+            "https://img.test/b.jpg": (301, b"", {"location": "https://img.test:8080/x.jpg"}),
+        }
+        with (
+            patch.object(vision.httpx, "AsyncClient", RedirectAsyncClient),
+            _public_dns(),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(["https://img.test/b.jpg"], vision_config())
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(RedirectAsyncClient.requested, ["https://img.test/b.jpg"])
+
+    async def test_redirect_to_public_host_is_followed(self) -> None:
+        RedirectAsyncClient.requested = []
+        RedirectAsyncClient.responses = {
+            "https://img.test/c.jpg": (302, b"", {"location": "https://cdn.test/real.jpg"}),
+            "https://cdn.test/real.jpg": (200, JPEG, {}),
+        }
+        with (
+            patch.object(vision.httpx, "AsyncClient", RedirectAsyncClient),
+            _public_dns(),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(["https://img.test/c.jpg"], vision_config())
+
+        self.assertEqual(len(blocks), 1)
+        self.assertTrue(str(blocks[0]["image_url"]["url"]).startswith("data:image/jpeg;base64,"))
+        self.assertEqual(
+            RedirectAsyncClient.requested, ["https://img.test/c.jpg", "https://cdn.test/real.jpg"]
+        )
+
+    async def test_redirect_loop_is_capped(self) -> None:
+        RedirectAsyncClient.requested = []
+        RedirectAsyncClient.responses = {
+            "https://img.test/loop.jpg": (302, b"", {"location": "https://img.test/loop.jpg"}),
+        }
+        with (
+            patch.object(vision.httpx, "AsyncClient", RedirectAsyncClient),
+            _public_dns(),
+            patch.object(vision.logger, "warning"),
+        ):
+            blocks = await vision.build_image_blocks(["https://img.test/loop.jpg"], vision_config())
+
+        self.assertEqual(blocks, [])
+        self.assertEqual(len(RedirectAsyncClient.requested), vision._MAX_REDIRECTS + 1)
 
 
 class BlockContentTests(unittest.TestCase):

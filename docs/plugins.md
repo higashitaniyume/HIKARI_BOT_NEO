@@ -336,7 +336,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 
 **配置文件：** `BotData/plugin_configs/aiagent.json`
 
-最低优先级兜底插件。调用 OpenAI-compatible 的 `chat/completions` 接口（可配置 OpenAI、DeepSeek 等）。
+最低优先级兜底插件。默认走 DeepSeek Responses API（无状态，支持服务端内置 `web_search`），也可切换为 OpenAI-compatible 的 `chat/completions` 接口。
 
 配置文件是「多配置文档」：模型、人格、聊天、记忆、工具这些段放在 `profiles.<id>` 里，每套一份；
 总开关 `enabled`、配额 `quota`、黑白名单 `permissions` 是所有配置共用的全局段，留在顶层。
@@ -362,6 +362,9 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 - **私聊：** 其他插件未处理时进入 AI Agent
 - **群聊：** 必须 @机器人 且未被其他插件处理才回复
 - 回复默认不超过 `max_reply_chars`（默认 3500），超出时自动以**合并转发**发送
+- **短期上下文按「会话 + 用户」隔离**：私聊键为 `private:<QQ>`，群聊键为 `group:<群号>:user:<QQ>`，同一群里不同用户的上下文互不串线
+- 同一会话的消息**串行处理**（每个会话一把锁），避免并发请求读到相同的旧历史或回复乱序；不同会话之间并行
+- 回复前逐条下载消息里的图片；下载目标与原地址、重定向目标都会做安全校验，内网/回环地址一律拒绝
 - 支持黑白名单（用户/群维度独立开关）与对话次数配额，在后台「AI 配额」页管理
 - 被黑白名单拦截的消息会被静默忽略
 - 抖音、Bilibili、小红书等媒体链接默认不会被 AI 兜底回复
@@ -385,9 +388,14 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chat.system_prompt_extra` | 额外系统提示词 |
 | `memory.enabled` | 是否启用持久化记忆 |
 | `memory.root` | 记忆根目录（默认 `UserData/aiagent_memory`） |
+| `vision.enabled` | 是否把消息/引用消息中的图片发给视觉模型（默认关） |
+| `vision.max_images`、`detail`、`max_bytes` | 图片数量上限、清晰度档位、单张字节上限 |
+| `api.protocol` | `responses`（DeepSeek Responses API，默认）或 `chat_completions` |
+| `thinking.enabled`、`thinking.reasoning_effort` | 思考模式开关与强度（`low`/`medium`/`high`/`max`） |
 | `tools.help.enabled` | 是否启用 bot_help 帮助文档工具（默认开） |
 | `tools.search.enabled` | 是否启用网页搜索（SearXNG） |
-| `tools.files.enabled` | 是否启用文件工具 |
+| `tools.files.enabled` | 是否启用文件工具（读取人格资源、读取 `UserData`） |
+| `tools.files.allow_writes` | 是否允许 AI 写入 `UserData`（默认 **false**，写入工具不下发给模型；后台「AI Agent」页 Tools 管理里对应「允许 AI 写 UserData 文件」） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
 | `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
 | `quota.enabled` | 是否启用对话次数配额（默认关） |
@@ -474,6 +482,24 @@ UserData/aiagent_memory/private/<QQ>/memory.md
 UserData/aiagent_memory/groups/<群号>/memory.md
 UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 ```
+
+**上下文与记忆边界：**
+
+| 维度 | 短期历史（内存） | 持久化记忆（磁盘） |
+|------|------------------|--------------------|
+| 私聊 | `private:<QQ>`，按用户隔离 | `private/<QQ>/memory.md` |
+| 群聊 | `group:<群号>:user:<QQ>`，群内按用户隔离 | 群共享 `groups/<群号>/memory.md` + 个人 `groups/<群号>/users/<QQ>/memory.md` |
+| 重启后 | 丢失（进程内存） | 保留 |
+
+- 群聊短期历史不会把其他群成员与机器人的对话喂给当前用户；群共享记忆是显式的“群级事实”，读取时会同时作为背景注入。
+- 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条）。
+- `重置` / `清空上下文` 只清空**当前用户**的短期上下文与记忆文件。
+- 记忆总结（自动或 `总结记忆`）按当前配置的 `api.protocol` 走对应接口，Responses 与 Chat Completions 两种配置都可用。
+- 后台任务（记忆总结）默认按 `quota.count_background` 计入配额。
+
+**文件工具边界：**
+- 读取：`read_persona_resource`（仅 `BotData/agent_personas` 下的 `.md`/`.txt`/`.json`）、`read_user_file`（仅 `UserData`）
+- 写入：`write_user_file` 仅在 `tools.files.allow_writes=true` 时才下发给模型，且只能写 `UserData` 内部路径；跨目录逃逸会被拒绝
 
 ---
 
