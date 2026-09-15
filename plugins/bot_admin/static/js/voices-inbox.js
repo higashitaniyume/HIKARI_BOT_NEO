@@ -666,8 +666,12 @@ function renderAiAgentConfig() {
   $("#aiagentMaxUserChars").value = chat.max_user_chars ?? 2000;
   $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 3500;
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
+  $("#aiagentMaxContextChars").value = chat.max_context_chars ?? 12000;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
   $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
+  const sharedChat = chat.group_shared_context || {};
+  $("#aiagentGroupSharedContext").checked = sharedChat.enabled === true;
+  $("#aiagentGroupSharedMax").value = sharedChat.max_messages ?? 10;
 
   const select = $("#aiagentPersonaSelect");
   select.replaceChildren(option("", "手动填写路径"));
@@ -679,7 +683,40 @@ function renderAiAgentConfig() {
 
   const tools = cfg.tools || {};
   const search = tools.search || {};
+  const thinking = cfg.thinking || {};
+  const vision = cfg.vision || {};
+  $("#aiagentThinkingEnabled").checked = thinking.enabled !== false;
+  $("#aiagentReasoningEffort").value = ["low", "medium", "high", "max"].includes(thinking.reasoning_effort)
+    ? thinking.reasoning_effort
+    : "high";
+  $("#aiagentVisionEnabled").checked = vision.enabled === true;
+  $("#aiagentVisionIncludeQuoted").checked = vision.include_quoted !== false;
+  $("#aiagentVisionMaxImages").value = vision.max_images ?? 2;
+  $("#aiagentVisionDetail").value = ["low", "high", "original", "auto"].includes(vision.detail) ? vision.detail : "low";
+  $("#aiagentVisionMaxKb").value = Math.round((vision.max_bytes ?? 5242880) / 1024);
+  $("#aiagentVisionTimeout").value = vision.download_timeout_seconds ?? 20;
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
+  $("#aiagentToolTimeout").value = tools.tool_timeout_seconds ?? 30;
+  $("#aiagentAllowFileWrites").checked = (tools.files || {}).allow_writes === true;
+  const groupMembers = tools.group_members || {};
+  const memberProfile = tools.member_profile || {};
+  const userMessages = tools.user_messages || {};
+  $("#aiagentGroupMembersEnabled").checked = groupMembers.enabled !== false;
+  $("#aiagentGroupMembersMax").value = groupMembers.max_members ?? 100;
+  $("#aiagentMemberProfileEnabled").checked = memberProfile.enabled !== false;
+  $("#aiagentUserMessagesEnabled").checked = userMessages.enabled !== false;
+  $("#aiagentUserMessagesMax").value = userMessages.max_messages ?? 50;
+  $("#aiagentUserMessagesChars").value = userMessages.max_chars ?? 4000;
+  $("#aiagentUserMessagesLive").checked = userMessages.allow_live_history !== false;
+  const chatlog = cfg.chatlog || {};
+  $("#aiagentChatlogEnabled").checked = chatlog.enabled !== false;
+  $("#aiagentChatlogRetentionDays").value = chatlog.retention_days ?? 7;
+  $("#aiagentChatlogMaxMb").value = chatlog.max_total_mb ?? 200;
+  $("#aiagentChatlogGroups").value = (Array.isArray(chatlog.groups) ? chatlog.groups : []).join(", ");
+  $("#aiagentChatlogRecordBot").checked = chatlog.record_bot === true;
+  const wikiPrefetch = tools.wiki_prefetch || {};
+  $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
+  $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
   renderAiAgentTools(false);
   renderAiAgentProfiles();

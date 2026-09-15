@@ -13,6 +13,7 @@ from .aiagent_memory import trigger_summarize
 from .operations import (
     _push_run_payload,
     _write_access_rules,
+    _write_guard_config,
     _write_plugin_config,
     _write_push_config,
     _write_rss_config,
@@ -179,6 +180,16 @@ class ConfigHandlerMixin:
         except Exception as e:
             logger.exception("保存权限规则失败: %s", e)
             self._send_json({"error": "保存权限规则失败，请检查服务日志。"}, 500)
+
+    def _handle_guard_config_save(self) -> None:
+        try:
+            data = self._read_json_body()
+            self._send_json(_write_guard_config(data))
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("保存风控配置失败: %s", e)
+            self._send_json({"error": "保存风控配置失败，请检查服务日志。"}, 500)
 
     def _handle_push_run(self) -> None:
         try:

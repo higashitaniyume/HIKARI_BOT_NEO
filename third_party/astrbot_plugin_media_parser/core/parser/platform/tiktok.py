@@ -1,19 +1,21 @@
 """TikTok 解析器实现。"""
 
 import asyncio
+import html as html_lib
 import json
 import re
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
-from ...constants import Config
 from ...logger import logger
+
+from ...constants import Config
 from ..utils import SkipParse, build_request_headers, is_live_url
 from .base import BaseVideoParser
-from .short_video_shared import ShortVideoParserMixin
 
 
 TIKTOK_USER_AGENT = (
@@ -32,16 +34,11 @@ TIKTOK_PAGE_HOSTS = frozenset(
         "vt.tiktok.com",
     }
 )
-TIKTOK_MAX_REDIRECTS = 5
-TIKTOK_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-TIKTOK_CURL_MARKER = "__CURL_RESPONSE_METADATA__:"
+URL_TRAILING_PUNCTUATION = ".,!?)]}>\"'，。！？；：）】》」"
+HTTP_URL_RE = re.compile(r"https?://[^\s<>\"']+")
 
 
-class TikTokRedirectError(RuntimeError):
-    """Raised before an unsafe or invalid TikTok redirect can be requested."""
-
-
-class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
+class TikTokParser(BaseVideoParser):
     """TikTok 解析器实现。"""
 
     def __init__(self, use_proxy: bool = False, proxy_url: str = None):
@@ -61,20 +58,158 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
             return self.proxy_url
         return None
 
+    @classmethod
+    def _get_host(cls, url: str) -> str:
+        """提取链接的主机名并归一化为小写。"""
+        try:
+            return (urlparse(url).hostname or "").lower().strip(".")
+        except Exception:
+            return ""
+
     @staticmethod
-    async def _terminate_subprocess(process, label: str) -> None:
-        """终止并回收外部子进程，避免取消路径遗留进程。"""
+    def _clean_extracted_url(url: str) -> str:
+        """去除链接尾部的中英文标点。"""
+        if not url:
+            return ""
+        return url.rstrip(URL_TRAILING_PUNCTUATION)
+
+    @staticmethod
+    def _strip_query_and_fragment(url: str) -> str:
+        """去除链接的查询串与片段部分。"""
+        if not url:
+            return url
+        parsed = urlparse(url)
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+    @staticmethod
+    def _format_timestamp(timestamp_value: Any) -> str:
+        """把秒级或毫秒级时间戳格式化为日期字符串。"""
+        if timestamp_value in (None, ""):
+            return ""
         try:
-            if process.returncode is None:
-                process.kill()
-        except ProcessLookupError:
-            pass
-        except Exception as e:
-            logger.warning(f"{label} 进程终止失败: {e}")
+            timestamp = int(timestamp_value)
+            if timestamp > 10 ** 12:
+                timestamp //= 1000
+            return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+        except (TypeError, ValueError, OSError):
+            return ""
+
+    @staticmethod
+    def _extend_unique_urls(target: List[str], candidates: List[str]) -> None:
+        """按原顺序把候选链接去重追加到目标列表。"""
+        for url in candidates:
+            if url and url not in target:
+                target.append(url)
+
+    @staticmethod
+    def _decode_json_string(value: str) -> str:
+        """还原 JSON 转义字符串，失败时退化为替换转义斜杠。"""
+        if not value:
+            return ""
         try:
-            await process.communicate()
-        except Exception as e:
-            logger.warning(f"{label} 进程回收失败: {e}")
+            return json.loads(f'"{value}"')
+        except Exception:
+            return value.replace("\\u002F", "/").replace("\\/", "/")
+
+    @classmethod
+    def _extract_nested_http_urls(
+        cls,
+        value: Any,
+        depth: int = 0,
+        max_depth: int = 4
+    ) -> List[str]:
+        """在深度上限内递归提取嵌套结构中的 HTTP 链接。"""
+        if depth > max_depth or value is None:
+            return []
+
+        if isinstance(value, str):
+            decoded = cls._decode_json_string(value)
+            if decoded.startswith(("http://", "https://")):
+                return [cls._clean_extracted_url(decoded)]
+            return [
+                cls._clean_extracted_url(url)
+                for url in HTTP_URL_RE.findall(decoded)
+            ]
+
+        urls: List[str] = []
+        if isinstance(value, list):
+            for item in value:
+                cls._extend_unique_urls(
+                    urls,
+                    cls._extract_nested_http_urls(
+                        item,
+                        depth=depth + 1,
+                        max_depth=max_depth
+                    )
+                )
+            return urls
+
+        if isinstance(value, dict):
+            preferred_keys = (
+                "urlList",
+                "url_list",
+                "UrlList",
+                "urls",
+                "url",
+                "Url",
+                "playAddr",
+                "downloadAddr",
+                "PlayAddr",
+                "PlayAddrStruct",
+                "imageURL",
+                "imageUrl",
+                "displayImage",
+                "originImage",
+                "downloadImage",
+                "ownerWatermarkImage",
+                "ownerWatermarkUrl",
+                "image",
+                "cover",
+            )
+            for key in preferred_keys:
+                if key in value:
+                    cls._extend_unique_urls(
+                        urls,
+                        cls._extract_nested_http_urls(
+                            value.get(key),
+                            depth=depth + 1,
+                            max_depth=max_depth
+                        )
+                    )
+            return urls
+
+        return []
+
+    @staticmethod
+    def extract_script_json(text: str, script_id: str) -> Optional[str]:
+        """按 id 提取 script 标签内的 JSON 文本。
+
+        Args:
+            text: 页面 HTML 文本
+            script_id: script 标签的 id 属性值
+
+        Returns:
+            反转义后的 JSON 文本，未匹配到时返回 None
+        """
+        pattern = (
+            rf"<script[^>]+id=[\"']{re.escape(script_id)}[\"'][^>]*>"
+            rf"(.*?)</script>"
+        )
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return html_lib.unescape(match.group(1).strip())
+
+    @classmethod
+    def _walk_dicts(cls, obj: Any):
+        """深度优先遍历 dict / list 中的全部字典节点。"""
+        if isinstance(obj, dict):
+            yield obj
+            for value in obj.values():
+                yield from cls._walk_dicts(value)
+        elif isinstance(obj, list):
+            for value in obj:
+                yield from cls._walk_dicts(value)
 
     @classmethod
     def _is_tiktok_url(cls, url: str) -> bool:
@@ -94,15 +229,20 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
             expected_port,
         }
 
-    @classmethod
-    def _trusted_redirect_target(cls, current_url: str, location: str) -> str:
-        """Resolve one redirect without allowing it to leave TikTok web hosts."""
-        target_url = urljoin(current_url, str(location or "").strip())
-        if not target_url or not cls._is_tiktok_url(target_url):
-            raise TikTokRedirectError(
-                f"TikTok 重定向目标不受信任: {cls._get_host(target_url) or 'invalid'}"
-            )
-        return target_url
+    @staticmethod
+    async def _terminate_subprocess(process, label: str) -> None:
+        """终止并回收外部子进程，避免取消路径遗留进程。"""
+        try:
+            if process.returncode is None:
+                process.kill()
+        except ProcessLookupError:
+            pass
+        except Exception as e:
+            logger.warning(f"{label} 进程终止失败: {e}")
+        try:
+            await process.communicate()
+        except Exception as e:
+            logger.warning(f"{label} 进程回收失败: {e}")
 
     @staticmethod
     def _build_tiktok_author(nickname: str, unique_id: str) -> str:
@@ -266,63 +406,6 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
         # URL 已给出作品 ID 时，返回其他推荐作品比解析失败更危险。
         return None if item_id else fallback_item
 
-    async def _request_tiktok_redirect_chain(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-        method: str,
-        *,
-        read_body: bool = False,
-    ) -> Tuple[str, int, Optional[str]]:
-        """Request a TikTok URL while validating every redirect before following."""
-        if not self._is_tiktok_url(url):
-            raise TikTokRedirectError("TikTok 请求 URL 不受信任")
-
-        current_url = url
-        request_method = session.head if method.upper() == "HEAD" else session.get
-        for redirect_count in range(TIKTOK_MAX_REDIRECTS + 1):
-            async with request_method(
-                current_url,
-                headers=self.tiktok_headers,
-                allow_redirects=False,
-                proxy=self._get_proxy(),
-            ) as response:
-                status = int(response.status)
-                if status in TIKTOK_REDIRECT_STATUSES:
-                    location = str(response.headers.get("Location", "") or "").strip()
-                    if not location:
-                        raise TikTokRedirectError("TikTok 重定向响应缺少 Location")
-                    if redirect_count >= TIKTOK_MAX_REDIRECTS:
-                        raise TikTokRedirectError("TikTok 重定向次数过多")
-                    next_url = self._trusted_redirect_target(current_url, location)
-                else:
-                    body = await response.text() if read_body else None
-                    return current_url, status, body
-            current_url = next_url
-
-        raise TikTokRedirectError("TikTok 重定向次数过多")
-
-    async def _fetch_tiktok_html(
-        self, session: aiohttp.ClientSession, page_url: str
-    ) -> Optional[Tuple[str, str]]:
-        try:
-            (
-                final_url,
-                status,
-                response_text,
-            ) = await self._request_tiktok_redirect_chain(
-                session, page_url, "GET", read_body=True
-            )
-        except asyncio.CancelledError:
-            raise
-        except TikTokRedirectError:
-            raise
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            return None
-        if status >= 400 or response_text is None:
-            return None
-        return final_url, response_text
-
     async def fetch_tiktok_oembed(
         self, session: aiohttp.ClientSession, page_url: str
     ) -> Optional[Dict[str, Any]]:
@@ -332,7 +415,7 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
                 "https://www.tiktok.com/oembed",
                 params={"url": page_url},
                 headers=self.tiktok_headers,
-                allow_redirects=False,
+                allow_redirects=True,
                 proxy=self._get_proxy(),
             ) as response:
                 if response.status >= 400:
@@ -343,146 +426,59 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
 
         return data if isinstance(data, dict) else None
 
-    async def _run_curl_page_request(
-        self, curl_path: str, page_url: str, timeout_seconds: float
-    ) -> Optional[Dict[str, Any]]:
-        """Run one non-following curl request and return its redirect metadata."""
-        timeout_seconds = max(0.1, float(timeout_seconds))
-        connect_timeout = min(
-            timeout_seconds,
-            max(0.1, float(Config.TIKTOK_CURL_CONNECT_TIMEOUT)),
-        )
-        curl_args = [
-            curl_path,
-            "-sS",
-            "--compressed",
-            "--globoff",
-            "--proto",
-            "=http,https",
-            "--proto-redir",
-            "=http,https",
-            "--max-redirs",
-            "0",
-            "--connect-timeout",
-            str(connect_timeout),
-            "--max-time",
-            str(timeout_seconds),
-            "-A",
-            TIKTOK_USER_AGENT,
-            "-H",
-            f"Referer: {TIKTOK_REFERER}",
-            "-H",
-            "Accept-Language: en-US,en;q=0.9",
-        ]
-        proxy = self._get_proxy()
-        if proxy:
-            curl_args.extend(["-x", proxy])
-        curl_args.extend(
-            [
-                "-w",
-                (
-                    f"\n{TIKTOK_CURL_MARKER}%{{http_code}}\n"
-                    "%{redirect_url}\n%{url_effective}"
-                ),
-                "--",
-                page_url,
-            ]
-        )
-
-        process = await asyncio.create_subprocess_exec(
-            *curl_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, _ = await asyncio.wait_for(
-                process.communicate(), timeout=timeout_seconds + 5
-            )
-        except asyncio.TimeoutError:
-            await self._terminate_subprocess(process, "TikTok curl")
-            logger.warning(f"TikTok curl 超时: {page_url}")
-            return None
-        except asyncio.CancelledError:
-            await self._terminate_subprocess(process, "TikTok curl")
-            raise
-        if process.returncode != 0 or not stdout:
-            return None
-
-        output = stdout.decode("utf-8", errors="replace")
-        if TIKTOK_CURL_MARKER not in output:
-            return None
-        html_text, metadata_text = output.rsplit(TIKTOK_CURL_MARKER, 1)
-        metadata_parts = metadata_text.split("\n", 2)
-        if len(metadata_parts) != 3:
-            return None
-        try:
-            status = int(metadata_parts[0].strip())
-        except ValueError:
-            return None
-        return {
-            "status": status,
-            "redirect_url": metadata_parts[1].strip(),
-            "effective_url": metadata_parts[2].strip(),
-            "html": html_text,
-        }
-
     async def fetch_tiktok_page(self, page_url: str) -> Optional[Dict[str, str]]:
-        """使用 curl 逐跳拉取可信 TikTok 页面，规避 aiohttp WAF 指纹。"""
-        if not self._is_tiktok_url(page_url):
-            logger.warning(f"[{self.name}] 拒绝 curl 请求非 TikTok 页面: {page_url}")
-            return None
-
+        """优先使用系统 curl 拉取 TikTok 页面，规避 aiohttp 指纹触发的 WAF。"""
         curl_path = shutil.which("curl") or shutil.which("curl.exe")
         if not curl_path:
             return None
 
+        marker = "__CURL_EFFECTIVE_URL__:"
         last_page_data = None
-        max_time = max(0.1, float(Config.TIKTOK_CURL_MAX_TIME))
-        loop = asyncio.get_running_loop()
         for attempt in range(5):
-            deadline = loop.time() + max_time
-            current_url = page_url
-            for redirect_count in range(TIKTOK_MAX_REDIRECTS + 1):
-                remaining_timeout = deadline - loop.time()
-                if remaining_timeout <= 0:
-                    break
-                response_data = await self._run_curl_page_request(
-                    curl_path, current_url, remaining_timeout
+            curl_args = [
+                curl_path, "-L", "-sS", "--compressed",
+                "--connect-timeout", str(Config.TIKTOK_CURL_CONNECT_TIMEOUT),
+                "--max-time", str(Config.TIKTOK_CURL_MAX_TIME),
+                "-A", TIKTOK_USER_AGENT,
+                "-H", f"Referer: {TIKTOK_REFERER}",
+                "-H", "Accept-Language: en-US,en;q=0.9",
+            ]
+            proxy = self._get_proxy()
+            if proxy:
+                curl_args.extend(["-x", proxy])
+            curl_args.extend(["-w", f"\n{marker}%{{url_effective}}", page_url])
+            process = await asyncio.create_subprocess_exec(
+                *curl_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, _ = await asyncio.wait_for(
+                    process.communicate(), timeout=Config.TIKTOK_CURL_MAX_TIME + 5
                 )
-                if not response_data:
-                    break
-
-                status = int(response_data.get("status", 0) or 0)
-                effective_url = str(
-                    response_data.get("effective_url", "") or current_url
-                ).strip()
-                if not self._is_tiktok_url(effective_url):
-                    raise TikTokRedirectError("TikTok curl 返回了不受信任的有效 URL")
-
-                if status in TIKTOK_REDIRECT_STATUSES:
-                    if redirect_count >= TIKTOK_MAX_REDIRECTS:
-                        raise TikTokRedirectError("TikTok 重定向次数过多")
-                    redirect_url = response_data.get("redirect_url", "")
-                    if not redirect_url:
-                        raise TikTokRedirectError("TikTok 重定向响应缺少 Location")
-                    current_url = self._trusted_redirect_target(
-                        effective_url, str(redirect_url)
-                    )
-                    continue
-
-                if status <= 0 or status >= 400:
-                    break
-                html_text = str(response_data.get("html", "") or "")
-                if not html_text:
-                    break
-                page_data = {"url": effective_url, "html": html_text}
-                last_page_data = page_data
-                if (
-                    "__UNIVERSAL_DATA_FOR_REHYDRATION__" in html_text
-                    or "playAddr" in html_text
-                ) and "Please wait..." not in html_text:
-                    return page_data
-                break
+            except asyncio.TimeoutError:
+                await self._terminate_subprocess(process, "TikTok curl")
+                logger.warning(f"TikTok curl 超时: {page_url}")
+                continue
+            except asyncio.CancelledError:
+                await self._terminate_subprocess(process, "TikTok curl")
+                raise
+            if process.returncode != 0 or not stdout:
+                continue
+            output = stdout.decode("utf-8", errors="replace")
+            if marker not in output:
+                continue
+            html_text, effective_url = output.rsplit(marker, 1)
+            effective_url = effective_url.strip()
+            if not effective_url:
+                continue
+            page_data = {"url": effective_url, "html": html_text}
+            last_page_data = page_data
+            if (
+                "__UNIVERSAL_DATA_FOR_REHYDRATION__" in html_text
+                or "playAddr" in html_text
+            ) and "Please wait..." not in html_text:
+                return page_data
 
             if attempt < 4:
                 await asyncio.sleep(0.6)
@@ -629,11 +625,17 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
         """获取 TikTok 视频 / 图集信息。"""
         normalized_page_url = self._strip_query_and_fragment(page_url)
         if response_text is None:
-            fetched_page = await self._fetch_tiktok_html(session, normalized_page_url)
-            if not fetched_page:
+            try:
+                async with session.get(
+                    normalized_page_url,
+                    headers=self.tiktok_headers,
+                    proxy=self._get_proxy(),
+                ) as response:
+                    if response.status >= 400:
+                        return None
+                    response_text = await response.text()
+            except (aiohttp.ClientError, asyncio.TimeoutError):
                 return None
-            normalized_page_url = self._strip_query_and_fragment(fetched_page[0])
-            response_text = fetched_page[1]
 
         item_match = re.search(
             r"/(?:video|photo)/(\d+)", normalized_page_url
@@ -706,34 +708,37 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
         return cls._is_tiktok_url(url) and path.startswith("/t/")
 
     async def get_redirected_url(self, session: aiohttp.ClientSession, url: str) -> str:
-        """逐跳校验并解析 TikTok 重定向 URL。"""
+        """获取重定向后的 URL。"""
         try:
-            redirected_url, status, _ = await self._request_tiktok_redirect_chain(
-                session, url, "HEAD"
-            )
-            if status < 400 and (
+            async with session.head(
+                url,
+                headers=self.tiktok_headers,
+                allow_redirects=True,
+                proxy=self._get_proxy(),
+            ) as response:
+                redirected_url = str(response.url)
+                if response.status < 400 and (
                 redirected_url != url or not self._is_short_redirect_url(url)
-            ):
-                return redirected_url
-            logger.debug(
-                f"[{self.name}] HEAD未解析出有效跳转，回退GET: "
-                f"{url}, status={status}, redirected={redirected_url}"
-            )
+                ):
+                    return redirected_url
+                logger.debug(
+                    f"[{self.name}] HEAD未解析出有效跳转，回退GET: {url}, "
+                    f"status={response.status}, redirected={redirected_url}"
+                )
         except asyncio.CancelledError:
-            raise
-        except TikTokRedirectError:
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError):
             logger.debug(f"[{self.name}] HEAD跳转解析失败，回退GET: {url}")
 
         try:
-            redirected_url, _, _ = await self._request_tiktok_redirect_chain(
-                session, url, "GET"
-            )
-            return redirected_url
+            async with session.get(
+                url,
+                headers=self.tiktok_headers,
+                allow_redirects=True,
+                proxy=self._get_proxy(),
+            ) as response:
+                return str(response.url)
         except asyncio.CancelledError:
-            raise
-        except TikTokRedirectError:
             raise
 
     async def _parse_tiktok(
@@ -744,8 +749,6 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
         page_data = await self.fetch_tiktok_page(original_url)
         if page_data:
             final_url = page_data.get("url", original_url)
-            if not self._is_tiktok_url(final_url):
-                raise TikTokRedirectError("TikTok curl 最终 URL 不受信任")
             if is_live_url(final_url) or is_live_url(original_url):
                 raise SkipParse("直播域名链接不解析")
 
@@ -759,8 +762,6 @@ class TikTokParser(ShortVideoParserMixin, BaseVideoParser):
         if is_live_url(redirected_url) or is_live_url(original_url):
             raise SkipParse("直播域名链接不解析")
 
-        if not self._is_tiktok_url(redirected_url):
-            raise TikTokRedirectError("TikTok 最终 URL 不受信任")
         result = await self.fetch_tiktok_info(session, redirected_url)
         if not result:
             raise RuntimeError(f"无法获取TikTok视频信息: {original_url}")

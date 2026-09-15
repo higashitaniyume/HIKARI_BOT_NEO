@@ -19,11 +19,6 @@ from ..budget import (
     DownloadLimitExceeded,
     resolve_max_bytes,
 )
-from ..security import (
-    UnsafeMediaURLError,
-    safe_request,
-    validate_remote_url,
-)
 from ..fileio import run_blocking
 
 
@@ -31,17 +26,16 @@ VIDEO_COVER_TIMEOUT = 45
 
 
 @asynccontextmanager
-async def _safe_media_relay(
+async def _media_relay(
     session: aiohttp.ClientSession,
     source_url: str,
     headers: Optional[Dict[str, Any]],
     proxy: str,
     max_bytes: Optional[int],
 ):
-    """让 ffmpeg 只访问本机一次性中继，远端请求仍走统一安全下载层。"""
+    """通过本地 HTTP 流式中继为 ffmpeg 提供有字节上限的输入。"""
     budget = ByteBudget(resolve_max_bytes(max_bytes, is_video=True))
-    token = uuid.uuid4().hex
-    route_path = f"/{token}/media"
+    route_path = f"/{uuid.uuid4().hex}/media"
 
     async def relay(request: web.Request) -> web.StreamResponse:
         if request.path != route_path or request.method not in {"GET", "HEAD"}:
@@ -59,13 +53,13 @@ async def _safe_media_relay(
             upstream_headers["Range"] = range_header
 
         try:
-            response = await safe_request(
-                session,
+            response = await session.request(
                 request.method,
                 source_url,
                 headers=upstream_headers,
                 proxy=proxy,
                 timeout=aiohttp.ClientTimeout(total=VIDEO_COVER_TIMEOUT),
+                allow_redirects=True,
             )
             async with response:
                 forwarded_headers = {
@@ -96,6 +90,18 @@ async def _safe_media_relay(
                         text="视频封面来源必须是直接媒体，不能是播放清单或网页"
                     )
 
+                declared_length = response.headers.get("Content-Length")
+                if declared_length:
+                    try:
+                        if int(declared_length) > budget.limit:
+                            raise web.HTTPRequestEntityTooLarge(
+                                max_size=budget.limit,
+                                actual_size=int(declared_length),
+                                text="视频封面来源超过下载硬限制",
+                            )
+                    except ValueError:
+                        pass
+
                 preview = await response.content.read(512)
                 if (
                     not range_header or range_header.lower().startswith("bytes=0-")
@@ -106,29 +112,36 @@ async def _safe_media_relay(
                         text="视频封面来源不是可安全截帧的直接媒体"
                     )
 
+                try:
+                    if preview:
+                        await budget.consume(len(preview))
+                except DownloadLimitExceeded as exc:
+                    raise web.HTTPRequestEntityTooLarge(
+                        max_size=budget.limit,
+                        actual_size=budget.used + len(preview),
+                        text="视频封面来源超过下载硬限制",
+                    ) from exc
+
                 downstream = web.StreamResponse(
                     status=response.status,
                     headers=forwarded_headers,
                 )
                 await downstream.prepare(request)
-                if preview:
-                    await budget.consume(len(preview))
-                    await downstream.write(preview)
-                async for chunk in response.content.iter_chunked(256 * 1024):
-                    await budget.consume(len(chunk))
-                    await downstream.write(chunk)
-                await downstream.write_eof()
+                try:
+                    if preview:
+                        await downstream.write(preview)
+                    async for chunk in response.content.iter_chunked(256 * 1024):
+                        await budget.consume(len(chunk))
+                        await downstream.write(chunk)
+                    await downstream.write_eof()
+                except DownloadLimitExceeded:
+                    downstream.force_close()
+                    logger.warning(
+                        f"视频封面来源超过下载硬限制: {source_url}"
+                    )
                 return downstream
-        except DownloadLimitExceeded as exc:
-            raise web.HTTPRequestEntityTooLarge(
-                max_size=budget.limit,
-                actual_size=budget.used,
-                text=str(exc),
-            ) from exc
-        except UnsafeMediaURLError as exc:
-            raise web.HTTPBadGateway(text=str(exc)) from exc
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
-            raise web.HTTPBadGateway(text="安全媒体中继请求失败") from exc
+            raise web.HTTPBadGateway(text="视频封面上游请求失败") from exc
 
     application = web.Application(client_max_size=1024)
     application.router.add_route("*", route_path, relay)
@@ -193,7 +206,7 @@ async def _run_ffmpeg_cover_extract(
         "-loglevel",
         "error",
         "-protocol_whitelist",
-        "http,tcp",
+        "http,https,tcp,tls",
     ]
     if source_url.startswith(("http://", "https://")):
         if proxy:
@@ -313,29 +326,29 @@ async def extract_video_cover_to_cache(
     for candidate in candidates:
         cleanup_file(output_path)
         try:
-            await validate_remote_url(candidate, allow_fake_ip=bool(proxy))
-        except UnsafeMediaURLError as e:
-            last_error = str(e)
-            logger.warning(f"拒绝不安全的视频封面来源: {last_error}")
-            continue
-        try:
-            async with _safe_media_relay(
-                session,
-                candidate,
-                headers,
-                proxy,
-                max_bytes,
-            ) as relay_url:
+            if candidate.startswith(("http://", "https://")):
+                async with _media_relay(
+                    session=session,
+                    source_url=candidate,
+                    headers=headers,
+                    proxy=proxy,
+                    max_bytes=max_bytes,
+                ) as relay_url:
+                    success, error = await _run_ffmpeg_cover_extract(
+                        source_url=relay_url,
+                        output_path=output_path,
+                    )
+            else:
                 success, error = await _run_ffmpeg_cover_extract(
-                    source_url=relay_url,
+                    source_url=candidate,
                     output_path=output_path,
-                    headers=None,
-                    proxy=None,
+                    headers=headers,
+                    proxy=proxy,
                 )
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            success, error = False, f"安全截帧中继失败: {e}"
+            success, error = False, str(e)
         if success:
             try:
                 size_mb = os.path.getsize(output_path) / (1024 * 1024)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 
@@ -227,3 +228,110 @@ def strip_dsml_tags(content: str) -> str:
 def has_dsml_tool_calls(content: str) -> bool:
     """Return True if the content contains DSML tool call tags."""
     return bool(_DSML_TOOL_CALLS_RE.search(content))
+
+
+def format_timestamp(value: Any) -> str:
+    """Unix 时间戳 → `YYYY-MM-DD HH:MM:SS`；非法或非正数返回空串。"""
+    try:
+        timestamp = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if timestamp <= 0:
+        return ""
+    try:
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return ""
+
+
+_SEGMENT_PLACEHOLDERS: dict[str, str] = {
+    "image": "[图片]",
+    "face": "[表情]",
+    "mface": "[表情]",
+    "record": "[语音]",
+    "video": "[视频]",
+    "file": "[文件]",
+    "json": "[卡片]",
+    "xml": "[卡片]",
+    "forward": "[合并转发]",
+    "reply": "[引用]",
+    "poke": "[戳一戳]",
+    "music": "[音乐]",
+    "dice": "[骰子]",
+    "rps": "[猜拳]",
+}
+
+
+def _segment_to_text(segment: Any) -> str:
+    if isinstance(segment, str):
+        return segment
+    if isinstance(segment, dict):
+        seg_type = str(segment.get("type") or "")
+        raw_data = segment.get("data")
+    else:
+        seg_type = str(getattr(segment, "type", "") or "")
+        raw_data = getattr(segment, "data", None)
+    data = raw_data if isinstance(raw_data, dict) else {}
+
+    if seg_type == "text":
+        return str(data.get("text") or "")
+    if seg_type == "at":
+        qq = str(data.get("qq") or "").strip()
+        if qq == "all":
+            return "@全体成员"
+        name = str(data.get("name") or "").strip()
+        return f"@{name or qq}" if (name or qq) else "@某人"
+    if seg_type in _SEGMENT_PLACEHOLDERS:
+        return _SEGMENT_PLACEHOLDERS[seg_type]
+    return f"[{seg_type}]" if seg_type else ""
+
+
+def message_plain_text(message: Any, *, max_chars: int = 0) -> str:
+    """把 OneBot 消息（字符串或消息段列表）转成适合喂给模型的纯文本。
+
+    图片/语音等非文本段转成占位符（如 `[图片]`），未知段转成 `[类型]`；
+    `max_chars > 0` 时按字符数截断。
+    """
+    if message is None:
+        return ""
+    if isinstance(message, str):
+        raw = message
+    else:
+        try:
+            segments = list(message)
+        except TypeError:
+            raw = str(message)
+        else:
+            raw = "".join(_segment_to_text(segment) for segment in segments)
+    text = normalize_text(raw)
+    if max_chars > 0 and len(text) > max_chars:
+        text = text[:max_chars]
+    return text
+
+
+def message_has_text(message: Any) -> bool:
+    """消息里是否真的有文字内容（纯图片/语音/表情等返回 False）。
+
+    与 `message_plain_text` 配套：占位符（`[图片]`）不算文字内容。
+    """
+    if message is None:
+        return False
+    if isinstance(message, str):
+        return bool(message.strip())
+    try:
+        segments = list(message)
+    except TypeError:
+        return False
+    for segment in segments:
+        if isinstance(segment, dict):
+            seg_type = str(segment.get("type") or "")
+            raw_data = segment.get("data")
+        else:
+            seg_type = str(getattr(segment, "type", "") or "")
+            raw_data = getattr(segment, "data", None)
+        if seg_type != "text":
+            continue
+        data = raw_data if isinstance(raw_data, dict) else {}
+        if str(data.get("text") or "").strip():
+            return True
+    return False

@@ -256,6 +256,18 @@ function buildAiAgentPayload() {
       timeout_seconds: Number($("#aiagentTimeout").value || 60),
       proxy: $("#aiagentProxy").value.trim(),
     },
+    thinking: {
+      enabled: $("#aiagentThinkingEnabled").checked,
+      reasoning_effort: $("#aiagentReasoningEffort").value,
+    },
+    vision: {
+      enabled: $("#aiagentVisionEnabled").checked,
+      include_quoted: $("#aiagentVisionIncludeQuoted").checked,
+      max_images: Number($("#aiagentVisionMaxImages").value || 2),
+      detail: $("#aiagentVisionDetail").value,
+      max_bytes: Number($("#aiagentVisionMaxKb").value || 5120) * 1024,
+      download_timeout_seconds: Number($("#aiagentVisionTimeout").value || 20),
+    },
     persona: {
       skill_path: $("#aiagentPersonaPath").value.trim(),
       max_chars: Number($("#aiagentPersonaMaxChars").value || 12000),
@@ -265,17 +277,58 @@ function buildAiAgentPayload() {
       max_user_chars: Number($("#aiagentMaxUserChars").value || 2000),
       max_reply_chars: Number($("#aiagentMaxReplyChars").value || 3500),
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
+      max_context_chars: Number($("#aiagentMaxContextChars").value || 12000),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
+      group_shared_context: {
+        enabled: $("#aiagentGroupSharedContext").checked,
+        max_messages: Number($("#aiagentGroupSharedMax").value || 10),
+      },
     },
     tools: {
       max_tool_rounds: Number($("#aiagentMaxToolRounds").value),
+      tool_timeout_seconds: Number($("#aiagentToolTimeout").value || 30),
       search: {
         mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
       },
+      files: {
+        allow_writes: $("#aiagentAllowFileWrites").checked,
+      },
+      group_members: {
+        enabled: $("#aiagentGroupMembersEnabled").checked,
+        max_members: Number($("#aiagentGroupMembersMax").value || 100),
+      },
+      member_profile: {
+        enabled: $("#aiagentMemberProfileEnabled").checked,
+      },
+      user_messages: {
+        enabled: $("#aiagentUserMessagesEnabled").checked,
+        max_messages: Number($("#aiagentUserMessagesMax").value || 50),
+        max_chars: Number($("#aiagentUserMessagesChars").value || 4000),
+        allow_live_history: $("#aiagentUserMessagesLive").checked,
+      },
+      wiki_prefetch: {
+        enabled: $("#aiagentWikiPrefetch").checked,
+        web_search: $("#aiagentWikiPrefetchSearch").checked,
+      },
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
+    chatlog: {
+      enabled: $("#aiagentChatlogEnabled").checked,
+      groups: parseAiAgentGroupIds($("#aiagentChatlogGroups").value),
+      retention_days: Number($("#aiagentChatlogRetentionDays").value || 7),
+      max_total_mb: Number($("#aiagentChatlogMaxMb").value || 200),
+      record_bot: $("#aiagentChatlogRecordBot").checked,
+    },
   };
+}
+
+// 「只记录这些群号」输入框：逗号/空格/换行分隔，只保留数字群号
+function parseAiAgentGroupIds(value) {
+  return String(value || "")
+    .split(/[\s,，]+/)
+    .map((item) => item.trim())
+    .filter((item) => /^\d+$/.test(item));
 }
 
 async function saveAiAgentConfig(event) {

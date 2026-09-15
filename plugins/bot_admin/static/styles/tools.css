@@ -568,3 +568,54 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ── 风控与自审查 ───────────────────────────────────────── */
+
+.guard-warning {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #f0d999;
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: #fff9e8;
+  padding: 14px 16px;
+  color: #6b4a00;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.guard-warning strong {
+  color: var(--warning);
+  font-size: 14px;
+}
+
+.guard-warning p {
+  margin: 0;
+}
+
+.guard-access-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.guard-access-grid textarea {
+  min-height: 104px;
+}
+
+.guard-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.guard-form-actions button {
+  width: auto;
+  min-width: 172px;
+}
+
+.guard-form textarea[data-guard-field="review.prompt"] {
+  font: 13px/1.6 var(--mono);
+}

@@ -1,0 +1,45 @@
+{
+  "enabled": false,
+  "review": {
+    "enabled": false,
+    "require_group_whitelist": true,
+    "skip_handled": true,
+    "skip_superuser": true,
+    "min_chars": 4,
+    "max_chars": 800,
+    "temperature": 0.0,
+    "max_tokens": 300,
+    "timeout_seconds": 20,
+    "max_concurrent": 2,
+    "prompt": ""
+  },
+  "action": {
+    "recall": true,
+    "notify_group": false,
+    "notify_superuser": true
+  },
+  "recall_command": {
+    "enabled": true,
+    "allow_self_recall": true,
+    "allow_other_recall": true,
+    "other_requires_admin": true,
+    "reply_on_failure": true
+  },
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user_enable": false,
+      "group_enable": true,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user_enable": false,
+      "group_enable": false,
+      "user": [],
+      "group": []
+    }
+  }
+}

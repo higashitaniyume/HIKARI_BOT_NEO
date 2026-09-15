@@ -17,6 +17,7 @@ from plugins.aiagent.config import set_binding as set_aiagent_binding
 from plugins.aiagent.persona import list_persona_skills as list_aiagent_persona_skills
 from plugins.aiagent.persona import resolve_persona_path as resolve_aiagent_persona_path
 from plugins.aiagent.config import save_config as save_aiagent_config
+from plugins.aiagent.vision import VISION_DETAILS
 from plugins.tts_speaker.config import DEFAULT_VOICES
 from plugins.tts_speaker.config import get_config as get_tts_config
 from plugins.tts_speaker.config import save_config as save_tts_config
@@ -47,6 +48,23 @@ def _tts_config_state() -> dict[str, Any]:
     fish_cfg["api_key_set"] = bool(api_key)
     sanitized["fish_audio"] = fish_cfg
     return {"config": sanitized}
+
+
+def _parse_group_ids(value: Any) -> list[str]:
+    """规整「群号白名单」：接受列表或逗号/换行分隔的字符串，只保留数字群号。"""
+    if isinstance(value, str):
+        raw_items: list[str] = value.replace("\n", ",").split(",")
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    result: list[str] = []
+    for item in raw_items:
+        group_id = item.strip()
+        if not group_id.isdigit() or group_id in result:
+            continue
+        result.append(group_id)
+    return result
 
 
 def _parse_ai_tool_names(value: Any) -> list[str]:
@@ -257,22 +275,36 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
+    current_shared = current_chat.get("group_shared_context") if isinstance(current_chat.get("group_shared_context"), dict) else {}
     current_thinking = current.get("thinking") if isinstance(current.get("thinking"), dict) else {}
+    current_vision = current.get("vision") if isinstance(current.get("vision"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
+    current_wiki_prefetch = current_tools.get("wiki_prefetch") if isinstance(current_tools.get("wiki_prefetch"), dict) else {}
+    current_group_members = current_tools.get("group_members") if isinstance(current_tools.get("group_members"), dict) else {}
+    current_member_profile = current_tools.get("member_profile") if isinstance(current_tools.get("member_profile"), dict) else {}
+    current_user_messages = current_tools.get("user_messages") if isinstance(current_tools.get("user_messages"), dict) else {}
+    current_chatlog = current.get("chatlog") if isinstance(current.get("chatlog"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    input_shared = input_chat.get("group_shared_context") if isinstance(input_chat.get("group_shared_context"), dict) else {}
     input_thinking = data.get("thinking") if isinstance(data.get("thinking"), dict) else {}
+    input_vision = data.get("vision") if isinstance(data.get("vision"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
     input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
+    input_wiki_prefetch = input_tools.get("wiki_prefetch") if isinstance(input_tools.get("wiki_prefetch"), dict) else {}
+    input_group_members = input_tools.get("group_members") if isinstance(input_tools.get("group_members"), dict) else {}
+    input_member_profile = input_tools.get("member_profile") if isinstance(input_tools.get("member_profile"), dict) else {}
+    input_user_messages = input_tools.get("user_messages") if isinstance(input_tools.get("user_messages"), dict) else {}
+    input_chatlog = data.get("chatlog") if isinstance(data.get("chatlog"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -291,6 +323,9 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     search_mode = _parse_str(input_search.get("mode", current_search.get("mode", "builtin")), max_length=16).strip().lower()
     if search_mode not in {"builtin", "searxng"}:
         search_mode = "builtin"
+    vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "low")), max_length=16).strip().lower()
+    if vision_detail not in VISION_DETAILS:
+        vision_detail = "low"
 
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
@@ -310,6 +345,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "enabled": _parse_bool(input_thinking.get("enabled", current_thinking.get("enabled", True))),
             "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
         },
+        "vision": {
+            "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", False))),
+            "max_images": _parse_int(input_vision.get("max_images", current_vision.get("max_images", 2)), 2, minimum=1, maximum=8),
+            "detail": vision_detail,
+            "include_quoted": _parse_bool(input_vision.get("include_quoted", current_vision.get("include_quoted", True))),
+            "max_bytes": _parse_int(input_vision.get("max_bytes", current_vision.get("max_bytes", 5242880)), 5242880, minimum=65536, maximum=33554432),
+            "download_timeout_seconds": _parse_int(input_vision.get("download_timeout_seconds", current_vision.get("download_timeout_seconds", 20)), 20, minimum=3, maximum=120),
+        },
         "persona": {
             "skill_path": _parse_str(input_persona.get("skill_path", current_persona.get("skill_path", "BotData/agent_personas/default")), max_length=512),
             "max_chars": _parse_int(input_persona.get("max_chars", current_persona.get("max_chars", 12000)), 12000, minimum=1000, maximum=80000),
@@ -324,9 +367,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "max_user_chars": _parse_int(input_chat.get("max_user_chars", current_chat.get("max_user_chars", 2000)), 2000, minimum=1, maximum=20000),
             "max_reply_chars": _parse_int(input_chat.get("max_reply_chars", current_chat.get("max_reply_chars", 3500)), 3500, minimum=100, maximum=12000),
             "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
+            "max_context_chars": _parse_int(input_chat.get("max_context_chars", current_chat.get("max_context_chars", 12000)), 12000, minimum=0, maximum=200000),
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
             "short_reply_chars": _parse_int(input_chat.get("short_reply_chars", current_chat.get("short_reply_chars", 200)), 200, minimum=50, maximum=5000),
             "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
+            "group_shared_context": {
+                "enabled": _parse_bool(input_shared.get("enabled", current_shared.get("enabled", False))),
+                "max_messages": _parse_int(input_shared.get("max_messages", current_shared.get("max_messages", 10)), 10, minimum=0, maximum=40),
+            },
             "blocked_url_domains": current_chat.get("blocked_url_domains", []),
         },
         "memory": {
@@ -334,6 +382,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "root": _parse_str(input_memory.get("root", current_memory.get("root", "UserData/aiagent_memory")), max_length=512),
             "max_read_chars_per_file": _parse_int(input_memory.get("max_read_chars_per_file", current_memory.get("max_read_chars_per_file", 8000)), 8000, minimum=1000, maximum=80000),
             "max_file_chars": _parse_int(input_memory.get("max_file_chars", current_memory.get("max_file_chars", 60000)), 60000, minimum=5000, maximum=500000),
+        },
+        "chatlog": {
+            "enabled": _parse_bool(input_chatlog.get("enabled", current_chatlog.get("enabled", True))),
+            # 空列表 = 记录所有群
+            "groups": _parse_group_ids(input_chatlog.get("groups", current_chatlog.get("groups", []))),
+            "retention_days": _parse_int(input_chatlog.get("retention_days", current_chatlog.get("retention_days", 7)), 7, minimum=1, maximum=365),
+            "max_total_mb": _parse_int(input_chatlog.get("max_total_mb", current_chatlog.get("max_total_mb", 200)), 200, minimum=1, maximum=20000),
+            "record_bot": _parse_bool(input_chatlog.get("record_bot", current_chatlog.get("record_bot", False))),
         },
         "tools": {
             "search": {
@@ -348,6 +404,8 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             },
             "files": {
                 "enabled": _parse_bool(input_files.get("enabled", current_files.get("enabled", True))),
+                # 默认 false：AI 不能写 UserData（写入工具不下发给模型）
+                "allow_writes": _parse_bool(input_files.get("allow_writes", current_files.get("allow_writes", False))),
                 "max_read_chars": _parse_int(input_files.get("max_read_chars", current_files.get("max_read_chars", 20000)), 20000, minimum=1000, maximum=200000),
                 "max_write_chars": _parse_int(input_files.get("max_write_chars", current_files.get("max_write_chars", 20000)), 20000, minimum=1000, maximum=200000),
             },
@@ -357,7 +415,31 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "enabled_names": _parse_ai_tool_names(input_plugin_tools.get("enabled_names", current_plugin_tools.get("enabled_names", []))),
                 "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
             },
+            # 群聊只读工具（只在当前群生效）
+            "group_members": {
+                "enabled": _parse_bool(input_group_members.get("enabled", current_group_members.get("enabled", True))),
+                "max_members": _parse_int(input_group_members.get("max_members", current_group_members.get("max_members", 100)), 100, minimum=1, maximum=1000),
+            },
+            "member_profile": {
+                "enabled": _parse_bool(input_member_profile.get("enabled", current_member_profile.get("enabled", True))),
+            },
+            "user_messages": {
+                "enabled": _parse_bool(input_user_messages.get("enabled", current_user_messages.get("enabled", True))),
+                "max_messages": _parse_int(input_user_messages.get("max_messages", current_user_messages.get("max_messages", 50)), 50, minimum=1, maximum=200),
+                "max_chars": _parse_int(input_user_messages.get("max_chars", current_user_messages.get("max_chars", 4000)), 4000, minimum=500, maximum=20000),
+                "allow_live_history": _parse_bool(input_user_messages.get("allow_live_history", current_user_messages.get("allow_live_history", True))),
+            },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
+            "wiki_prefetch": {
+                "enabled": _parse_bool(input_wiki_prefetch.get("enabled", current_wiki_prefetch.get("enabled", True))),
+                "web_search": _parse_bool(input_wiki_prefetch.get("web_search", current_wiki_prefetch.get("web_search", True))),
+            },
+            "tool_timeout_seconds": _parse_float(
+                input_tools.get("tool_timeout_seconds", current_tools.get("tool_timeout_seconds", 30)),
+                30.0,
+                minimum=0.1,
+                maximum=600.0,
+            ),
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])

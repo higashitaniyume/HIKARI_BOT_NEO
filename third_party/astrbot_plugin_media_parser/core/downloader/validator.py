@@ -7,14 +7,13 @@ import aiohttp
 
 from ..logger import logger
 
+from ..constants import Config
 from .utils import (
     validate_content_type,
     check_json_error_response,
     extract_size_from_headers,
     strip_media_prefixes,
 )
-from ..constants import Config
-from .security import safe_request
 from .image_format import (
     detect_supported_image_format,
     image_content_type_requires_probe,
@@ -222,13 +221,12 @@ async def get_video_size(
         timeout = aiohttp.ClientTimeout(total=Config.VIDEO_SIZE_CHECK_TIMEOUT)
 
         try:
-            response = await safe_request(
-                session,
-                "HEAD",
+            response = await session.head(
                 video_url,
                 headers=request_headers,
                 timeout=timeout,
                 proxy=proxy,
+                allow_redirects=True,
             )
             async with response:
                 if response.status >= 400:
@@ -247,13 +245,12 @@ async def get_video_size(
                 return size, response.status
         except (aiohttp.ClientError, asyncio.TimeoutError):
             get_headers = _with_range_header(request_headers)
-            response = await safe_request(
-                session,
-                "GET",
+            response = await session.get(
                 video_url,
                 headers=get_headers,
                 timeout=timeout,
                 proxy=proxy,
+                allow_redirects=True,
             )
             async with response:
                 if response.status == 403:
@@ -304,13 +301,12 @@ async def validate_media_url(
         timeout = aiohttp.ClientTimeout(total=Config.VIDEO_SIZE_CHECK_TIMEOUT)
 
         try:
-            response = await safe_request(
-                session,
-                "HEAD",
+            response = await session.head(
                 media_url,
                 headers=request_headers,
                 timeout=timeout,
                 proxy=proxy,
+                allow_redirects=True,
             )
             async with response:
                 if response.status >= 400:
@@ -324,13 +320,12 @@ async def validate_media_url(
                 return is_valid, response.status
         except (aiohttp.ClientError, asyncio.TimeoutError):
             get_headers = _with_range_header(request_headers)
-            response = await safe_request(
-                session,
-                "GET",
+            response = await session.get(
                 media_url,
                 headers=get_headers,
                 timeout=timeout,
                 proxy=proxy,
+                allow_redirects=True,
             )
             async with response:
                 if response.status == 403:

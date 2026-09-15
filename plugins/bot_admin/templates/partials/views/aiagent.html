@@ -113,6 +113,12 @@
           </label>
 
           <label>
+            <span>上下文字符预算</span>
+            <input id="aiagentMaxContextChars" type="number" min="0" max="200000" step="1000">
+            <small>短期上下文总字符上限，超出时从最旧的对话开始丢弃（0=不留上下文）</small>
+          </label>
+
+          <label>
             <span>用户冷却（秒）</span>
             <input id="aiagentCooldown" type="number" min="0" max="3600" step="1">
           </label>
@@ -126,6 +132,70 @@
             <span>额外系统提示词</span>
             <textarea id="aiagentSystemExtra" rows="4" placeholder="可选，会追加在人格 skill 后"></textarea>
           </label>
+
+          <label class="checkbox-field">
+            <input id="aiagentGroupSharedContext" type="checkbox">
+            <span>启用群聊公共上下文</span>
+            <small>开启后，群内最近的公开对话（含其他成员）会作为背景提供给模型；默认关闭时每个成员只看自己的上下文。</small>
+          </label>
+
+          <label>
+            <span>公共上下文消息数</span>
+            <input id="aiagentGroupSharedMax" type="number" min="0" max="40" step="1">
+          </label>
+
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentVisionTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentVisionTitle">思考与图片输入</h3>
+                <p>图片输入需要模型本身支持视觉（例如 deepseek-v4-flash-vision-exp）；模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentThinkingEnabled" type="checkbox">
+                  <span>启用思考模式</span>
+                </label>
+                <label>
+                  <span>思考强度</span>
+                  <select id="aiagentReasoningEffort">
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="max">max</option>
+                  </select>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentVisionEnabled" type="checkbox">
+                  <span>启用图片输入</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentVisionIncludeQuoted" type="checkbox">
+                  <span>连带读取被引用消息里的图片</span>
+                </label>
+                <label>
+                  <span>单次最多图片数</span>
+                  <input id="aiagentVisionMaxImages" type="number" min="1" max="8" step="1">
+                </label>
+                <label>
+                  <span>图片精度</span>
+                  <select id="aiagentVisionDetail">
+                    <option value="low">low（512×512，最省 token）</option>
+                    <option value="high">high</option>
+                    <option value="original">original</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </label>
+                <label>
+                  <span>单张图片上限（KB）</span>
+                  <input id="aiagentVisionMaxKb" type="number" min="64" max="32768" step="64">
+                </label>
+                <label>
+                  <span>图片下载超时（秒）</span>
+                  <input id="aiagentVisionTimeout" type="number" min="3" max="120" step="1">
+                </label>
+              </div>
+            </div>
+          </section>
 
           <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentToolsTitle">
             <div class="aiagent-tools-head">
@@ -141,6 +211,20 @@
                 <label class="checkbox-field">
                   <input id="aiagentAllowSideEffectTools" type="checkbox">
                   <span>允许副作用 Tools</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentAllowFileWrites" type="checkbox">
+                  <span>允许 AI 写 UserData 文件</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWikiPrefetch" type="checkbox">
+                  <span>启用 Wiki 优先预取</span>
+                  <small>命中 mcwiki / 星露谷 wiki 等别名时，先替模型跑一次 wiki 查询</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWikiPrefetchSearch" type="checkbox">
+                  <span>预取时附带网页搜索</span>
+                  <small>关闭后预取只跑 wiki，不再强制一次 web_search</small>
                 </label>
                 <label>
                   <span>网页搜索</span>
@@ -160,6 +244,66 @@
                   <span>最大 Tool 轮次</span>
                   <input id="aiagentMaxToolRounds" type="number" min="0" max="50" step="1">
                   <small>单次对话中 AI 调用工具的最大轮次（0=禁用工具调用）</small>
+                </label>
+                <label>
+                  <span>单个 Tool 超时（秒）</span>
+                  <input id="aiagentToolTimeout" type="number" min="0.1" max="600" step="0.1">
+                  <small>单个工具调用超过该时长即按工具报错处理，不再拖住整轮回复</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupMembersEnabled" type="checkbox">
+                  <span>允许 AI 查本群成员</span>
+                  <small>只读，且只限当前群；私聊不提供该能力</small>
+                </label>
+                <label>
+                  <span>成员列表上限</span>
+                  <input id="aiagentGroupMembersMax" type="number" min="1" max="1000" step="1">
+                  <small>一次最多返回多少位成员</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentMemberProfileEnabled" type="checkbox">
+                  <span>允许 AI 查成员名片资料</span>
+                  <small>只返回名片/昵称/身份/等级/加群时间/头衔</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentUserMessagesEnabled" type="checkbox">
+                  <span>允许 AI 查成员历史发言</span>
+                  <small>开启后群成员之间可以互相检索发言，请按需开启</small>
+                </label>
+                <label>
+                  <span>历史发言条数上限</span>
+                  <input id="aiagentUserMessagesMax" type="number" min="1" max="200" step="1">
+                </label>
+                <label>
+                  <span>历史发言字符预算</span>
+                  <input id="aiagentUserMessagesChars" type="number" min="500" max="20000" step="500">
+                  <small>超出预算时从最旧的发言开始丢</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentUserMessagesLive" type="checkbox">
+                  <span>本地记录不足时用实时历史补齐</span>
+                  <small>NapCat 不存历史，实时窗口只覆盖最近一小段</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentChatlogEnabled" type="checkbox">
+                  <span>本地记录群消息（chatlog）</span>
+                  <small>只记纯文本，按 群/日期 存 UserData；关闭后「历史发言」只剩实时窗口</small>
+                </label>
+                <label>
+                  <span>聊天记录保留天数</span>
+                  <input id="aiagentChatlogRetentionDays" type="number" min="1" max="365" step="1">
+                </label>
+                <label>
+                  <span>聊天记录总量上限（MB）</span>
+                  <input id="aiagentChatlogMaxMb" type="number" min="1" max="20000" step="10">
+                </label>
+                <label>
+                  <span>只记录这些群号（留空=全部）</span>
+                  <input id="aiagentChatlogGroups" type="text" placeholder="例如：123456, 789012">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentChatlogRecordBot" type="checkbox">
+                  <span>同时记录机器人自己的发言</span>
                 </label>
               </div>
             </div>

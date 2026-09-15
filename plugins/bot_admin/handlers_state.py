@@ -13,6 +13,7 @@ from .activities import activity_state
 from .aiagent_memory import _read_memory_file, aiagent_memory_state
 from .operations import (
     _access_rules_state,
+    _guard_config_state,
     _list_logs,
     _list_plugin_configs,
     _push_config_state,
@@ -97,6 +98,15 @@ class StateHandlerMixin:
         except Exception as e:
             logger.exception("读取权限规则失败: %s", e)
             self._send_json({"error": "读取权限规则失败，请检查服务日志。"}, 500)
+
+    def _handle_guard_config_get(self) -> None:
+        try:
+            self._send_json(_guard_config_state())
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400)
+        except Exception as e:
+            logger.exception("读取风控配置失败: %s", e)
+            self._send_json({"error": "读取风控配置失败，请检查服务日志。"}, 500)
 
     def _handle_configs_list(self) -> None:
         self._send_json(_list_plugin_configs())

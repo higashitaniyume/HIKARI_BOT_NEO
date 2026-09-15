@@ -169,6 +169,36 @@ class EffectiveConfigShapeTests(ProfileTestBase):
         doc = self.read_raw()
         self.assertNotIn("enabled", doc["profiles"]["default"])
 
+    def test_save_config_persists_chatlog_as_global_key(self) -> None:
+        aiagent_config.ensure_config()
+        other = aiagent_config.create_profile("另一套")
+
+        saved = aiagent_config.save_config(
+            {"chatlog": {"enabled": False, "groups": ["123456"], "retention_days": 30}},
+            other["id"],
+        )
+        self.assertFalse(saved["chatlog"]["enabled"])
+        self.assertEqual(saved["chatlog"]["groups"], ["123456"])
+        self.assertEqual(saved["chatlog"]["retention_days"], 30)
+        # 未显式给出的字段补默认值
+        self.assertEqual(saved["chatlog"]["max_total_mb"], 200)
+
+        # 全局段：写进文档顶层，不落到任何配置文件里
+        doc = self.read_raw()
+        self.assertEqual(doc["chatlog"]["groups"], ["123456"])
+        self.assertNotIn("chatlog", doc["profiles"]["default"])
+        self.assertNotIn("chatlog", doc["profiles"][other["id"]])
+
+        # 所有配置文件都看得到同一份 chatlog
+        default_cfg = aiagent_config.get_config()
+        self.assertFalse(default_cfg["chatlog"]["enabled"])
+        self.assertEqual(default_cfg["chatlog"]["groups"], ["123456"])
+
+        # 表单未携带 chatlog 时保留磁盘上的值，不被默认值覆盖
+        kept = aiagent_config.save_config({"model": {"model": "x"}}, other["id"])
+        self.assertFalse(kept["chatlog"]["enabled"])
+        self.assertEqual(kept["chatlog"]["groups"], ["123456"])
+
     def test_unknown_profile_id_falls_back_to_active(self) -> None:
         aiagent_config.ensure_config()
         cfg = aiagent_config.get_config("no-such-profile")

@@ -8,12 +8,13 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import unquote, urlparse
 
 import aiohttp
 
-from ...constants import Config
 from ...logger import logger
+
+from ...constants import Config
 from ..utils import SkipParse, build_request_headers
 from .base import BaseVideoParser
 
@@ -26,9 +27,6 @@ MOBILE_UA = (
 
 VOD_API_BASE = "https://vod.bytedanceapi.com/"
 MAX_ARTICLE_IMAGE_REFRESHES = 5
-MAX_PAGE_REDIRECTS = 5
-REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-TOUTIAO_HOSTS = frozenset({"toutiao.com", "www.toutiao.com", "m.toutiao.com"})
 URL_TAIL_RE = r"[^\s<>\"'()，。！？；：）】》」]*"
 
 
@@ -59,6 +57,7 @@ class ToutiaoParser(BaseVideoParser):
         rf"https?://m\.toutiao\.com/is/{URL_TAIL_RE[:-1]}+",
         re.IGNORECASE,
     )
+    PAGE_ID_RE = re.compile(r"/(article|video|w)/(\d+)", re.IGNORECASE)
     SCRIPT_RE = re.compile(
         r"<script[^>]*>\s*(%7B.*?%7D)\s*</script>",
         re.IGNORECASE | re.DOTALL,
@@ -79,7 +78,8 @@ class ToutiaoParser(BaseVideoParser):
     def can_parse(self, url: str) -> bool:
         """判断是否可以解析今日头条链接。"""
         return bool(
-            self._extract_content_identity(url) != ("", "") or self._is_short_link(url)
+            self._extract_content_identity(url) != ("", "")
+            or self._is_short_link(url)
         )
 
     def extract_links(self, text: str) -> List[str]:
@@ -159,7 +159,7 @@ class ToutiaoParser(BaseVideoParser):
         except (TypeError, ValueError):
             return None
         host = (parsed.hostname or "").lower().strip(".")
-        return parsed if host in TOUTIAO_HOSTS else None
+        return parsed if host in {"toutiao.com", "www.toutiao.com", "m.toutiao.com"} else None
 
     @classmethod
     def _is_short_link(cls, url: str) -> bool:
@@ -201,67 +201,11 @@ class ToutiaoParser(BaseVideoParser):
                 return cls._build_canonical_page_url(content_type, content_id)
         return ""
 
-    async def _fetch_trusted_html(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-        *,
-        referer: str = "",
-        expected_identity: Optional[Tuple[str, str]] = None,
-    ) -> Tuple[str, str]:
-        """逐跳访问受信头条页面，重定向目标在请求前完成校验。"""
-        current_url = url
-        for redirect_count in range(MAX_PAGE_REDIRECTS + 1):
-            if not self._parse_trusted_url(current_url):
-                raise RuntimeError("今日头条页面跳转到了不受信任的地址")
-            if expected_identity:
-                current_identity = self._extract_content_identity(current_url)
-                if current_identity != expected_identity:
-                    raise RuntimeError("今日头条页面跳转到了其他作品")
-
-            async with session.get(
-                current_url,
-                headers=self._build_page_headers(referer),
-                allow_redirects=False,
-            ) as response:
-                effective_url = str(
-                    getattr(response, "url", current_url) or current_url
-                )
-                if not self._parse_trusted_url(effective_url):
-                    raise RuntimeError("今日头条响应来自不受信任的地址")
-                if response.status in REDIRECT_STATUSES:
-                    location = response.headers.get("Location")
-                    if not location:
-                        raise RuntimeError("今日头条页面重定向缺少 Location")
-                    if redirect_count >= MAX_PAGE_REDIRECTS:
-                        raise RuntimeError("今日头条页面重定向次数过多")
-                    next_url = urljoin(effective_url, location)
-                    if not self._parse_trusted_url(next_url):
-                        raise RuntimeError("今日头条页面跳转到了不受信任的地址")
-                    if expected_identity:
-                        next_identity = self._extract_content_identity(next_url)
-                        if next_identity != expected_identity:
-                            raise RuntimeError("今日头条页面跳转到了其他作品")
-                    current_url = next_url
-                    continue
-
-                body = await response.text()
-                if response.status != 200:
-                    raise RuntimeError(
-                        f"获取今日头条页面失败: HTTP {response.status}, {body[:200]}"
-                    )
-                return effective_url, body
-
-        raise RuntimeError("今日头条页面重定向次数过多")
-
     async def _resolve_content_context(
         self,
         session: aiohttp.ClientSession,
         url: str,
     ) -> Dict[str, str]:
-        if not self.can_parse(url):
-            raise SkipParse("不是支持的今日头条链接")
-
         content_type, content_id = self._extract_content_identity(url)
         page_url = (
             self._build_canonical_page_url(content_type, content_id)
@@ -280,7 +224,13 @@ class ToutiaoParser(BaseVideoParser):
         if not self._is_short_link(url):
             raise SkipParse("不是支持的今日头条链接")
 
-        final_url, html_text = await self._fetch_trusted_html(session, url)
+        async with session.get(
+            url,
+            headers=self._build_page_headers(),
+            allow_redirects=True,
+        ) as response:
+            final_url = str(response.url)
+            html_text = await response.text()
 
         content_type, content_id = self._extract_content_identity(final_url)
         if not (content_type and content_id):
@@ -302,15 +252,17 @@ class ToutiaoParser(BaseVideoParser):
         session: aiohttp.ClientSession,
         page_url: str,
     ) -> str:
-        expected_identity = self._extract_content_identity(page_url)
-        if expected_identity == ("", ""):
-            raise RuntimeError("今日头条页面 URL 缺少有效作品 ID")
-        _, html_text = await self._fetch_trusted_html(
-            session,
+        async with session.get(
             page_url,
-            expected_identity=expected_identity,
-        )
-        return html_text
+            headers=self._build_page_headers(),
+            allow_redirects=True,
+        ) as response:
+            if response.status != 200:
+                body = await response.text()
+                raise RuntimeError(
+                    f"获取今日头条页面失败: HTTP {response.status}, {body[:200]}"
+                )
+            return await response.text()
 
     def _extract_state_json_text(self, html_text: str) -> str:
         """提取页面内百分号编码的状态 JSON 文本。"""

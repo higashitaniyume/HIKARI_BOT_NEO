@@ -43,9 +43,9 @@ logger = logging.getLogger("HikariBot.AIAgent.Config")
 CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 
 # 属于单个配置文件的段（后台「AI」页编辑）。
-PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "persona", "chat", "memory", "tools")
-# 所有配置文件共用的全局段（后台「AI 配额」页编辑）。
-GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions")
+PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "vision", "persona", "chat", "memory", "tools")
+# 所有配置文件共用的全局段（后台「AI 配额」页 / 「AI Agent」页编辑）。
+GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog")
 
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_PROFILE_NAME = "默认配置"
@@ -78,6 +78,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "reasoning_effort": "high",
     },
+    # 图片输入。需要视觉模型（如 deepseek-v4-flash-vision-exp）；模型不支持时
+    # 会自动去掉图片重试一次，所以开错了不会让机器人失声，只是白下载一遍。
+    "vision": {
+        "enabled": False,
+        "max_images": 2,
+        # low 会把图片缩到 512×512，每张最多按 384 token 计费，最省钱。
+        "detail": "low",
+        "include_quoted": True,
+        "max_bytes": 5242880,
+        "download_timeout_seconds": 20,
+    },
     "persona": {
         "skill_path": "BotData/agent_personas/default",
         "max_chars": 12000,
@@ -93,8 +104,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_reply_chars": 3500,
         "short_reply_chars": 200,
         "max_history_messages": 10,
+        # 短期上下文总字符预算：超出时从最旧的对话开始丢弃（防止长消息撑爆上下文与费用）
+        "max_context_chars": 12000,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
+        # 群聊公共上下文（默认关闭）：开启后把本群最近几轮「成员 ↔ 机器人」的对话
+        # 作为背景注入，供多人接话/跨用户话题使用；关闭时每个用户只看自己的上下文。
+        "group_shared_context": {
+            "enabled": False,
+            "max_messages": 10,
+        },
         "blocked_url_domains": [
             "douyin.com",
             "iesdouyin.com",
@@ -124,6 +143,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_read_chars_per_file": 8000,
         "max_file_chars": 60000,
     },
+    # 本地群消息记录（chatlog）：NapCat 不存历史（消息走 LRU，约 5000 条即过期），
+    # 「总结某人之前说了什么」只能靠机器人自己记。只记纯文本，按 群/日期 存 JSONL。
+    # 默认记录所有群；可用 groups 白名单收窄，按 retention_days / max_total_mb 自动清理。
+    "chatlog": {
+        "enabled": True,
+        "groups": [],
+        "retention_days": 7,
+        "max_total_mb": 200,
+        # 是否连机器人自己的发言也记
+        "record_bot": False,
+    },
     "tools": {
         "help": {
             "enabled": True,
@@ -143,8 +173,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "files": {
             "enabled": True,
+            "allow_writes": False,
             "max_read_chars": 20000,
             "max_write_chars": 20000,
+        },
+        # 群聊工具（只读，且只在当前群生效）：枚举本群成员、查成员名片资料、查成员发言
+        "group_members": {
+            "enabled": True,
+            # 一次最多返回多少位成员，避免大群人名单把上下文撑爆
+            "max_members": 100,
+        },
+        "member_profile": {
+            "enabled": True,
+        },
+        "user_messages": {
+            "enabled": True,
+            "max_messages": 50,
+            # 返回发言的总字符预算（从最旧的开始丢）
+            "max_chars": 4000,
+            # 本地记录不足时，是否用 NapCat 的实时群历史窗口补齐（只覆盖最近一小段）
+            "allow_live_history": True,
         },
         "plugin_tools": {
             "enabled": True,
@@ -153,6 +201,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "disabled_names": [],
         },
         "max_tool_rounds": 4,
+        # wiki 优先预取：命中 wiki 别名时先替模型跑一次 wiki（可选再跑一次 web_search）
+        "wiki_prefetch": {
+            "enabled": True,
+            "web_search": True,
+        },
+        # 单个工具调用的超时（秒）：挂住的工具会拖住整轮回复与当前会话的锁。
+        "tool_timeout_seconds": 30,
     },
     # 配额：替代原 permissions 黑白名单。群聊扣群额度，私聊扣用户额度。
     # 额度单位为「对话次数」（一条用户消息 = 1 次），每日 / 每小时各一窗。
@@ -187,6 +242,8 @@ DEFAULT_DOCUMENT: dict[str, Any] = {
     "bindings": {"group": {}, "private": {}},
     "quota": copy.deepcopy(DEFAULT_CONFIG["quota"]),
     "permissions": copy.deepcopy(DEFAULT_CONFIG["permissions"]),
+    # 全局段：本地聊天记录是整机一份（一个保留策略），不随配置文件切换
+    "chatlog": copy.deepcopy(DEFAULT_CONFIG["chatlog"]),
 }
 
 BINDING_KINDS: tuple[str, ...] = ("group", "private")
@@ -331,6 +388,12 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
     if permissions is None:
         permissions = DEFAULT_DOCUMENT["permissions"]
 
+    # chatlog 是全局段：缺失时补默认值，存在时按默认值深合并（新增字段自动补齐）。
+    if isinstance(src.get("chatlog"), dict):
+        chatlog = _deep_merge(DEFAULT_DOCUMENT["chatlog"], src["chatlog"])
+    else:
+        chatlog = copy.deepcopy(DEFAULT_DOCUMENT["chatlog"])
+
     return {
         "enabled": bool(src.get("enabled", DEFAULT_DOCUMENT["enabled"])),
         "active_profile": active,
@@ -338,6 +401,7 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
         "bindings": _normalize_bindings(src.get("bindings"), profile_ids),
         "quota": quota,
         "permissions": copy.deepcopy(permissions),
+        "chatlog": chatlog,
     }
 
 

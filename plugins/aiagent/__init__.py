@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
+import httpx
 
 from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
@@ -19,10 +20,11 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.stats_tracker import increment as stats_increment
 
+from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
-from .quota import check_quota, get_quota_status, record_usage
+from .quota import get_quota_status, refund_quota, reserve_quota
 from .memory import (
     append_memory,
     clear_memory,
@@ -31,17 +33,21 @@ from .memory import (
     mark_activity,
     memory_paths,
     read_memory_context,
+    read_shared_context,
     remember,
+    remember_shared,
     session_key,
     should_summarize,
     summarize_session_memory,
 )
 from .tools import available_tools, execute_tool_call
 from .utils import normalize_text, safe_int, strip_markdown
+from .vision import build_image_blocks, collect_image_urls, text_block
 
 logger = logging.getLogger("HikariBot.AIAgent")
 
 _last_used_at: dict[str, float] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
 _URL_PATTERN = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\"]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s<>\"]*)?")
 
 # Backward-compatible aliases for tests and plugin-local imports.
@@ -66,7 +72,13 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
     return 0
 
 
-def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user_text: str) -> list[dict[str, str]]:
+def _build_messages(
+    cfg: dict[str, Any],
+    event: MessageEvent,
+    session: str,
+    user_text: str,
+    image_blocks: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
 
     # Part 1: 稳定的 system prompt（persona + 固定指令）
@@ -101,13 +113,26 @@ def _build_messages(cfg: dict[str, Any], event: MessageEvent, session: str, user
     else:
         memory_context = time_notice
 
-    messages: list[dict[str, str]] = [{"role": "system", "content": stable_prompt}]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
     if memory_context:
         messages.append({"role": "system", "content": memory_context})
 
-    history = get_history(session, chat_cfg.get("max_history_messages"))
+    # Part 3: 可选的群聊公共上下文（默认关闭，见 chat.group_shared_context）
+    shared_context = read_shared_context(event, cfg)
+    if shared_context:
+        messages.append({"role": "system", "content": shared_context})
+
+    history = get_history(
+        session,
+        chat_cfg.get("max_history_messages"),
+        chat_cfg.get("max_context_chars"),
+    )
     messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
+    if image_blocks:
+        messages.append({"role": "user", "content": [text_block(user_text), *image_blocks]})
+    else:
+        messages.append({"role": "user", "content": user_text})
     return messages
 
 
@@ -172,7 +197,7 @@ async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_
         await bot.send(event, Message(truncated))
 
 
-async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
+async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) -> None:
     text = normalize_text(text)
     cfg = get_config_for_event(event)
 
@@ -183,7 +208,9 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         if quoted_text:
             text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
             logger.debug("[AIAgent] 注入引用内容: %.80s", quoted_text)
-    if not text:
+
+    image_urls = collect_image_urls(event, cfg)
+    if not text and not image_urls:
         return
     if _is_blocked_media_link(text, cfg):
         return
@@ -209,18 +236,28 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         mark_event_handled(event)
         return
 
-    try:
-        messages = _build_messages(cfg, event, session, text)
+    # 配额：原子「检查 + 预留」，失败（未成功回复）时在 finally 里退回
+    quota_block, quota_reserved = reserve_quota(cfg, event)
+    if quota_block is not None:
+        block = dict(quota_block)
+        block["who"] = "群聊" if block.get("who") == "group" else "私聊"
+        block["period"] = "今日" if block.get("period") == "day" else "本小时"
+        block["used"] = f"{block['used']:,}"
+        block["limit"] = f"{block['limit']:,}"
+        await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
+        mark_event_handled(event)
+        return
 
-        # 配额前置检查：今日/本小时对话次数超限则拦截
-        quota_block = check_quota(cfg, event)
-        if quota_block is not None:
-            block = dict(quota_block)
-            block["used"] = f"{block['used']:,}"
-            block["limit"] = f"{block['limit']:,}"
-            await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
-            mark_event_handled(event)
+    delivered = False
+    try:
+        image_blocks = await build_image_blocks(image_urls, cfg)
+        if image_blocks:
+            logger.info("[AIAgent] 附带 %d 张图片送模型 -> %s", len(image_blocks), session)
+            if not text:
+                text = msg("aiagent.vision_image_only")
+        elif not text:
             return
+        messages = _build_messages(cfg, event, session, text, image_blocks)
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")
@@ -233,9 +270,9 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
         remember(session, text, reply, cfg)
+        remember_shared(event, text, reply, cfg)
         append_memory(event, cfg, text, reply)
-        # 配额记账：本次对话计 1 次
-        record_usage(cfg, event, 1)
+        # 额度已在 reserve_quota 时预留，成功回复无需再记账
         # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))
@@ -244,25 +281,56 @@ async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
             await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
             await bot.send(event, Message(reply))
+        delivered = True
         stats_increment(event, "ai_chat_sessions", 1)
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
         if e.status_code in {401, 403}:
             await bot.send(event, Message(msg("aiagent.auth_failed")))
+        elif e.status_code == 429:
+            await bot.send(event, Message(msg("aiagent.rate_limited")))
+        elif e.status_code >= 500:
+            await bot.send(event, Message(msg("aiagent.upstream_error")))
         else:
             await bot.send(event, Message(msg("aiagent.failed")))
+        mark_event_handled(event)
+    except httpx.TimeoutException as e:
+        logger.warning("[AIAgent] 请求超时: %s", e)
+        await bot.send(event, Message(msg("aiagent.timeout")))
+        mark_event_handled(event)
+    except httpx.HTTPError as e:
+        logger.warning("[AIAgent] 网络请求失败: %s", e)
+        await bot.send(event, Message(msg("aiagent.network_error")))
         mark_event_handled(event)
     except Exception as e:
         logger.exception("[AIAgent] 聊天失败: %s", e)
         await bot.send(event, Message(msg("aiagent.failed")))
         mark_event_handled(event)
+    finally:
+        # 没有成功回复（API 报错、网络异常、消息为空等）就退回预留的额度
+        if quota_reserved and not delivered:
+            refund_quota(cfg, event)
+
+
+async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
+    session = session_key(event)
+    async with _session_lock(session):
+        await _handle_chat_event_unlocked(bot, event, text)
 
 
 def _should_auto_reply(event: MessageEvent) -> bool:
     if isinstance(event, GroupMessageEvent):
         return event.is_tome()
     return True
+
+
+def _session_lock(session: str) -> asyncio.Lock:
+    lock = _session_locks.get(session)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[session] = lock
+    return lock
 
 
 aiagent_auto_matcher = on_message(priority=99, block=False)

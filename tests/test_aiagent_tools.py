@@ -12,9 +12,11 @@ import plugins.aiagent as aiagent
 import plugins.mc_wiki as mc_wiki_plugin
 import plugins.stardew_wiki as stardew_wiki_plugin
 import plugins.sts2_wiki as sts2_wiki_plugin
+from core.ai_tool_registry import AIToolSpec
 from plugins.aiagent import client as aiagent_client
 from plugins.aiagent.tools import registry as tool_registry
 from plugins.aiagent.tools import search as search_tool
+from plugins.aiagent import wiki as wiki_mod
 from plugins.mc_wiki.api import McWikiResult
 from plugins.stardew_wiki.api import StardewWikiResult
 from plugins.sts2_wiki.models import Sts2WikiResult
@@ -168,7 +170,12 @@ class ToolUnsupportedAsyncClient:
         return FakeResponse(200, {"choices": [{"message": {"role": "assistant", "content": "降级回复"}}]})
 
 
-def base_cfg(*, search_enabled: bool = True, files_enabled: bool = False) -> dict[str, object]:
+def base_cfg(
+    *,
+    search_enabled: bool = True,
+    files_enabled: bool = False,
+    files_allow_writes: bool = False,
+) -> dict[str, object]:
     return {
         # 本文件测试 Chat Completions 协议路径（Responses API 见 test_aiagent_responses.py）
         "api": {"protocol": "chat_completions"},
@@ -194,12 +201,22 @@ def base_cfg(*, search_enabled: bool = True, files_enabled: bool = False) -> dic
             },
             "files": {
                 "enabled": files_enabled,
+                "allow_writes": files_allow_writes,
                 "max_read_chars": 20000,
                 "max_write_chars": 20000,
             },
             "max_tool_rounds": 2,
         },
     }
+
+
+def _fake_tool_spec(name: str) -> AIToolSpec:
+    return AIToolSpec(
+        name=name,
+        description="test tool",
+        parameters={"type": "object", "properties": {}, "additionalProperties": False},
+        handler=lambda context, arguments: {"ok": True},
+    )
 
 
 def _cfg_with_plugin_tool(tool_name: str) -> dict[str, object]:
@@ -213,6 +230,59 @@ def _cfg_with_plugin_tool(tool_name: str) -> dict[str, object]:
         "disabled_names": [],
     }
     return cfg
+
+
+class WikiPrefetchPolicyTests(unittest.IsolatedAsyncioTestCase):
+    """wiki 预取是可关闭、可拆分的外部调用，默认保持原行为。"""
+
+    def _tools(self) -> list[dict[str, object]]:
+        return [
+            {"type": "function", "function": {"name": "mc_wiki_search"}},
+            {"type": "function", "function": {"name": "web_search"}},
+        ]
+
+    def test_default_enables_wiki_and_web_search(self) -> None:
+        calls = wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), {})
+
+        self.assertEqual(
+            [call["function"]["name"] for call in calls],
+            ["mc_wiki_search", "web_search"],
+        )
+
+    def test_disabled_prefetch_returns_nothing(self) -> None:
+        cfg = {"tools": {"wiki_prefetch": {"enabled": False}}}
+        self.assertEqual(wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), cfg), [])
+
+    def test_web_search_can_be_excluded(self) -> None:
+        cfg = {"tools": {"wiki_prefetch": {"enabled": True, "web_search": False}}}
+        calls = wiki_mod._wiki_prefetch_calls("mcwiki 苦力怕", self._tools(), cfg)
+
+        self.assertEqual([call["function"]["name"] for call in calls], ["mc_wiki_search"])
+
+    def test_non_wiki_question_is_untouched(self) -> None:
+        self.assertEqual(wiki_mod._wiki_prefetch_calls("今天天气怎么样", self._tools(), {}), [])
+
+    async def test_disabled_prefetch_keeps_request_free_of_wiki_items(self) -> None:
+        WikiPriorityAsyncClient.post_payloads = []
+        WikiPriorityAsyncClient.get_calls = []
+        cfg = _cfg_with_plugin_tool("mc_wiki_search")
+        tools_cfg = cfg["tools"]
+        assert isinstance(tools_cfg, dict)
+        tools_cfg["wiki_prefetch"] = {"enabled": False}
+
+        with (
+            patch.object(aiagent_client.httpx, "AsyncClient", WikiPriorityAsyncClient),
+            patch.object(search_tool.httpx, "AsyncClient", WikiPriorityAsyncClient),
+        ):
+            await aiagent._request_chat_completion(
+                cfg,
+                [{"role": "user", "content": "mcwiki 苦力怕"}],
+            )
+
+        messages = WikiPriorityAsyncClient.post_payloads[0]["messages"]
+        assert isinstance(messages, list)
+        self.assertEqual([message for message in messages if message.get("role") == "tool"], [])
+        self.assertEqual(WikiPriorityAsyncClient.get_calls, [])
 
 
 class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
@@ -402,6 +472,17 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
     def test_file_tools_are_declared_when_enabled(self) -> None:
         tools = aiagent._available_tools(base_cfg(search_enabled=False, files_enabled=True))
         tool_names = {tool["function"]["name"] for tool in tools}
+        # 写入工具默认不下发给模型（allow_writes 默认 false）
+        self.assertEqual(
+            tool_names,
+            {"bot_help", "read_persona_resource", "read_user_file"},
+        )
+
+    def test_write_tool_declared_only_when_allow_writes(self) -> None:
+        tools = aiagent._available_tools(
+            base_cfg(search_enabled=False, files_enabled=True, files_allow_writes=True)
+        )
+        tool_names = {tool["function"]["name"] for tool in tools}
         self.assertEqual(
             tool_names,
             {"bot_help", "read_persona_resource", "read_user_file", "write_user_file"},
@@ -420,6 +501,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
 
             with temporary_cwd(root), patch.object(tool_registry.logger, "warning"):
                 cfg = base_cfg(search_enabled=False, files_enabled=True)
+                cfg_writes = base_cfg(search_enabled=False, files_enabled=True, files_allow_writes=True)
                 persona_result = await aiagent._execute_tool_call(
                     cfg,
                     {
@@ -451,8 +533,18 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
                         "function": {"name": "read_user_file", "arguments": "{\"path\":\"note.txt\"}"},
                     },
                 )
-                write_result = await aiagent._execute_tool_call(
+                disabled_write_result = await aiagent._execute_tool_call(
                     cfg,
+                    {
+                        "id": "write_disabled",
+                        "function": {
+                            "name": "write_user_file",
+                            "arguments": "{\"path\":\"notes/denied.txt\",\"content\":\"nope\"}",
+                        },
+                    },
+                )
+                write_result = await aiagent._execute_tool_call(
+                    cfg_writes,
                     {
                         "id": "write_user",
                         "function": {
@@ -462,7 +554,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 escape_result = await aiagent._execute_tool_call(
-                    cfg,
+                    cfg_writes,
                     {
                         "id": "escape",
                         "function": {
@@ -476,6 +568,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
             blocked_config_payload = json.loads(blocked_config_result["content"])
             blocked_plugin_config_payload = json.loads(blocked_plugin_config_result["content"])
             user_payload = json.loads(user_result["content"])
+            disabled_write_payload = json.loads(disabled_write_result["content"])
             write_payload = json.loads(write_result["content"])
             escape_payload = json.loads(escape_result["content"])
 
@@ -483,9 +576,42 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("outside allowed directory", blocked_config_payload["error"])
             self.assertIn("outside allowed directory", blocked_plugin_config_payload["error"])
             self.assertEqual(user_payload["content"], "hello")
+            # 默认 allow_writes=false：写入被拒绝且不落盘
+            self.assertIn("disabled", disabled_write_payload["error"])
+            self.assertFalse((root / "UserData" / "notes" / "denied.txt").exists())
             self.assertTrue(write_payload["ok"])
             self.assertEqual((root / "UserData" / "notes" / "out.txt").read_text(encoding="utf-8"), "saved")
             self.assertIn("outside allowed directory", escape_payload["error"])
+
+    async def test_slow_plugin_tool_times_out_without_failing_the_turn(self) -> None:
+        import asyncio
+
+        async def slow_tool(name, context, arguments):
+            await asyncio.sleep(5)
+            return {"ok": True}
+
+        cfg = _cfg_with_plugin_tool("unit_slow_tool")
+        tools_cfg = cfg["tools"]
+        assert isinstance(tools_cfg, dict)
+        tools_cfg["tool_timeout_seconds"] = 0.2
+
+        with patch.object(
+            tool_registry,
+            "iter_ai_tools",
+            return_value=[_fake_tool_spec("unit_slow_tool")],
+        ), patch.object(tool_registry, "execute_ai_tool", slow_tool):
+            result = await aiagent._execute_tool_call(
+                cfg,
+                {
+                    "id": "call_slow",
+                    "function": {"name": "unit_slow_tool", "arguments": "{}"},
+                },
+            )
+
+        payload = json.loads(result["content"])
+        self.assertIn("timed out", payload["error"])
+        self.assertEqual(result["role"], "tool")
+        self.assertEqual(result["tool_call_id"], "call_slow")
 
 
 if __name__ == "__main__":

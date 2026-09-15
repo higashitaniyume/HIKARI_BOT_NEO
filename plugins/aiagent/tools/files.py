@@ -28,8 +28,12 @@ def enabled(cfg: dict[str, Any]) -> bool:
     return safe_bool(config(cfg).get("enabled"), True)
 
 
-def definitions() -> list[dict[str, Any]]:
-    return [
+def allow_writes(cfg: dict[str, Any]) -> bool:
+    return safe_bool(config(cfg).get("allow_writes"), False)
+
+
+def definitions(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    definitions = [
         {
             "type": "function",
             "function": {
@@ -100,6 +104,9 @@ def definitions() -> list[dict[str, Any]]:
             },
         },
     ]
+    if not allow_writes(cfg or {}):
+        definitions = [item for item in definitions if item["function"]["name"] != WRITE_USER_FILE]
+    return definitions
 
 
 def can_handle(name: str) -> bool:
@@ -207,6 +214,8 @@ def _write_user_file(cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
 
 
 def execute(name: str, cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
+    if name == WRITE_USER_FILE and not allow_writes(cfg):
+        return json.dumps({"error": "write_user_file is disabled by configuration"}, ensure_ascii=False)
     if name == READ_PERSONA_RESOURCE:
         return _read_persona_resource(cfg, arguments)
     if name == READ_USER_FILE:

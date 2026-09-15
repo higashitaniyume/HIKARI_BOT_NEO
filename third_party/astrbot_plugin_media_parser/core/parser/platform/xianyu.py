@@ -7,12 +7,13 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import aiohttp
 
-from ...constants import Config
 from ...logger import logger
+
+from ...constants import Config
 from ..utils import SkipParse, build_request_headers, is_live_url
 from .base import BaseVideoParser
 
@@ -30,18 +31,7 @@ XIANYU_MTOP_BASE = "https://h5api.m.goofish.com"
 XIANYU_DETAIL_API = "mtop.taobao.idle.awesome.detail"
 XIANYU_DETAIL_API_VERSION = "1.0"
 HTTP_URL_RE = re.compile(r"https?://[^\s<>\"']+")
-MAX_SHORT_REDIRECTS = 5
-REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 XIANYU_ITEM_HOSTS = frozenset({"www.goofish.com", "h5.m.goofish.com"})
-XIANYU_REDIRECT_HOSTS = frozenset(
-    {
-        "m.tb.cn",
-        "s.tb.cn",
-        "market.m.taobao.com",
-        "h5.m.taobao.com",
-        *XIANYU_ITEM_HOSTS,
-    }
-)
 
 
 class XianyuParser(BaseVideoParser):
@@ -157,9 +147,7 @@ class XianyuParser(BaseVideoParser):
                 decoded = unquote(decoded)
                 if decoded.startswith("//"):
                     decoded = "https:" + decoded
-                if self._is_goofish_item_url(
-                    decoded
-                ) and self._extract_item_id_from_url(decoded):
+                if self._is_goofish_item_url(decoded) and self._extract_item_id_from_url(decoded):
                     return decoded
         return ""
 
@@ -184,68 +172,25 @@ class XianyuParser(BaseVideoParser):
                 return segment
         return ""
 
-    @classmethod
-    def _is_trusted_redirect_url(cls, url: str) -> bool:
-        return cls._get_host(url) in XIANYU_REDIRECT_HOSTS
-
-    async def _fetch_trusted_short_page(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-    ) -> tuple[str, str]:
-        """逐跳展开闲鱼短链，跳转目标在请求前完成校验。"""
-        current_url = url
-        for redirect_count in range(MAX_SHORT_REDIRECTS + 1):
-            if not self._is_trusted_redirect_url(current_url):
-                raise RuntimeError("闲鱼短链跳转到了不受信任的地址")
-            async with session.get(
-                current_url,
-                headers=self._build_html_headers(MOBILE_UA),
-                allow_redirects=False,
-            ) as response:
-                effective_url = str(
-                    getattr(response, "url", current_url) or current_url
-                )
-                if not self._is_trusted_redirect_url(effective_url):
-                    raise RuntimeError("闲鱼短链响应来自不受信任的地址")
-                if response.status in REDIRECT_STATUSES:
-                    location = response.headers.get("Location")
-                    if not location:
-                        raise RuntimeError("闲鱼短链重定向缺少 Location")
-                    if redirect_count >= MAX_SHORT_REDIRECTS:
-                        raise RuntimeError("闲鱼短链重定向次数过多")
-                    next_url = urljoin(effective_url, location)
-                    if not self._is_trusted_redirect_url(next_url):
-                        raise RuntimeError("闲鱼短链跳转到了不受信任的地址")
-                    current_url = next_url
-                    continue
-                body = await response.text()
-                if response.status != 200:
-                    raise RuntimeError(
-                        f"闲鱼短链展开失败: HTTP {response.status}, {body[:200]}"
-                    )
-                return effective_url, body
-
-        raise RuntimeError("闲鱼短链重定向次数过多")
-
     async def _resolve_source_context(
         self, session: aiohttp.ClientSession, url: str
     ) -> Dict[str, str]:
         source_url = url
         mobile_url = ""
         pc_url = ""
-        item_id = ""
+        item_id = self._extract_item_id_from_url(url)
 
         if self._is_short_share_url(url):
-            final_url, html_text = await self._fetch_trusted_short_page(session, url)
+            async with session.get(
+                url,
+                headers=self._build_html_headers(MOBILE_UA),
+                allow_redirects=True,
+            ) as response:
+                final_url = str(response.url)
+                html_text = await response.text()
 
             redirect_url = self._extract_redirect_url_from_short_page(html_text)
-            candidate_url = (
-                final_url
-                if self._is_goofish_item_url(final_url)
-                and self._extract_item_id_from_url(final_url)
-                else redirect_url
-            )
+            candidate_url = redirect_url or final_url
             if not self._is_goofish_item_url(candidate_url):
                 raise SkipParse("短链未展开为闲鱼商品页")
 
@@ -255,7 +200,7 @@ class XianyuParser(BaseVideoParser):
                 if self._get_host(candidate_url) == "h5.m.goofish.com"
                 else ""
             )
-            item_id = self._extract_item_id_from_url(candidate_url)
+            item_id = self._extract_item_id_from_url(candidate_url) or item_id
 
         elif self._is_goofish_item_url(url):
             item_id = self._extract_item_id_from_url(url)

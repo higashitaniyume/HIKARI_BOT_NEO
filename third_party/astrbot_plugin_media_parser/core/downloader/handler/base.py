@@ -11,12 +11,11 @@ import aiohttp
 from ...logger import logger
 
 from ...storage import cleanup_file
+from ...constants import Config
 from ..utils import extract_size_from_headers
 from ..validator import validate_media_response
 from ..budget import ByteBudget, DownloadLimitExceeded, resolve_max_bytes
 from ..fileio import run_blocking
-from ..security import safe_request
-from ...constants import Config
 
 
 def _is_retryable_exception(exc: BaseException) -> bool:
@@ -68,13 +67,12 @@ async def _get_file_size(
         request_headers = (headers or {}).copy()
         request_headers["Range"] = "bytes=0-0"
         timeout = aiohttp.ClientTimeout(total=Config.VIDEO_SIZE_CHECK_TIMEOUT)
-        response = await safe_request(
-            session,
-            "GET",
+        response = await session.get(
             url,
             headers=request_headers,
             timeout=timeout,
             proxy=proxy,
+            allow_redirects=True,
         )
         async with response:
             # 200 表示服务端忽略 Range。绝不能读取正文或启动并发分片。
@@ -128,13 +126,12 @@ async def _download_range(
         request_headers["Range"] = f"bytes={start}-{end}"
 
         timeout = aiohttp.ClientTimeout(total=Config.VIDEO_DOWNLOAD_TIMEOUT)
-        response = await safe_request(
-            session,
-            "GET",
+        response = await session.get(
             url,
             headers=request_headers,
             timeout=timeout,
             proxy=proxy,
+            allow_redirects=True,
         )
         async with response:
             if response.status == 206:
@@ -467,13 +464,12 @@ async def download_media_from_url(
                 if is_video
                 else Config.IMAGE_DOWNLOAD_TIMEOUT
             )
-            response = await safe_request(
-                session,
-                "GET",
+            response = await session.get(
                 media_url,
                 headers=request_headers,
                 timeout=timeout,
                 proxy=proxy,
+                allow_redirects=True,
             )
             async with response:
                 last_status_code = response.status

@@ -9,6 +9,13 @@ $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
 $("#pushConfigForm").addEventListener("submit", savePushConfig);
 $("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);
+for (const form of document.querySelectorAll("[data-guard-plugin]")) {
+  form.addEventListener("submit", saveGuardConfig);
+}
+for (const btn of document.querySelectorAll("[data-guard-reset-prompt]")) {
+  btn.addEventListener("click", () => resetGuardPrompt(btn.dataset.guardResetPrompt));
+}
+$("#guardRefreshBtn").addEventListener("click", () => fetchGuardConfig().then(() => showToast("风控配置已刷新。")).catch((err) => showToast(err.message, true)));
 $("#quotaConfigForm").addEventListener("submit", saveAiAgentQuota);
 $("#quotaAddOverrideBtn").addEventListener("click", addQuotaOverrideRow);
 $("#quotaRefreshBtn").addEventListener("click", () => fetchAiAgentQuota().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));

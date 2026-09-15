@@ -22,6 +22,7 @@ from core.bot_messages import get_message as msg
 from .client import AIAgentRequestError, _tool_wanted, _tools_cfg
 from .tools import available_tools, execute_tool_call
 from .utils import safe_float, safe_int
+from .vision import has_images, strip_images
 from .wiki import _latest_user_text, _prefetch_wiki_priority_items
 
 logger = logging.getLogger("HikariBot.AIAgent.Responses")
@@ -46,10 +47,39 @@ def endpoint(base_url: Any) -> str:
 
 
 def _message_item(message: dict[str, Any]) -> dict[str, Any]:
+    content = message.get("content")
+    if isinstance(content, list):
+        return {"role": message.get("role") or "user", "content": _input_parts(content)}
     return {
         "role": message.get("role") or "user",
-        "content": str(message.get("content") or ""),
+        "content": str(content or ""),
     }
+
+
+def _input_parts(blocks: list[Any]) -> list[dict[str, Any]]:
+    """Chat Completions 块数组 → Responses API 块数组。
+
+    文本块改名为 input_text；图片块的 image_url 从对象摊平成字符串，detail 提到
+    块顶层（见 https://api-docs.deepseek.com/guides/vision/）。
+    """
+    parts: list[dict[str, Any]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        block_type = block.get("type")
+        if block_type in {"text", "input_text"}:
+            parts.append({"type": "input_text", "text": str(block.get("text") or "")})
+        elif block_type in {"image_url", "input_image"}:
+            image = block.get("image_url")
+            url = str(image.get("url") or "") if isinstance(image, dict) else str(image or "")
+            if not url:
+                continue
+            part: dict[str, Any] = {"type": "input_image", "image_url": url}
+            detail = block.get("detail") or (image.get("detail") if isinstance(image, dict) else None)
+            if detail:
+                part["detail"] = str(detail)
+            parts.append(part)
+    return parts
 
 
 def _to_responses_tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -253,7 +283,12 @@ async def request_response_completion(
         try:
             response = await post_response(cfg, instructions, input_items, tools)
         except AIAgentRequestError as e:
-            if tools and e.status_code in {400, 422}:
+            if e.status_code in {400, 422} and has_images(input_items):
+                logger.warning("[AIAgent] 当前模型可能不支持图片输入，已去掉图片重试: %s", e)
+                base_items = strip_images(base_items)
+                input_items = strip_images(input_items)
+                response = await post_response(cfg, instructions, input_items, tools)
+            elif tools and e.status_code in {400, 422}:
                 logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
                 tools = []
                 input_items = list(base_items)

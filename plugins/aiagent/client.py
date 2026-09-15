@@ -13,6 +13,7 @@ from core.bot_messages import get_message as msg
 from .config import api_protocol
 from .tools import available_tools, execute_tool_call
 from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
+from .vision import has_images, strip_images
 from .wiki import _latest_user_text, _prefetch_wiki_priority_tools
 
 logger = logging.getLogger("HikariBot.AIAgent.Client")
@@ -189,7 +190,13 @@ async def request_chat_completion(
         try:
             message = await post_chat_completion(cfg, request_messages, tools)
         except AIAgentRequestError as e:
-            if tools and e.status_code in {400, 422}:
+            if e.status_code in {400, 422} and has_images(request_messages):
+                # 非视觉模型会明确拒绝图片输入，去掉图片再试一次。
+                logger.warning("[AIAgent] 当前模型可能不支持图片输入，已去掉图片重试: %s", e)
+                plain_request_messages = strip_images(plain_request_messages)
+                request_messages = strip_images(request_messages)
+                message = await post_chat_completion(cfg, request_messages, tools)
+            elif tools and e.status_code in {400, 422}:
                 logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
                 tools = []
                 request_messages = [dict(message) for message in plain_request_messages]

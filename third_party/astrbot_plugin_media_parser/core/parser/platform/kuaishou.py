@@ -5,15 +5,15 @@ import json
 import re
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import urlparse, urlunparse
 
 import aiohttp
 
 from ...logger import logger
 
-from .base import BaseVideoParser
-from ..utils import build_request_headers, is_live_url, SkipParse
 from ...constants import Config
+from ..utils import build_request_headers, is_live_url, SkipParse
+from .base import BaseVideoParser
 
 MOBILE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) "
@@ -27,10 +27,6 @@ MOBILE_HEADERS = {
 
 KUAISHOU_DOMAINS = ("kuaishou.com", "gifshow.com", "chenzhongtech.com", "kspkg.com")
 GIFSHOW_BASE = "https://m.gifshow.com"
-REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-MAX_REDIRECTS = 5
-
-
 class KuaishouParser(BaseVideoParser):
     """快手解析器实现。"""
 
@@ -113,7 +109,7 @@ class KuaishouParser(BaseVideoParser):
 
     @classmethod
     def _is_trusted_url(cls, url: str) -> bool:
-        """仅允许 HTTP(S) 的快手自有域名，禁止子串域名伪装。"""
+        """仅允许 HTTP(S) 的快手自有域名作为解析输入。"""
         try:
             parsed = urlparse(str(url or ""))
         except (TypeError, ValueError):
@@ -369,46 +365,6 @@ class KuaishouParser(BaseVideoParser):
             return f"{GIFSHOW_BASE}/fw/photo/{photo_id}{suffix}"
         return f"{GIFSHOW_BASE}{path}{suffix}"
 
-    async def _get_trusted_html(
-        self,
-        session: aiohttp.ClientSession,
-        url: str,
-    ) -> Optional[str]:
-        """逐跳校验重定向，避免受信域把请求导向内网或任意站点。"""
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            if not self._is_trusted_url(current_url):
-                logger.warning(f"[{self.name}] 拒绝非快手域名请求: {current_url}")
-                return None
-            async with session.get(
-                current_url,
-                headers=self.headers,
-                allow_redirects=False,
-            ) as response:
-                if response.status in REDIRECT_STATUSES:
-                    location = response.headers.get("Location")
-                    if not location:
-                        return None
-                    next_url = urljoin(current_url, location)
-                    if is_live_url(next_url):
-                        raise SkipParse("直播域名链接不解析")
-                    if not self._is_trusted_url(next_url):
-                        logger.warning(
-                            f"[{self.name}] 拒绝跨域重定向: {current_url} -> {next_url}"
-                        )
-                        return None
-                    current_url = next_url
-                    continue
-                if response.status != 200:
-                    return None
-                # aiohttp 在 allow_redirects=False 时 response.url 应等于请求 URL，
-                # 仍做最终复验以维持明确的安全后置条件。
-                if not self._is_trusted_url(str(response.url)):
-                    return None
-                return await response.text()
-        logger.warning(f"[{self.name}] 重定向次数超过限制: {url}")
-        return None
-
     async def _fetch_html(
         self, session: aiohttp.ClientSession, url: str
     ) -> Optional[str]:
@@ -421,35 +377,31 @@ class KuaishouParser(BaseVideoParser):
         Returns:
             HTML内容，获取失败时为None
         """
-        if not self._is_trusted_url(url):
-            logger.warning(f"[{self.name}] 拒绝非快手链接: {url}")
-            return None
-
-        host = (urlparse(url).hostname or "").lower().rstrip(".")
-        is_short = host == "v.kuaishou.com"
+        is_short = "v.kuaishou.com" in urlparse(url).netloc
         if is_short:
             async with session.get(
-                url, headers=self.headers, allow_redirects=False
+                url,
+                headers=self.headers,
+                allow_redirects=False,
             ) as r1:
-                if r1.status not in REDIRECT_STATUSES:
+                if r1.status != 302:
                     return None
                 loc = r1.headers.get("Location")
                 if not loc:
                     return None
-                loc = urljoin(url, loc)
             if is_live_url(loc):
                 logger.debug(
                     f"[{self.name}] _fetch_html: 短链重定向到直播域名，跳过解析 {url} -> {loc}"
                 )
                 raise SkipParse("直播域名链接不解析")
-            if not self._is_trusted_url(loc):
-                logger.warning(f"[{self.name}] 拒绝短链跨域重定向: {url} -> {loc}")
-                return None
-            loc_host = (urlparse(loc).hostname or "").lower().rstrip(".")
-            if not self._host_matches(loc_host, "kuaishou.com"):
+            loc_host = urlparse(loc).netloc.lower()
+            if "kuaishou.com" not in loc_host:
                 loc = self._to_gifshow_url(loc)
-                logger.debug(f"[{self.name}] _fetch_html: 转换为 SSR 地址 {loc}")
-            return await self._get_trusted_html(session, loc)
+                logger.debug(f"[{self.name}] _fetch_html: 重定向到非快手域名，改用 {loc}")
+            async with session.get(loc, headers=self.headers) as r2:
+                if r2.status != 200:
+                    return None
+                return await r2.text()
         else:
             if is_live_url(url):
                 logger.debug(
@@ -457,13 +409,16 @@ class KuaishouParser(BaseVideoParser):
                 )
                 raise SkipParse("直播域名链接不解析")
             target = url
-            parsed_host = (urlparse(url).hostname or "").lower().rstrip(".")
-            if self._host_matches(parsed_host, "chenzhongtech.com"):
+            parsed_host = urlparse(url).netloc.lower()
+            if "chenzhongtech.com" in parsed_host:
                 target = self._to_gifshow_url(url)
                 logger.debug(
                     f"[{self.name}] _fetch_html: chenzhongtech URL 转换为 {target}"
                 )
-            return await self._get_trusted_html(session, target)
+            async with session.get(target, headers=self.headers) as r:
+                if r.status != 200:
+                    return None
+                return await r.text()
 
     def _build_author_info(self, metadata: Dict[str, Optional[str]]) -> str:
         """构建作者信息

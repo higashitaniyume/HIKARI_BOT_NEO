@@ -1,0 +1,317 @@
+    <section class="view-panel" data-view="guard" hidden>
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>风控与自审查</h2>
+            <p>两项能力都调用 AI 判定「极度政治敏感」内容：群风控撤回群成员的消息，出站自审查拦住机器人自己要发的内容。判定一律走保守策略，宁可漏判也不误判。</p>
+          </div>
+          <button type="button" id="guardRefreshBtn" class="ghost">刷新配置</button>
+        </div>
+        <div class="guard-warning" role="note">
+          <strong>AI 费用由机器人主人承担。</strong>
+          <p>每一条送审的消息都会调用一次 AI Agent 的模型（<span id="guardReviewModel">未配置</span>，复用「AI」页全局默认配置文件的 base_url / API Key / 模型），费用记在机器人主人的账号上。开启前请先用下面的黑白名单把范围收紧到自己的群，并留意群消息量。</p>
+          <p>判定失败、超时或模型未配置时一律放行，不会因为审查让机器人失声。</p>
+        </div>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>群风控（group_guard）</h3>
+            <p id="guardGroupMeta">正在读取配置文件。</p>
+          </div>
+        </div>
+        <form id="guardGroupForm" class="settings-form guard-form" data-guard-plugin="group_guard">
+          <label class="checkbox-field settings-toggle">
+            <input type="checkbox" data-guard-field="enabled">
+            <span>启用群风控插件</span>
+          </label>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>AI 审查</h3>
+                <p>只审查群消息；不阻塞消息管线，判定在后台进行，命中后再撤回。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="review.enabled">
+                  <span>启用 AI 审查</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="review.require_group_whitelist">
+                  <span>仅审查白名单群（建议保持开启）</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="review.skip_handled">
+                  <span>跳过已被其他插件处理的消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="review.skip_superuser">
+                  <span>跳过超级管理员的消息</span>
+                </label>
+                <label>
+                  <span>最短字数</span>
+                  <input type="number" min="1" max="200" step="1" data-guard-field="review.min_chars">
+                </label>
+                <label>
+                  <span>最长字数（超出截断）</span>
+                  <input type="number" min="50" max="4000" step="10" data-guard-field="review.max_chars">
+                </label>
+                <label>
+                  <span>温度</span>
+                  <input type="number" min="0" max="2" step="0.05" data-guard-field="review.temperature">
+                </label>
+                <label>
+                  <span>最大输出 Tokens</span>
+                  <input type="number" min="64" max="4000" step="1" data-guard-field="review.max_tokens">
+                </label>
+                <label>
+                  <span>判定超时（秒）</span>
+                  <input type="number" min="5" max="120" step="1" data-guard-field="review.timeout_seconds">
+                </label>
+                <label>
+                  <span>最大并发判定数</span>
+                  <input type="number" min="1" max="16" step="1" data-guard-field="review.max_concurrent">
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>命中后的动作</h3>
+                <p>撤回需要机器人在群里是管理员，否则只能通知。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.recall">
+                  <span>撤回命中的消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.notify_group">
+                  <span>在群内提示已撤回</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.notify_superuser">
+                  <span>私聊通知超级管理员</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>撤回命令</h3>
+                <p>引用一条消息并只回复「撤回」两个字（不能带 @）即可触发。撤回别人的消息需要机器人是群管理。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="recall_command.enabled">
+                  <span>启用撤回命令</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="recall_command.allow_self_recall">
+                  <span>允许撤回机器人自己的消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="recall_command.allow_other_recall">
+                  <span>允许撤回他人的消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="recall_command.other_requires_admin">
+                  <span>撤他人消息需群主 / 群管 / 超管（建议保持开启）</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="recall_command.reply_on_failure">
+                  <span>撤回失败时回复原因</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>生效范围（黑白名单）</h3>
+                <p>QQ 号和群号一行一个，或用逗号分隔。白名单启用后只在名单内的群生效；黑名单内的群 / 用户永远跳过。</p>
+              </div>
+            </div>
+            <div class="guard-access-grid">
+              <label class="checkbox-field">
+                <input type="checkbox" data-guard-field="permissions.whitelist.enable">
+                <span>启用白名单</span>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" data-guard-field="permissions.blacklist.enable">
+                <span>启用黑名单</span>
+              </label>
+              <label>
+                <span>白名单群号</span>
+                <textarea rows="4" placeholder="987654321" data-guard-field="permissions.whitelist.group" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>白名单 QQ 号</span>
+                <textarea rows="4" placeholder="123456" data-guard-field="permissions.whitelist.user" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>黑名单群号</span>
+                <textarea rows="4" placeholder="987654321" data-guard-field="permissions.blacklist.group" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>黑名单 QQ 号</span>
+                <textarea rows="4" placeholder="123456" data-guard-field="permissions.blacklist.user" data-guard-list></textarea>
+              </label>
+            </div>
+          </section>
+
+          <label class="wide-field">
+            <span>判定提示词</span>
+            <textarea rows="12" data-guard-field="review.prompt" placeholder="留空保存后会恢复为默认提示词"></textarea>
+          </label>
+          <div class="wide-field guard-form-actions">
+            <button type="button" class="ghost" data-guard-reset-prompt="group_guard">恢复默认提示词</button>
+            <button type="submit" class="primary">保存群风控设置</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel settings-panel">
+        <div class="panel-heading">
+          <div>
+            <h3>出站自审查（self_review）</h3>
+            <p id="guardSelfMeta">正在读取配置文件。</p>
+          </div>
+        </div>
+        <form id="guardSelfForm" class="settings-form guard-form" data-guard-plugin="self_review">
+          <label class="checkbox-field settings-toggle">
+            <input type="checkbox" data-guard-field="enabled">
+            <span>启用出站自审查插件</span>
+          </label>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>AI 审查</h3>
+                <p>只看文本，但包含解析插件塞进合并转发的全部元信息（标题 / 作者 / 时间 / 简介 / 热评 / 链接）。相同文本命中缓存不会重复计费。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="review.enabled">
+                  <span>启用 AI 审查</span>
+                </label>
+                <label>
+                  <span>最短字数</span>
+                  <input type="number" min="1" max="500" step="1" data-guard-field="review.min_chars">
+                </label>
+                <label>
+                  <span>最长字数（超出截断）</span>
+                  <input type="number" min="50" max="6000" step="10" data-guard-field="review.max_chars">
+                </label>
+                <label>
+                  <span>温度</span>
+                  <input type="number" min="0" max="2" step="0.05" data-guard-field="review.temperature">
+                </label>
+                <label>
+                  <span>最大输出 Tokens</span>
+                  <input type="number" min="64" max="4000" step="1" data-guard-field="review.max_tokens">
+                </label>
+                <label>
+                  <span>判定超时（秒）</span>
+                  <input type="number" min="3" max="60" step="1" data-guard-field="review.timeout_seconds">
+                </label>
+                <label>
+                  <span>最大并发判定数</span>
+                  <input type="number" min="1" max="16" step="1" data-guard-field="review.max_concurrent">
+                </label>
+                <label>
+                  <span>判定缓存条数（0=关闭）</span>
+                  <input type="number" min="0" max="8192" step="1" data-guard-field="review.cache_size">
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>审查范围与动作</h3>
+                <p>合并转发是解析类插件的主要出口，关掉会漏掉大部分元信息。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="scope.group">
+                  <span>审查群聊消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="scope.private">
+                  <span>审查私聊消息</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="scope.forward">
+                  <span>审查合并转发内容</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.block">
+                  <span>命中则拦住这次发送</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.notify_chat">
+                  <span>在会话内提示已拦截</span>
+                </label>
+                <label class="checkbox-field">
+                  <input type="checkbox" data-guard-field="action.notify_superuser">
+                  <span>私聊通知超级管理员</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3>生效范围（黑白名单）</h3>
+                <p>留空表示审查所有会话。白名单启用后只审查名单内的群 / 私聊用户；黑名单内的会话跳过审查。</p>
+              </div>
+            </div>
+            <div class="guard-access-grid">
+              <label class="checkbox-field">
+                <input type="checkbox" data-guard-field="permissions.whitelist.enable">
+                <span>启用白名单</span>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" data-guard-field="permissions.blacklist.enable">
+                <span>启用黑名单</span>
+              </label>
+              <label>
+                <span>白名单群号</span>
+                <textarea rows="4" placeholder="987654321" data-guard-field="permissions.whitelist.group" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>白名单 QQ 号</span>
+                <textarea rows="4" placeholder="123456" data-guard-field="permissions.whitelist.user" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>黑名单群号</span>
+                <textarea rows="4" placeholder="987654321" data-guard-field="permissions.blacklist.group" data-guard-list></textarea>
+              </label>
+              <label>
+                <span>黑名单 QQ 号</span>
+                <textarea rows="4" placeholder="123456" data-guard-field="permissions.blacklist.user" data-guard-list></textarea>
+              </label>
+            </div>
+          </section>
+
+          <label class="wide-field">
+            <span>判定提示词</span>
+            <textarea rows="12" data-guard-field="review.prompt" placeholder="留空保存后会恢复为默认提示词"></textarea>
+          </label>
+          <div class="wide-field guard-form-actions">
+            <button type="button" class="ghost" data-guard-reset-prompt="self_review">恢复默认提示词</button>
+            <button type="submit" class="primary">保存自审查设置</button>
+          </div>
+        </form>
+      </section>
+    </section>

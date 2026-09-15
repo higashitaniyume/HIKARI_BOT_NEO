@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Repo = "https://github.com/drdon1234/astrbot_plugin_media_parser.git",
     [string]$Ref = "main"
 )
@@ -67,11 +67,28 @@ try {
         Remove-Item -LiteralPath (Join-Path $clone ".git") -Recurse -Force
     }
 
+    $localSecurity = Join-Path $vendor "core\downloader\security.py"
+    $securityBackup = Join-Path $tempRoot "security.py"
+    if (Test-Path $localSecurity) {
+        Copy-Item -LiteralPath $localSecurity -Destination $securityBackup -Force
+    }
+
     if (Test-Path $vendor) {
         Remove-Item -LiteralPath $vendor -Recurse -Force
     }
     New-Item -ItemType Directory -Force (Split-Path $vendor) | Out-Null
     Copy-Item -LiteralPath $clone -Destination $vendor -Recurse
+    if (Test-Path $securityBackup) {
+        Copy-Item -LiteralPath $securityBackup -Destination $localSecurity -Force
+        $downloaderInit = Join-Path $vendor "core\downloader\__init__.py"
+        $utf8 = [System.Text.Encoding]::UTF8
+        $noBom = New-Object System.Text.UTF8Encoding $false
+        $text = [System.IO.File]::ReadAllText($downloaderInit, $utf8)
+        if ($text -notmatch "create_public_only_connector") {
+            $text = $text.TrimEnd() + "`r`nfrom .security import create_public_only_connector`r`n`r`n__all__ = [\"DownloadManager\", \"create_public_only_connector\"]`r`n"
+            [System.IO.File]::WriteAllText($downloaderInit, $text, $noBom)
+        }
+    }
     Get-ChildItem $vendor -Recurse -Directory -Filter "__pycache__" |
         Remove-Item -Recurse -Force
 

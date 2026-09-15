@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -281,6 +282,91 @@ class RecordUsageTests(QuotaTestBase):
         usage = quota_mod.get_all_usage()
         self.assertIn("group:111", usage)
         self.assertIn("user:333", usage)
+
+
+class ReserveQuotaTests(QuotaTestBase):
+    """原子「检查 + 预留」：并发下不会超额，失败可退回。"""
+
+    def test_reserve_records_usage_and_allows(self) -> None:
+        cfg = make_cfg()
+        event = make_group_event()
+        block, reserved = quota_mod.reserve_quota(cfg, event)
+
+        self.assertIsNone(block)
+        self.assertTrue(reserved)
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 1)
+
+    def test_reserve_blocks_when_limit_reached(self) -> None:
+        cfg = make_cfg()
+        cfg["quota"]["default_group"] = {"daily": 1, "hourly": 10}
+        event = make_group_event()
+
+        _, first_reserved = quota_mod.reserve_quota(cfg, event)
+        block, second_reserved = quota_mod.reserve_quota(cfg, event)
+
+        self.assertTrue(first_reserved)
+        self.assertFalse(second_reserved)
+        self.assertIsNotNone(block)
+        self.assertEqual(block["period"], "day")
+        self.assertEqual(block["limit"], 1)
+        # 被拦截的请求不扣费
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 1)
+
+    def test_refund_returns_reserved_quota(self) -> None:
+        cfg = make_cfg()
+        event = make_group_event()
+        quota_mod.reserve_quota(cfg, event)
+        quota_mod.refund_quota(cfg, event)
+
+        status = quota_mod.get_quota_status(cfg, event)
+        self.assertEqual(status["daily"]["used"], 0)
+        self.assertEqual(status["hourly"]["used"], 0)
+
+    def test_refund_never_goes_negative(self) -> None:
+        cfg = make_cfg()
+        event = make_group_event()
+        quota_mod.refund_quota(cfg, event)
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 0)
+
+    def test_refund_ignores_rolled_window(self) -> None:
+        cfg = make_cfg()
+        event = make_group_event()
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-02", "2026-08-02-15")):
+            quota_mod.reserve_quota(cfg, event)
+        # 窗口已滚动到新的一天：旧预留不再退回，新窗口用量保持 0
+        with patch.object(quota_mod, "_window_keys", return_value=("2026-08-03", "2026-08-03-09")):
+            quota_mod.refund_quota(cfg, event)
+            status = quota_mod.get_quota_status(cfg, event)
+        self.assertEqual(status["daily"]["used"], 0)
+
+    def test_reserve_skips_when_disabled_or_exempt(self) -> None:
+        disabled = make_cfg()
+        disabled["quota"]["enabled"] = False
+        self.assertEqual(quota_mod.reserve_quota(disabled, make_group_event()), (None, False))
+
+        exempt = make_cfg()
+        exempt["quota"]["exempt_user_ids"] = ["333"]
+        self.assertEqual(quota_mod.reserve_quota(exempt, make_private_event("333")), (None, False))
+
+    def test_concurrent_reserve_does_not_exceed_limit(self) -> None:
+        cfg = make_cfg()
+        cfg["quota"]["default_group"] = {"daily": 3, "hourly": 3}
+        event = make_group_event()
+
+        results: list[tuple[dict | None, bool]] = []
+
+        def worker() -> None:
+            results.append(quota_mod.reserve_quota(cfg, event))
+
+        threads = [threading.Thread(target=worker) for _ in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(sum(1 for _, reserved in results if reserved), 3)
+        self.assertEqual(sum(1 for block, _ in results if block is not None), 9)
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 3)
 
 
 class AccessControlTests(QuotaTestBase):
