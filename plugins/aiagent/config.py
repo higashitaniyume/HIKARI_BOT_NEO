@@ -44,8 +44,8 @@ CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 
 # 属于单个配置文件的段（后台「AI」页编辑）。
 PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "vision", "persona", "chat", "memory", "tools")
-# 所有配置文件共用的全局段（后台「AI 配额」页编辑）。
-GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions")
+# 所有配置文件共用的全局段（后台「AI 配额」页 / 「AI Agent」页编辑）。
+GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog")
 
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_PROFILE_NAME = "默认配置"
@@ -143,6 +143,17 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_read_chars_per_file": 8000,
         "max_file_chars": 60000,
     },
+    # 本地群消息记录（chatlog）：NapCat 不存历史（消息走 LRU，约 5000 条即过期），
+    # 「总结某人之前说了什么」只能靠机器人自己记。只记纯文本，按 群/日期 存 JSONL。
+    # 默认记录所有群；可用 groups 白名单收窄，按 retention_days / max_total_mb 自动清理。
+    "chatlog": {
+        "enabled": True,
+        "groups": [],
+        "retention_days": 7,
+        "max_total_mb": 200,
+        # 是否连机器人自己的发言也记
+        "record_bot": False,
+    },
     "tools": {
         "help": {
             "enabled": True,
@@ -165,6 +176,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "allow_writes": False,
             "max_read_chars": 20000,
             "max_write_chars": 20000,
+        },
+        # 群聊工具（只读，且只在当前群生效）：枚举本群成员、查成员名片资料、查成员发言
+        "group_members": {
+            "enabled": True,
+            # 一次最多返回多少位成员，避免大群人名单把上下文撑爆
+            "max_members": 100,
+        },
+        "member_profile": {
+            "enabled": True,
+        },
+        "user_messages": {
+            "enabled": True,
+            "max_messages": 50,
+            # 返回发言的总字符预算（从最旧的开始丢）
+            "max_chars": 4000,
+            # 本地记录不足时，是否用 NapCat 的实时群历史窗口补齐（只覆盖最近一小段）
+            "allow_live_history": True,
         },
         "plugin_tools": {
             "enabled": True,
@@ -214,6 +242,8 @@ DEFAULT_DOCUMENT: dict[str, Any] = {
     "bindings": {"group": {}, "private": {}},
     "quota": copy.deepcopy(DEFAULT_CONFIG["quota"]),
     "permissions": copy.deepcopy(DEFAULT_CONFIG["permissions"]),
+    # 全局段：本地聊天记录是整机一份（一个保留策略），不随配置文件切换
+    "chatlog": copy.deepcopy(DEFAULT_CONFIG["chatlog"]),
 }
 
 BINDING_KINDS: tuple[str, ...] = ("group", "private")
@@ -358,6 +388,12 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
     if permissions is None:
         permissions = DEFAULT_DOCUMENT["permissions"]
 
+    # chatlog 是全局段：缺失时补默认值，存在时按默认值深合并（新增字段自动补齐）。
+    if isinstance(src.get("chatlog"), dict):
+        chatlog = _deep_merge(DEFAULT_DOCUMENT["chatlog"], src["chatlog"])
+    else:
+        chatlog = copy.deepcopy(DEFAULT_DOCUMENT["chatlog"])
+
     return {
         "enabled": bool(src.get("enabled", DEFAULT_DOCUMENT["enabled"])),
         "active_profile": active,
@@ -365,6 +401,7 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
         "bindings": _normalize_bindings(src.get("bindings"), profile_ids),
         "quota": quota,
         "permissions": copy.deepcopy(permissions),
+        "chatlog": chatlog,
     }
 
 

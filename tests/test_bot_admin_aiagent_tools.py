@@ -191,6 +191,103 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
         self.assertTrue(kept["chat"]["group_shared_context"]["enabled"])
 
+    def test_update_aiagent_config_round_trips_group_tools(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {"tools": {}})
+        self.assertTrue(default["tools"]["group_members"]["enabled"])
+        self.assertTrue(default["tools"]["member_profile"]["enabled"])
+        self.assertTrue(default["tools"]["user_messages"]["enabled"])
+        self.assertEqual(default["tools"]["group_members"]["max_members"], 100)
+        self.assertEqual(default["tools"]["user_messages"]["max_messages"], 50)
+        self.assertEqual(default["tools"]["user_messages"]["max_chars"], 4000)
+        self.assertTrue(default["tools"]["user_messages"]["allow_live_history"])
+
+        saved = self._save_with(
+            current,
+            {
+                "tools": {
+                    "group_members": {"enabled": False, "max_members": 20},
+                    "member_profile": {"enabled": False},
+                    "user_messages": {
+                        "enabled": False,
+                        "max_messages": 5,
+                        "max_chars": 1000,
+                        "allow_live_history": False,
+                    },
+                }
+            },
+        )
+        self.assertFalse(saved["tools"]["group_members"]["enabled"])
+        self.assertEqual(saved["tools"]["group_members"]["max_members"], 20)
+        self.assertFalse(saved["tools"]["member_profile"]["enabled"])
+        self.assertFalse(saved["tools"]["user_messages"]["enabled"])
+        self.assertEqual(saved["tools"]["user_messages"]["max_messages"], 5)
+        self.assertEqual(saved["tools"]["user_messages"]["max_chars"], 1000)
+        self.assertFalse(saved["tools"]["user_messages"]["allow_live_history"])
+
+        # 未携带时保留当前状态，不会静默改回默认
+        kept = self._save_with(saved, {"tools": {"max_tool_rounds": 3}})
+        self.assertFalse(kept["tools"]["group_members"]["enabled"])
+        self.assertEqual(kept["tools"]["group_members"]["max_members"], 20)
+        self.assertFalse(kept["tools"]["user_messages"]["allow_live_history"])
+
+    def test_update_aiagent_config_clamps_group_tool_limits(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(
+            current,
+            {
+                "tools": {
+                    "group_members": {"max_members": 10**6},
+                    "user_messages": {"max_messages": 0, "max_chars": 10},
+                }
+            },
+        )
+        self.assertEqual(saved["tools"]["group_members"]["max_members"], 1000)
+        self.assertEqual(saved["tools"]["user_messages"]["max_messages"], 1)
+        self.assertEqual(saved["tools"]["user_messages"]["max_chars"], 500)
+
+    def test_update_aiagent_config_round_trips_chatlog(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {})
+        self.assertTrue(default["chatlog"]["enabled"])
+        self.assertEqual(default["chatlog"]["groups"], [])
+        self.assertEqual(default["chatlog"]["retention_days"], 7)
+        self.assertEqual(default["chatlog"]["max_total_mb"], 200)
+        self.assertFalse(default["chatlog"]["record_bot"])
+
+        saved = self._save_with(
+            current,
+            {
+                "chatlog": {
+                    "enabled": False,
+                    "groups": [123456, "789012", "abc", "123456"],
+                    "retention_days": 30,
+                    "max_total_mb": 50,
+                    "record_bot": True,
+                }
+            },
+        )
+        self.assertFalse(saved["chatlog"]["enabled"])
+        self.assertEqual(saved["chatlog"]["groups"], ["123456", "789012"])
+        self.assertEqual(saved["chatlog"]["retention_days"], 30)
+        self.assertEqual(saved["chatlog"]["max_total_mb"], 50)
+        self.assertTrue(saved["chatlog"]["record_bot"])
+
+        # 未携带时保留当前状态
+        kept = self._save_with(saved, {"tools": {"max_tool_rounds": 3}})
+        self.assertFalse(kept["chatlog"]["enabled"])
+        self.assertEqual(kept["chatlog"]["groups"], ["123456", "789012"])
+
+    def test_update_aiagent_config_clamps_chatlog(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(
+            current,
+            {"chatlog": {"retention_days": 0, "max_total_mb": 0, "groups": "123456\n789012, 42"}},
+        )
+        self.assertEqual(saved["chatlog"]["retention_days"], 1)
+        self.assertEqual(saved["chatlog"]["max_total_mb"], 1)
+        self.assertEqual(saved["chatlog"]["groups"], ["123456", "789012", "42"])
+
 
 if __name__ == "__main__":
     unittest.main()

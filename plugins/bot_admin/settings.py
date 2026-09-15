@@ -50,6 +50,23 @@ def _tts_config_state() -> dict[str, Any]:
     return {"config": sanitized}
 
 
+def _parse_group_ids(value: Any) -> list[str]:
+    """规整「群号白名单」：接受列表或逗号/换行分隔的字符串，只保留数字群号。"""
+    if isinstance(value, str):
+        raw_items: list[str] = value.replace("\n", ",").split(",")
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    result: list[str] = []
+    for item in raw_items:
+        group_id = item.strip()
+        if not group_id.isdigit() or group_id in result:
+            continue
+        result.append(group_id)
+    return result
+
+
 def _parse_ai_tool_names(value: Any) -> list[str]:
     if isinstance(value, str):
         raw_names = [item.strip() for item in value.replace("\n", ",").split(",")]
@@ -267,6 +284,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
     current_wiki_prefetch = current_tools.get("wiki_prefetch") if isinstance(current_tools.get("wiki_prefetch"), dict) else {}
+    current_group_members = current_tools.get("group_members") if isinstance(current_tools.get("group_members"), dict) else {}
+    current_member_profile = current_tools.get("member_profile") if isinstance(current_tools.get("member_profile"), dict) else {}
+    current_user_messages = current_tools.get("user_messages") if isinstance(current_tools.get("user_messages"), dict) else {}
+    current_chatlog = current.get("chatlog") if isinstance(current.get("chatlog"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
@@ -280,6 +301,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
     input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
     input_wiki_prefetch = input_tools.get("wiki_prefetch") if isinstance(input_tools.get("wiki_prefetch"), dict) else {}
+    input_group_members = input_tools.get("group_members") if isinstance(input_tools.get("group_members"), dict) else {}
+    input_member_profile = input_tools.get("member_profile") if isinstance(input_tools.get("member_profile"), dict) else {}
+    input_user_messages = input_tools.get("user_messages") if isinstance(input_tools.get("user_messages"), dict) else {}
+    input_chatlog = data.get("chatlog") if isinstance(data.get("chatlog"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -358,6 +383,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "max_read_chars_per_file": _parse_int(input_memory.get("max_read_chars_per_file", current_memory.get("max_read_chars_per_file", 8000)), 8000, minimum=1000, maximum=80000),
             "max_file_chars": _parse_int(input_memory.get("max_file_chars", current_memory.get("max_file_chars", 60000)), 60000, minimum=5000, maximum=500000),
         },
+        "chatlog": {
+            "enabled": _parse_bool(input_chatlog.get("enabled", current_chatlog.get("enabled", True))),
+            # 空列表 = 记录所有群
+            "groups": _parse_group_ids(input_chatlog.get("groups", current_chatlog.get("groups", []))),
+            "retention_days": _parse_int(input_chatlog.get("retention_days", current_chatlog.get("retention_days", 7)), 7, minimum=1, maximum=365),
+            "max_total_mb": _parse_int(input_chatlog.get("max_total_mb", current_chatlog.get("max_total_mb", 200)), 200, minimum=1, maximum=20000),
+            "record_bot": _parse_bool(input_chatlog.get("record_bot", current_chatlog.get("record_bot", False))),
+        },
         "tools": {
             "search": {
                 "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
@@ -381,6 +414,20 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "allow_side_effects": _parse_bool(input_plugin_tools.get("allow_side_effects", current_plugin_tools.get("allow_side_effects", False))),
                 "enabled_names": _parse_ai_tool_names(input_plugin_tools.get("enabled_names", current_plugin_tools.get("enabled_names", []))),
                 "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
+            },
+            # 群聊只读工具（只在当前群生效）
+            "group_members": {
+                "enabled": _parse_bool(input_group_members.get("enabled", current_group_members.get("enabled", True))),
+                "max_members": _parse_int(input_group_members.get("max_members", current_group_members.get("max_members", 100)), 100, minimum=1, maximum=1000),
+            },
+            "member_profile": {
+                "enabled": _parse_bool(input_member_profile.get("enabled", current_member_profile.get("enabled", True))),
+            },
+            "user_messages": {
+                "enabled": _parse_bool(input_user_messages.get("enabled", current_user_messages.get("enabled", True))),
+                "max_messages": _parse_int(input_user_messages.get("max_messages", current_user_messages.get("max_messages", 50)), 50, minimum=1, maximum=200),
+                "max_chars": _parse_int(input_user_messages.get("max_chars", current_user_messages.get("max_chars", 4000)), 4000, minimum=500, maximum=20000),
+                "allow_live_history": _parse_bool(input_user_messages.get("allow_live_history", current_user_messages.get("allow_live_history", True))),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
             "wiki_prefetch": {

@@ -57,6 +57,7 @@ uv run python bot.py
 - **AI 聊天上下文与安全加固**：群聊短期上下文改为按「群 + 用户」隔离（同一群不同用户不再串线），同一会话的消息串行处理避免乱序；可选开启群聊公共上下文（默认关闭）；图片下载增加 SSRF 防护（拒绝内网/回环地址并逐跳校验重定向）；AI 写 `UserData` 文件默认关闭（`tools.files.allow_writes`）；记忆总结按当前 `api.protocol` 正确分发（Responses / Chat Completions）
 - **AI 配额与工具稳定性**：配额改为「先原子预留、失败退回」，并发请求不会一起挤过限额；单个工具调用受 `tools.tool_timeout_seconds` 限制（默认 30 秒，超时只让该工具报错）；失败原因区分提示（超时 / 网络 / 限流 / 上游故障 / Key 无效）
 - **上下文预算与记忆提示注入防护**：短期上下文受 `chat.max_context_chars` 字符预算约束（默认 12000，超出从最旧丢起）；持久化记忆按「参考数据而非指令」注入，并转义记忆文本中的 `system:`/`assistant:`/`user:` 角色标记
+- **AI 群聊工具与本地聊天记录**：新增三个只读群聊工具——枚举本群成员（`group_members`）、查成员名片资料（`group_member_profile`）、查成员历史发言（`group_user_messages`），一律只作用于当前群（schema 里没有 `group_id`，私聊不下发），命中多人时返回候选让模型反问；配合本地聊天记录（`UserData/aiagent_chatlog/`，只记纯文本、默认保留 7 天 / 200MB 自动清理，全局段 `chatlog.*`，后台可开关与设群白名单）解决 NapCat 不存历史的问题
 - 文档拆分为 `docs/` 多文件，按类别维护
 
 ---

@@ -81,6 +81,13 @@
         "max_read_chars_per_file": 8000,
         "max_file_chars": 60000
       },
+      "chatlog": {
+        "enabled": true,
+        "groups": [],
+        "retention_days": 7,
+        "max_total_mb": 200,
+        "record_bot": false
+      },
       "tools": {
         "help": {
           "enabled": true
@@ -100,6 +107,19 @@
           "allow_writes": false,
           "max_read_chars": 20000,
           "max_write_chars": 20000
+        },
+        "group_members": {
+          "enabled": true,
+          "max_members": 100
+        },
+        "member_profile": {
+          "enabled": true
+        },
+        "user_messages": {
+          "enabled": true,
+          "max_messages": 50,
+          "max_chars": 4000,
+          "allow_live_history": true
         },
         "plugin_tools": {
           "enabled": true,

@@ -250,6 +250,61 @@
                   <input id="aiagentToolTimeout" type="number" min="0.1" max="600" step="0.1">
                   <small>单个工具调用超过该时长即按工具报错处理，不再拖住整轮回复</small>
                 </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupMembersEnabled" type="checkbox">
+                  <span>允许 AI 查本群成员</span>
+                  <small>只读，且只限当前群；私聊不提供该能力</small>
+                </label>
+                <label>
+                  <span>成员列表上限</span>
+                  <input id="aiagentGroupMembersMax" type="number" min="1" max="1000" step="1">
+                  <small>一次最多返回多少位成员</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentMemberProfileEnabled" type="checkbox">
+                  <span>允许 AI 查成员名片资料</span>
+                  <small>只返回名片/昵称/身份/等级/加群时间/头衔</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentUserMessagesEnabled" type="checkbox">
+                  <span>允许 AI 查成员历史发言</span>
+                  <small>开启后群成员之间可以互相检索发言，请按需开启</small>
+                </label>
+                <label>
+                  <span>历史发言条数上限</span>
+                  <input id="aiagentUserMessagesMax" type="number" min="1" max="200" step="1">
+                </label>
+                <label>
+                  <span>历史发言字符预算</span>
+                  <input id="aiagentUserMessagesChars" type="number" min="500" max="20000" step="500">
+                  <small>超出预算时从最旧的发言开始丢</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentUserMessagesLive" type="checkbox">
+                  <span>本地记录不足时用实时历史补齐</span>
+                  <small>NapCat 不存历史，实时窗口只覆盖最近一小段</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentChatlogEnabled" type="checkbox">
+                  <span>本地记录群消息（chatlog）</span>
+                  <small>只记纯文本，按 群/日期 存 UserData；关闭后「历史发言」只剩实时窗口</small>
+                </label>
+                <label>
+                  <span>聊天记录保留天数</span>
+                  <input id="aiagentChatlogRetentionDays" type="number" min="1" max="365" step="1">
+                </label>
+                <label>
+                  <span>聊天记录总量上限（MB）</span>
+                  <input id="aiagentChatlogMaxMb" type="number" min="1" max="20000" step="10">
+                </label>
+                <label>
+                  <span>只记录这些群号（留空=全部）</span>
+                  <input id="aiagentChatlogGroups" type="text" placeholder="例如：123456, 789012">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentChatlogRecordBot" type="checkbox">
+                  <span>同时记录机器人自己的发言</span>
+                </label>
               </div>
             </div>
             <div id="aiagentToolList" class="aiagent-tool-list" aria-live="polite"></div>

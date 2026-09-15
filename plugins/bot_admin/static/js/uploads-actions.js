@@ -294,13 +294,41 @@ function buildAiAgentPayload() {
       files: {
         allow_writes: $("#aiagentAllowFileWrites").checked,
       },
+      group_members: {
+        enabled: $("#aiagentGroupMembersEnabled").checked,
+        max_members: Number($("#aiagentGroupMembersMax").value || 100),
+      },
+      member_profile: {
+        enabled: $("#aiagentMemberProfileEnabled").checked,
+      },
+      user_messages: {
+        enabled: $("#aiagentUserMessagesEnabled").checked,
+        max_messages: Number($("#aiagentUserMessagesMax").value || 50),
+        max_chars: Number($("#aiagentUserMessagesChars").value || 4000),
+        allow_live_history: $("#aiagentUserMessagesLive").checked,
+      },
       wiki_prefetch: {
         enabled: $("#aiagentWikiPrefetch").checked,
         web_search: $("#aiagentWikiPrefetchSearch").checked,
       },
       plugin_tools: buildAiAgentPluginToolsPayload(),
     },
+    chatlog: {
+      enabled: $("#aiagentChatlogEnabled").checked,
+      groups: parseAiAgentGroupIds($("#aiagentChatlogGroups").value),
+      retention_days: Number($("#aiagentChatlogRetentionDays").value || 7),
+      max_total_mb: Number($("#aiagentChatlogMaxMb").value || 200),
+      record_bot: $("#aiagentChatlogRecordBot").checked,
+    },
   };
+}
+
+// 「只记录这些群号」输入框：逗号/空格/换行分隔，只保留数字群号
+function parseAiAgentGroupIds(value) {
+  return String(value || "")
+    .split(/[\s,，]+/)
+    .map((item) => item.trim())
+    .filter((item) => /^\d+$/.test(item));
 }
 
 async function saveAiAgentConfig(event) {

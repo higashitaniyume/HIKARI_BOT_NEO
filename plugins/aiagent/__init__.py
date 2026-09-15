@@ -20,6 +20,7 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.stats_tracker import increment as stats_increment
 
+from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
