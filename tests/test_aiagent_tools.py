@@ -12,6 +12,7 @@ import plugins.aiagent as aiagent
 import plugins.mc_wiki as mc_wiki_plugin
 import plugins.stardew_wiki as stardew_wiki_plugin
 import plugins.sts2_wiki as sts2_wiki_plugin
+from core.ai_tool_registry import AIToolSpec
 from plugins.aiagent import client as aiagent_client
 from plugins.aiagent.tools import registry as tool_registry
 from plugins.aiagent.tools import search as search_tool
@@ -206,6 +207,15 @@ def base_cfg(
             "max_tool_rounds": 2,
         },
     }
+
+
+def _fake_tool_spec(name: str) -> AIToolSpec:
+    return AIToolSpec(
+        name=name,
+        description="test tool",
+        parameters={"type": "object", "properties": {}, "additionalProperties": False},
+        handler=lambda context, arguments: {"ok": True},
+    )
 
 
 def _cfg_with_plugin_tool(tool_name: str) -> dict[str, object]:
@@ -518,6 +528,36 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(write_payload["ok"])
             self.assertEqual((root / "UserData" / "notes" / "out.txt").read_text(encoding="utf-8"), "saved")
             self.assertIn("outside allowed directory", escape_payload["error"])
+
+    async def test_slow_plugin_tool_times_out_without_failing_the_turn(self) -> None:
+        import asyncio
+
+        async def slow_tool(name, context, arguments):
+            await asyncio.sleep(5)
+            return {"ok": True}
+
+        cfg = _cfg_with_plugin_tool("unit_slow_tool")
+        tools_cfg = cfg["tools"]
+        assert isinstance(tools_cfg, dict)
+        tools_cfg["tool_timeout_seconds"] = 0.2
+
+        with patch.object(
+            tool_registry,
+            "iter_ai_tools",
+            return_value=[_fake_tool_spec("unit_slow_tool")],
+        ), patch.object(tool_registry, "execute_ai_tool", slow_tool):
+            result = await aiagent._execute_tool_call(
+                cfg,
+                {
+                    "id": "call_slow",
+                    "function": {"name": "unit_slow_tool", "arguments": "{}"},
+                },
+            )
+
+        payload = json.loads(result["content"])
+        self.assertIn("timed out", payload["error"])
+        self.assertEqual(result["role"], "tool")
+        self.assertEqual(result["tool_call_id"], "call_slow")
 
 
 if __name__ == "__main__":

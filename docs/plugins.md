@@ -401,6 +401,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `tools.files.allow_writes` | 是否允许 AI 写入 `UserData`（默认 **false**，写入工具不下发给模型；后台「AI Agent」页 Tools 管理里对应「允许 AI 写 UserData 文件」） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
 | `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
+| `tools.tool_timeout_seconds` | 单个工具调用超时（默认 30 秒；超时按工具报错返回，不拖住整轮回复） |
 | `quota.enabled` | 是否启用对话次数配额（默认关） |
 | `quota.default_user` / `default_group` | 默认额度：每日/每小时对话次数（0 = 不限额） |
 | `quota.user_overrides` / `group_overrides` | 指定用户/群的独立额度 |
@@ -500,6 +501,9 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 - `重置` / `清空上下文` 只清空**当前用户**的短期上下文与记忆文件。
 - 记忆总结（自动或 `总结记忆`）按当前配置的 `api.protocol` 走对应接口，Responses 与 Chat Completions 两种配置都可用。
 - 后台任务（记忆总结）默认按 `quota.count_background` 计入配额。
+- 配额采用**先预留、失败退回**：请求发出前原子检查并扣费（同一 scope 并发请求不会一起挤过限额），只有成功回复才真正消耗；API 报错、网络异常或消息为空都会退回。
+- 失败原因会区分提示：超时 / 网络不通 / 上游限流（429）/ 上游故障（5xx）/ Key 无效（401、403）/ 其他失败，对应 `bot_messages.json` 里的 `aiagent.timeout`、`aiagent.network_error`、`aiagent.rate_limited`、`aiagent.upstream_error`、`aiagent.auth_failed`、`aiagent.failed`。
+- 单个工具调用受 `tools.tool_timeout_seconds` 限制（默认 30 秒），超时只让该工具返回错误，不会让整轮回复失败，也不会卡住该会话的锁。
 
 **文件工具边界：**
 - 读取：`read_persona_resource`（仅 `BotData/agent_personas` 下的 `.md`/`.txt`/`.json`）、`read_user_file`（仅 `UserData`）

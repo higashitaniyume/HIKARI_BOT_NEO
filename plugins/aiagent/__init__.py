@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
+import httpx
 
 from core.access_control import is_event_allowed
 from core.ai_tool_registry import AIToolContext
@@ -22,7 +23,7 @@ from core.stats_tracker import increment as stats_increment
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
-from .quota import check_quota, get_quota_status, record_usage
+from .quota import get_quota_status, refund_quota, reserve_quota
 from .memory import (
     append_memory,
     clear_memory,
@@ -230,17 +231,20 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
         mark_event_handled(event)
         return
 
-    try:
-        # 配额前置检查：今日/本小时对话次数超限则拦截
-        quota_block = check_quota(cfg, event)
-        if quota_block is not None:
-            block = dict(quota_block)
-            block["used"] = f"{block['used']:,}"
-            block["limit"] = f"{block['limit']:,}"
-            await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
-            mark_event_handled(event)
-            return
+    # 配额：原子「检查 + 预留」，失败（未成功回复）时在 finally 里退回
+    quota_block, quota_reserved = reserve_quota(cfg, event)
+    if quota_block is not None:
+        block = dict(quota_block)
+        block["who"] = "群聊" if block.get("who") == "group" else "私聊"
+        block["period"] = "今日" if block.get("period") == "day" else "本小时"
+        block["used"] = f"{block['used']:,}"
+        block["limit"] = f"{block['limit']:,}"
+        await bot.send(event, Message(msg("aiagent.quota_exhausted", **block)))
+        mark_event_handled(event)
+        return
 
+    delivered = False
+    try:
         image_blocks = await build_image_blocks(image_urls, cfg)
         if image_blocks:
             logger.info("[AIAgent] 附带 %d 张图片送模型 -> %s", len(image_blocks), session)
@@ -263,8 +267,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
         remember(session, text, reply, cfg)
         remember_shared(event, text, reply, cfg)
         append_memory(event, cfg, text, reply)
-        # 配额记账：本次对话计 1 次
-        record_usage(cfg, event, 1)
+        # 额度已在 reserve_quota 时预留，成功回复无需再记账
         # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))
@@ -273,19 +276,36 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
             await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
             await bot.send(event, Message(reply))
+        delivered = True
         stats_increment(event, "ai_chat_sessions", 1)
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
         if e.status_code in {401, 403}:
             await bot.send(event, Message(msg("aiagent.auth_failed")))
+        elif e.status_code == 429:
+            await bot.send(event, Message(msg("aiagent.rate_limited")))
+        elif e.status_code >= 500:
+            await bot.send(event, Message(msg("aiagent.upstream_error")))
         else:
             await bot.send(event, Message(msg("aiagent.failed")))
+        mark_event_handled(event)
+    except httpx.TimeoutException as e:
+        logger.warning("[AIAgent] 请求超时: %s", e)
+        await bot.send(event, Message(msg("aiagent.timeout")))
+        mark_event_handled(event)
+    except httpx.HTTPError as e:
+        logger.warning("[AIAgent] 网络请求失败: %s", e)
+        await bot.send(event, Message(msg("aiagent.network_error")))
         mark_event_handled(event)
     except Exception as e:
         logger.exception("[AIAgent] 聊天失败: %s", e)
         await bot.send(event, Message(msg("aiagent.failed")))
         mark_event_handled(event)
+    finally:
+        # 没有成功回复（API 报错、网络异常、消息为空等）就退回预留的额度
+        if quota_reserved and not delivered:
+            refund_quota(cfg, event)
 
 
 async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:

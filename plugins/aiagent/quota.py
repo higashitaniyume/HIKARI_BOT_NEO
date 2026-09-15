@@ -161,6 +161,15 @@ def _record(scope: str, period: str, key: str, count: int) -> None:
         _save_usage()
 
 
+def _refund(scope: str, period: str, key: str, count: int) -> None:
+    """退回已预留的次数（不会低于 0，窗口已滚动时不处理）。"""
+    with _lock:
+        entry = _usage.get(scope, {}).get(period)
+        if not isinstance(entry, dict) or entry.get("k") != key:
+            return
+        entry["count"] = max(0, int(entry.get("count", 0)) - count)
+
+
 # ── 对外接口 ──────────────────────────────────────────────────────────────
 
 
@@ -226,6 +235,68 @@ def record_usage(cfg: dict[str, Any], event: MessageEvent, count: int = 1) -> No
         _used(scope, "day", day_key),
         _used(scope, "hour", hour_key),
     )
+
+
+def reserve_quota(cfg: dict[str, Any], event: MessageEvent, count: int = 1) -> tuple[dict[str, Any] | None, bool]:
+    """原子地「检查 + 预留」额度。
+
+    返回 `(拦截参数, 是否已预留)`：
+
+    - 拦截参数非 None → 超限，本次不扣费，参数用于拼接提示消息；
+    - 第二个值为 True → 已扣掉 count 次额度，请求失败时应调用 `refund_quota` 退回。
+
+    配额未启用、scope 豁免或 count<=0 时返回 `(None, False)`。检查与扣费在同一把锁内
+    完成，避免并发请求同时通过检查导致超额。
+    """
+    count = int(count)
+    quota = _quota_cfg(cfg)
+    if count <= 0 or not quota.get("enabled", False) or _is_exempt(cfg, event):
+        return None, False
+
+    scope = scope_for_event(event)
+    limits = _limits_for(cfg, scope)
+    day_key, hour_key = _window_keys()
+    now = datetime.now()
+    who = "group" if scope.startswith("group:") else "user"
+
+    with _lock:
+        used_day = _used(scope, "day", day_key)
+        if limits["daily"] > 0 and used_day + count > limits["daily"]:
+            return {
+                "who": who,
+                "period": "day",
+                "used": used_day,
+                "limit": limits["daily"],
+                "resets": _window_resets_at("day", now),
+            }, False
+        used_hour = _used(scope, "hour", hour_key)
+        if limits["hourly"] > 0 and used_hour + count > limits["hourly"]:
+            return {
+                "who": who,
+                "period": "hour",
+                "used": used_hour,
+                "limit": limits["hourly"],
+                "resets": _window_resets_at("hour", now),
+            }, False
+        _record(scope, "day", day_key, count)
+        _record(scope, "hour", hour_key, count)
+    return None, True
+
+
+def refund_quota(cfg: dict[str, Any], event: MessageEvent, count: int = 1) -> None:
+    """退还 `reserve_quota` 预留但最终没有成功回复的额度。"""
+    count = int(count)
+    quota = _quota_cfg(cfg)
+    if count <= 0 or not quota.get("enabled", False) or _is_exempt(cfg, event):
+        return
+
+    scope = scope_for_event(event)
+    day_key, hour_key = _window_keys()
+    with _lock:
+        _refund(scope, "day", day_key, count)
+        _refund(scope, "hour", hour_key, count)
+        _save_usage()
+    logger.debug("[AIAgent] 配额退回 %s -= %d 次", scope, count)
 
 
 def get_scope_status(cfg: dict[str, Any], scope: str) -> dict[str, Any]:

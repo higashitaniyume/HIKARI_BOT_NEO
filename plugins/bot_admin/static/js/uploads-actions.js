@@ -286,6 +286,7 @@ function buildAiAgentPayload() {
     },
     tools: {
       max_tool_rounds: Number($("#aiagentMaxToolRounds").value),
+      tool_timeout_seconds: Number($("#aiagentToolTimeout").value || 30),
       search: {
         mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
       },

@@ -380,6 +380,12 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "disabled_names": _parse_ai_tool_names(input_plugin_tools.get("disabled_names", current_plugin_tools.get("disabled_names", []))),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
+            "tool_timeout_seconds": _parse_float(
+                input_tools.get("tool_timeout_seconds", current_tools.get("tool_timeout_seconds", 30)),
+                30.0,
+                minimum=0.1,
+                maximum=600.0,
+            ),
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])

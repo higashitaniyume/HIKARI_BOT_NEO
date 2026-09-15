@@ -106,7 +106,8 @@
           "enabled_names": [],
           "disabled_names": []
         },
-        "max_tool_rounds": 4
+        "max_tool_rounds": 4,
+        "tool_timeout_seconds": 30
       }
     }
   },

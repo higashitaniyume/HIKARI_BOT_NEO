@@ -131,6 +131,26 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         kept = self._save_with(enabled, {"tools": {"max_tool_rounds": 3}})
         self.assertTrue(kept["tools"]["files"]["allow_writes"])
 
+    def test_update_aiagent_config_round_trips_tool_timeout(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {"tools": {}})
+        self.assertEqual(default["tools"]["tool_timeout_seconds"], 30.0)
+
+        saved = self._save_with(current, {"tools": {"tool_timeout_seconds": 12.5}})
+        self.assertEqual(saved["tools"]["tool_timeout_seconds"], 12.5)
+
+        # 未携带该字段时保留当前值，而不是回到默认
+        kept = self._save_with(saved, {"tools": {"max_tool_rounds": 3}})
+        self.assertEqual(kept["tools"]["tool_timeout_seconds"], 12.5)
+
+    def test_update_aiagent_config_clamps_tool_timeout(self) -> None:
+        current = self._base_config()
+        too_small = self._save_with(current, {"tools": {"tool_timeout_seconds": 0}})
+        self.assertEqual(too_small["tools"]["tool_timeout_seconds"], 0.1)
+
+        too_large = self._save_with(current, {"tools": {"tool_timeout_seconds": 10**6}})
+        self.assertEqual(too_large["tools"]["tool_timeout_seconds"], 600.0)
+
 
 if __name__ == "__main__":
     unittest.main()

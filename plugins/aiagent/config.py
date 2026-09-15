@@ -171,6 +171,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "disabled_names": [],
         },
         "max_tool_rounds": 4,
+        # 单个工具调用的超时（秒）：挂住的工具会拖住整轮回复与当前会话的锁。
+        "tool_timeout_seconds": 30,
     },
     # 配额：替代原 permissions 黑白名单。群聊扣群额度，私聊扣用户额度。
     # 额度单位为「对话次数」（一条用户消息 = 1 次），每日 / 每小时各一窗。

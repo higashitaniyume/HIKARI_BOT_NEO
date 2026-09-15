@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -8,11 +9,34 @@ from core.ai_tool_registry import AIToolContext, execute_ai_tool, iter_ai_tools
 from core.config_loader import load_main_config
 
 from ..config import api_protocol
-from ..utils import safe_bool
+from ..utils import safe_bool, safe_float
 
 from . import files, help, search
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
+
+# 单个工具调用的默认超时（秒）。挂住的工具会拖住整轮回复，也会占住该会话的锁。
+DEFAULT_TOOL_TIMEOUT_SECONDS = 30.0
+
+
+def _tool_timeout(cfg: dict[str, Any]) -> float:
+    return safe_float(
+        _tools_cfg(cfg).get("tool_timeout_seconds"),
+        DEFAULT_TOOL_TIMEOUT_SECONDS,
+        minimum=0.1,
+        maximum=600.0,
+    )
+
+
+async def _run_tool(coro: Any, name: str, timeout: float) -> str:
+    """执行工具调用并施加单次超时；超时按工具错误返回，不让整轮回复失败。"""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("[AIAgent] 工具调用超时 %.1fs: %s", timeout, name)
+        return json.dumps(
+            {"error": f"tool {name} timed out after {timeout:g}s"}, ensure_ascii=False
+        )
 
 
 def _use_builtin_search(cfg: dict[str, Any]) -> bool:
@@ -54,6 +78,8 @@ async def execute_tool_call(
     if not isinstance(arguments, dict):
         arguments = {}
 
+    timeout = _tool_timeout(cfg)
+
     if name == search.TOOL_NAME and search.enabled(cfg):
         if _use_builtin_search(cfg):
             # 内置搜索由服务端执行，不应出现函数调用；防御模型误调用
@@ -63,7 +89,7 @@ async def execute_tool_call(
             )
         else:
             try:
-                content = await search.execute(cfg, arguments)
+                content = await _run_tool(search.execute(cfg, arguments), name, timeout)
             except Exception as e:
                 logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
                 content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
@@ -80,7 +106,11 @@ async def execute_tool_call(
             logger.warning("[AIAgent] 帮助文档工具调用失败: %s", e)
             content = json.dumps({"error": f"help tool failed: {e}"}, ensure_ascii=False)
     elif _plugin_tools_enabled(cfg) and _plugin_tool_allowed(name, cfg, context):
-        content = await execute_ai_tool(name, context, arguments)
+        try:
+            content = await _run_tool(execute_ai_tool(name, context, arguments), name, timeout)
+        except Exception as e:
+            logger.warning("[AIAgent] 插件工具调用失败: %s", e)
+            content = json.dumps({"error": f"plugin tool failed: {e}"}, ensure_ascii=False)
     else:
         content = json.dumps({"error": f"unknown or disabled tool: {name}"}, ensure_ascii=False)
 
