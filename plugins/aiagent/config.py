@@ -106,6 +106,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_history_messages": 10,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
+        # 群聊公共上下文（默认关闭）：开启后把本群最近几轮「成员 ↔ 机器人」的对话
+        # 作为背景注入，供多人接话/跨用户话题使用；关闭时每个用户只看自己的上下文。
+        "group_shared_context": {
+            "enabled": False,
+            "max_messages": 10,
+        },
         "blocked_url_domains": [
             "douyin.com",
             "iesdouyin.com",

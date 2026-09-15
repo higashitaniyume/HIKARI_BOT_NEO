@@ -127,6 +127,17 @@
             <textarea id="aiagentSystemExtra" rows="4" placeholder="可选，会追加在人格 skill 后"></textarea>
           </label>
 
+          <label class="checkbox-field">
+            <input id="aiagentGroupSharedContext" type="checkbox">
+            <span>启用群聊公共上下文</span>
+            <small>开启后，群内最近的公开对话（含其他成员）会作为背景提供给模型；默认关闭时每个成员只看自己的上下文。</small>
+          </label>
+
+          <label>
+            <span>公共上下文消息数</span>
+            <input id="aiagentGroupSharedMax" type="number" min="0" max="40" step="1">
+          </label>
+
           <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentVisionTitle">
             <div class="aiagent-tools-head">
               <div>

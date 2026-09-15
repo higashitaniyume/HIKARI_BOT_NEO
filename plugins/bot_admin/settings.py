@@ -258,6 +258,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_model = current.get("model") if isinstance(current.get("model"), dict) else {}
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
+    current_shared = current_chat.get("group_shared_context") if isinstance(current_chat.get("group_shared_context"), dict) else {}
     current_thinking = current.get("thinking") if isinstance(current.get("thinking"), dict) else {}
     current_vision = current.get("vision") if isinstance(current.get("vision"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
@@ -269,6 +270,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    input_shared = input_chat.get("group_shared_context") if isinstance(input_chat.get("group_shared_context"), dict) else {}
     input_thinking = data.get("thinking") if isinstance(data.get("thinking"), dict) else {}
     input_vision = data.get("vision") if isinstance(data.get("vision"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
@@ -341,6 +343,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
             "short_reply_chars": _parse_int(input_chat.get("short_reply_chars", current_chat.get("short_reply_chars", 200)), 200, minimum=50, maximum=5000),
             "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
+            "group_shared_context": {
+                "enabled": _parse_bool(input_shared.get("enabled", current_shared.get("enabled", False))),
+                "max_messages": _parse_int(input_shared.get("max_messages", current_shared.get("max_messages", 10)), 10, minimum=0, maximum=40),
+            },
             "blocked_url_domains": current_chat.get("blocked_url_domains", []),
         },
         "memory": {

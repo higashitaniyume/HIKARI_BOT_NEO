@@ -31,7 +31,9 @@ from .memory import (
     mark_activity,
     memory_paths,
     read_memory_context,
+    read_shared_context,
     remember,
+    remember_shared,
     session_key,
     should_summarize,
     summarize_session_memory,
@@ -112,6 +114,11 @@ def _build_messages(
     messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
     if memory_context:
         messages.append({"role": "system", "content": memory_context})
+
+    # Part 3: 可选的群聊公共上下文（默认关闭，见 chat.group_shared_context）
+    shared_context = read_shared_context(event, cfg)
+    if shared_context:
+        messages.append({"role": "system", "content": shared_context})
 
     history = get_history(session, chat_cfg.get("max_history_messages"))
     messages.extend(history)
@@ -254,6 +261,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
         remember(session, text, reply, cfg)
+        remember_shared(event, text, reply, cfg)
         append_memory(event, cfg, text, reply)
         # 配额记账：本次对话计 1 次
         record_usage(cfg, event, 1)

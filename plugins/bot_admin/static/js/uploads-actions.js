@@ -279,6 +279,10 @@ function buildAiAgentPayload() {
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
+      group_shared_context: {
+        enabled: $("#aiagentGroupSharedContext").checked,
+        max_messages: Number($("#aiagentGroupSharedMax").value || 10),
+      },
     },
     tools: {
       max_tool_rounds: Number($("#aiagentMaxToolRounds").value),

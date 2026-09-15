@@ -47,6 +47,10 @@
         "max_history_messages": 10,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
+        "group_shared_context": {
+          "enabled": false,
+          "max_messages": 10
+        },
         "blocked_url_domains": [
           "douyin.com",
           "iesdouyin.com",

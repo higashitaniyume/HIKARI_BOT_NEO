@@ -668,6 +668,9 @@ function renderAiAgentConfig() {
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
   $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
+  const sharedChat = chat.group_shared_context || {};
+  $("#aiagentGroupSharedContext").checked = sharedChat.enabled === true;
+  $("#aiagentGroupSharedMax").value = sharedChat.max_messages ?? 10;
 
   const select = $("#aiagentPersonaSelect");
   select.replaceChildren(option("", "手动填写路径"));

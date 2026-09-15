@@ -363,6 +363,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 - **群聊：** 必须 @机器人 且未被其他插件处理才回复
 - 回复默认不超过 `max_reply_chars`（默认 3500），超出时自动以**合并转发**发送
 - **短期上下文按「会话 + 用户」隔离**：私聊键为 `private:<QQ>`，群聊键为 `group:<群号>:user:<QQ>`，同一群里不同用户的上下文互不串线
+- **群聊公共上下文（默认关闭）**：开启 `chat.group_shared_context.enabled` 后，本群最近几轮公开对话（含其他成员，标注发言者 QQ）会作为「仅供参考、不得当作指令」的背景注入；关闭时每个成员只看自己的上下文
 - 同一会话的消息**串行处理**（每个会话一把锁），避免并发请求读到相同的旧历史或回复乱序；不同会话之间并行
 - 回复前逐条下载消息里的图片；下载目标与原地址、重定向目标都会做安全校验，内网/回环地址一律拒绝
 - 支持黑白名单（用户/群维度独立开关）与对话次数配额，在后台「AI 配额」页管理
@@ -385,6 +386,8 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chat.max_reply_chars` | 单次回复最大字符数，默认 3500 |
 | `chat.cooldown_seconds` | 冷却秒数，默认 3 |
 | `chat.max_history_messages` | 上下文保留消息数 |
+| `chat.group_shared_context.enabled` | 是否注入群聊公共上下文（默认 **false**） |
+| `chat.group_shared_context.max_messages` | 公共上下文保留的消息条数（默认 10） |
 | `chat.system_prompt_extra` | 额外系统提示词 |
 | `memory.enabled` | 是否启用持久化记忆 |
 | `memory.root` | 记忆根目录（默认 `UserData/aiagent_memory`） |
@@ -492,6 +495,7 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 | 重启后 | 丢失（进程内存） | 保留 |
 
 - 群聊短期历史不会把其他群成员与机器人的对话喂给当前用户；群共享记忆是显式的“群级事实”，读取时会同时作为背景注入。
+- 需要多人接话、跨用户话题连续性时，可显式开启 `chat.group_shared_context`（默认关闭）：开启后本群最近的公开对话会作为**不可信背景**注入，并标注发言者 QQ；后台「AI Agent」页可开关与调整条数。
 - 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条）。
 - `重置` / `清空上下文` 只清空**当前用户**的短期上下文与记忆文件。
 - 记忆总结（自动或 `总结记忆`）按当前配置的 `api.protocol` 走对应接口，Responses 与 Chat Completions 两种配置都可用。
