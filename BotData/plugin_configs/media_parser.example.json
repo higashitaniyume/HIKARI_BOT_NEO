@@ -27,6 +27,7 @@
     "xianyu": "全部发送",
     "toutiao": "全部发送",
     "xiaoheihe": "全部发送",
+    "steam": "全部发送",
     "twitter": "全部发送"
   },
   "message": {
@@ -80,11 +81,19 @@
     "address": "",
     "tiktok": false,
     "xiaoheihe_video": true,
+    "steam": {
+      "parse": false,
+      "image": true,
+      "video": true
+    },
     "twitter": {
       "parse": false,
       "image": true,
       "video": true
     }
+  },
+  "steam": {
+    "use_xiaoheihe": false
   },
   "bilibili_enhanced": {
     "use_cookie": false,

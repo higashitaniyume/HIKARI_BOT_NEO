@@ -88,6 +88,7 @@ SUPPORTED_LINK_MARKERS = (
     "m.tb.cn",
     "toutiao.com",
     "xiaoheihe.cn",
+    "steampowered.com",
     "twitter.com",
     "x.com",
 )

@@ -163,6 +163,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "xianyu": "全部发送",
         "toutiao": "全部发送",
         "xiaoheihe": "全部发送",
+        "steam": "全部发送",
         "twitter": "全部发送",
     },
     "message": {
@@ -216,11 +217,19 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "address": "",
         "tiktok": False,
         "xiaoheihe_video": True,
+        "steam": {
+            "parse": False,
+            "image": True,
+            "video": True,
+        },
         "twitter": {
             "parse": False,
             "image": True,
             "video": True,
         },
+    },
+    "steam": {
+        "use_xiaoheihe": False,
     },
     "bilibili_enhanced": {
         "use_cookie": False,

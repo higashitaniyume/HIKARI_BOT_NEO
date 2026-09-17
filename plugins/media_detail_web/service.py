@@ -29,6 +29,7 @@ SUPPORTED_PLATFORM_GROUPS = [
             "闲鱼",
             "今日头条",
             "小黑盒",
+            "Steam",
             "Twitter/X",
         ],
     },

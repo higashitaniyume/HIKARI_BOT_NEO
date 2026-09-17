@@ -114,7 +114,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     },
     "bot_help": {
         "not_found": "没有找到命令：{command}\n发送「帮助 命令」查看命令列表。",
-        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- 抖音/B站/小红书/小黑盒等链接：解析并发送文本、图片和视频\n- Instagram / Facebook 链接：解析并发送媒体\n- YouTube 链接：下载并发送视频",
+        "auto_parse": "自动解析：\n- Pixiv 作品链接：解析并发送图片\n- 抖音/B站/小红书/小黑盒/Steam等链接：解析并发送文本、图片和视频\n- Instagram / Facebook 链接：解析并发送媒体\n- YouTube 链接：下载并发送视频",
         "web": "管理页面：\n- https://stickers-hikari.vlnc.top/\n- 可上传贴纸、导入 Telegram 贴纸包、管理关键词",
         "usage": "帮助用法：\n- 帮助：查看分区列表\n- 帮助 分区名：查看分区详情\n- 帮助 命令名：查看单个命令\n- 帮助 全部：查看完整帮助",
         "scope_private": "仅私聊",
@@ -141,7 +141,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "category_detail_hint": "发送「帮助 命令名」查看单个命令的详细用法",
         "category_not_found": "没有找到分区：{category}\n发送「帮助」查看分区列表。",
         "category_default": "其他",
-        "category_media_platforms": "Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Instagram / Facebook / YouTube / 网易云",
+        "category_media_platforms": "Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Steam / Instagram / Facebook / YouTube / 网易云",
     },
     "contact_card": {
         "usage": "用法：名片 QQ号",
@@ -171,7 +171,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "info": "YouTube 视频下载完成\n标题：{title}\n频道：{uploader}\n时长：{duration}\n大小：{size}\n链接：{url}",
     },
     "media_parser": {
-        "usage": "用法：媒体解析 <抖音/B站/小红书/小黑盒等平台链接>",
+        "usage": "用法：媒体解析 <抖音/B站/小红书/小黑盒/Steam等平台链接>",
         "no_link": "没有找到可解析的平台链接。",
         "empty": "没有解析到可发送的内容。",
         "no_media": "解析成功，但没有可发送的图片或视频。",

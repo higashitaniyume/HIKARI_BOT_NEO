@@ -77,7 +77,7 @@ class AutoMediaParserHandler:
 @command(
     "媒体解析",
     aliases=("解析媒体", "视频解析"),
-    description="解析抖音/B站/小红书/小黑盒等平台链接",
+    description="解析抖音/B站/小红书/小黑盒/Steam等平台链接",
     usage="媒体解析 <链接>",
     category="媒体",
 )

@@ -27,6 +27,7 @@ _ACCESS_RULE_PLUGINS = {
     "media_parser.json/xianyu": "闲鱼解析",
     "media_parser.json/toutiao": "今日头条解析",
     "media_parser.json/xiaoheihe": "小黑盒解析",
+    "media_parser.json/steam": "Steam 解析",
     "media_parser.json/twitter": "Twitter/X 解析",
     "pixiv_parser.json": "Pixiv 解析",
     "cobalt_parser.json": "Instagram / Facebook 解析",
