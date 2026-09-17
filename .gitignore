@@ -31,6 +31,10 @@ dotenv*
 # Cobalt API cookies (contains Instagram session secrets)
 /cookies.json
 
+# 登录 cookie（含账号凭据，绝不入库）。默认位置见 qqmusic_parser 的 cookiefile 配置。
+BotData/cookies/*
+!BotData/cookies/.gitkeep
+
 # Config files with secrets (templates in *.example.json)
 BotData/config.json
 BotData/hikari_ai_config.json

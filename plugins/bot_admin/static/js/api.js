@@ -1,3 +1,6 @@
+// 权限页里额外提供「群聊自动解析」配置的插件
+const ACCESS_AUTO_PARSE_GROUP_PLUGINS = ["netease_parser.json", "qqmusic_parser.json"];
+
 async function fetchState() {
   const res = await fetch("/api/state", { cache: "no-store" });
   const data = await readJsonResponse(res, "读取贴纸数据失败");
@@ -375,9 +378,9 @@ function renderAccessRules() {
   $("#accessBlacklistUsers").value = joinIds(blacklist.user);
   $("#accessBlacklistGroups").value = joinIds(blacklist.group);
 
-  // 网易云解析：群聊自动解析配置（默认手动解析，列表内群自动）
-  const isNetease = selected.name === "netease_parser.json";
-  $("#accessAutoParseBlock").hidden = !isNetease;
+  // 网易云 / QQ 音乐解析：群聊自动解析配置（默认手动解析，列表内群自动）
+  const supportsAutoParseGroups = ACCESS_AUTO_PARSE_GROUP_PLUGINS.includes(selected.name);
+  $("#accessAutoParseBlock").hidden = !supportsAutoParseGroups;
   const autoParseGroups = selected.auto_parse_groups || {};
   $("#accessAutoParseEnabled").checked = autoParseGroups.enable === true;
   $("#accessAutoParseGroups").value = joinIds(autoParseGroups.groups || []);
@@ -399,7 +402,7 @@ function buildAccessPayload() {
       },
     },
   };
-  if (state.selectedAccessPlugin === "netease_parser.json") {
+  if (ACCESS_AUTO_PARSE_GROUP_PLUGINS.includes(state.selectedAccessPlugin)) {
     payload.auto_parse_groups = {
       enable: $("#accessAutoParseEnabled").checked,
       groups: splitIds($("#accessAutoParseGroups").value),

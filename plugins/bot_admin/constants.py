@@ -33,5 +33,6 @@ _ACCESS_RULE_PLUGINS = {
     "cobalt_parser.json": "Instagram / Facebook 解析",
     "youtube_downloader.json": "YouTube 下载",
     "netease_parser.json": "网易云解析",
+    "qqmusic_parser.json": "QQ 音乐解析",
 }
 

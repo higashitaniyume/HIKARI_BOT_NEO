@@ -45,6 +45,7 @@ STAT_KEY_CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("cobalt_parsed", "common.stats_label_cobalt_parsed"),
         ("youtube_downloaded", "common.stats_label_youtube_downloaded"),
         ("netease_parsed", "common.stats_label_netease_parsed"),
+        ("qqmusic_downloaded", "common.stats_label_qqmusic_downloaded"),
         ("tg_sticker_parsed", "common.stats_label_tg_sticker_parsed"),
     ],
     "sticker": [

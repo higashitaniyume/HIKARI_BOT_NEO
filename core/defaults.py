@@ -301,6 +301,39 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
+DEFAULT_QQMUSIC_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "auto_parse": True,
+    "max_links_per_message": 3,
+    # 音质优先级：取值是 yt-dlp qqmusic 提取器的格式 ID。
+    # 匿名请求只能拿到 128mp3 / 96aac / 48aac（QQ 的「标准音质」档）；
+    # 配置 cookiefile 后会多出 320mp3（会员）与 flac（无损）。
+    "format_priority": ["flac", "320mp3", "128mp3", "96aac", "48aac"],
+    "max_file_mb": 200,
+    "send_link_info": True,
+    # "upload" = upload_group_file/upload_private_file（音乐文件推荐）
+    # "record" = MessageSegment.record() 语音消息
+    "send_strategy": "upload",
+    "download_timeout": 600,
+    "socket_timeout": 30,
+    "retries": 3,
+    "api_timeout": 30,
+    "cache_dir": "/tmp/hikari_bot/qqmusic",
+    "cache_ttl_seconds": 600,
+    # Netscape 格式 cookie 文件；相对路径按仓库根目录解析。真实文件不进 git。
+    "cookiefile": "BotData/cookies/qqmusic.txt",
+    # 默认群聊为手动解析（仅被 @bot 触发）；只有启用且群号在列表内的群才自动解析。
+    "auto_parse_groups": {
+        "enable": False,
+        "groups": [],
+    },
+    "card_hint": {
+        "enabled": True,
+        "cooldown_seconds": 300,
+    },
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
+}
+
 DEFAULT_SOUNDCLOUD_PARSER_CONFIG: dict[str, Any] = {
     "enabled": True,
     "auto_parse": True,
