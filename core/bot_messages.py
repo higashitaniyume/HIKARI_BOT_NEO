@@ -183,6 +183,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "info_author": "作者：{author}",
         "info_time": "时间：{timestamp}",
         "info_media_count": "媒体：视频 {video_count} / 图片 {image_count}",
+        "info_media_count_video": "媒体：视频 {video_count}",
         "info_access": "访问状态：{access}",
         "info_skip": "跳过：{reason}",
         "info_url": "原始链接：{url}",

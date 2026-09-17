@@ -110,8 +110,8 @@ class SteamDefaultConfigTests(unittest.TestCase):
     def test_default_config_instantiates_steam_parser(self) -> None:
         runtime = create_runtime(copy.deepcopy(DEFAULT_MEDIA_PARSER_CONFIG))
 
-        # 仅视频 => 关文本、开富媒体（文本与图片都不发送）
-        self.assertEqual((False, True), runtime.config_manager.parser_output.output_for_controller("steam"))
+        # 仅视频 => 归一化成「全部发送」：游戏信息文本随合并转发首条发出，图片由本地丢弃
+        self.assertEqual((True, True), runtime.config_manager.parser_output.output_for_controller("steam"))
         self.assertIsInstance(runtime.parser_manager.find_parser(STEAM_APP_URL), SteamParser)
 
     def test_default_runtime_extracts_standalone_steam_link(self) -> None:

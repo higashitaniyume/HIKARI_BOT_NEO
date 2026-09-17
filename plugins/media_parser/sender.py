@@ -83,7 +83,11 @@ def build_metadata_text(
     if metadata.get("timestamp"):
         lines.append(msg("media_parser.info_time", timestamp=metadata["timestamp"]))
     if video_count or image_count:
-        lines.append(msg("media_parser.info_media_count", video_count=video_count, image_count=image_count))
+        if metadata.get("_video_only"):
+            # 仅视频平台只发视频，就别在游戏信息里写「图片 N」了
+            lines.append(msg("media_parser.info_media_count_video", video_count=video_count))
+        else:
+            lines.append(msg("media_parser.info_media_count", video_count=video_count, image_count=image_count))
     access_message = metadata.get("access_message") or metadata.get("restriction_label")
     if access_message:
         lines.append(msg("media_parser.info_access", access=_truncate(str(access_message), 120)))
@@ -195,16 +199,17 @@ async def send_metadata_result(
     fallback_separate = bool(send_strategy.get("fallback_to_separate_media", True))
     include_text_in_forward = bool(send_strategy.get("include_text_in_forward", True))
     forward_timeout_seconds = max(1.0, float(send_strategy.get("forward_timeout_seconds", 90)))
-    has_video = _has_video_media(media_messages)
 
-    if prefer_forward and len(media_messages) > 1 and not has_video:
+    if prefer_forward and len(media_messages) > 1:
+        # 多个媒体一律合并转发：视频也一起进聊天记录，游戏信息等文本作为首条节点发出。
+        # 一条转发装不下就按 max_send 拆成多条聊天记录，但绝不改成逐条发送。
         logger.info(
             "[MediaParser] sending media as forward chunks -> media=%d chunk_size=%d timeout=%.1fs",
             len(media_messages),
             max_send,
             forward_timeout_seconds,
         )
-        sent_count, text_sent, timed_out = await _send_forward_chunks(
+        sent_count, text_sent, failure = await _send_forward_chunks(
             bot,
             event,
             text=text,
@@ -214,18 +219,18 @@ async def send_metadata_result(
             timeout_seconds=forward_timeout_seconds,
         )
         if sent_count == len(media_messages):
+            if text and not text_sent:
+                await bot.send(event, Message(text))
             return sent_count
-        if timed_out:
-            # NapCat 上传合并转发是异步的：超时只说明「还没返回」，实际上往往仍在后台上传并
-            # 最终送达（生产实例：7 个视频的聊天记录超时约 2 分钟后才发出）。这时逐条补发
-            # 就会把同一批媒体发两遍，所以按已送达处理，只留日志。
+        if not fallback_separate:
+            # 合并转发没走完（被 NapCat 拒绝或超时）就什么都不发：NapCat 的转发上传是异步的，
+            # 超时后往往仍在后台上传并最终送达，这时逐条补发会让同一批媒体发两遍。
             logger.warning(
-                "[MediaParser] forward timed out, skip separate resend to avoid duplicates -> sent_media=%d total_media=%d",
+                "[MediaParser] forward %s, fallback disabled -> nothing sent -> sent_media=%d total_media=%d",
+                failure,
                 sent_count,
                 len(media_messages),
             )
-            return len(media_messages)
-        if not fallback_separate:
             return sent_count
         logger.info(
             "[MediaParser] falling back to separate media sends -> remaining=%d total=%d",
@@ -241,14 +246,6 @@ async def send_metadata_result(
             send_text=bool(text and not text_sent),
         )
 
-    if prefer_forward and has_video and len(media_messages) > 1:
-        # 合并转发要把每个媒体先上传到转发服务，视频又大又慢，超时后极易演变成上面那种
-        # 重复发送；视频直接逐条发送更快也更稳。
-        logger.info(
-            "[MediaParser] sending video media separately -> media=%d",
-            len(media_messages),
-        )
-
     return await _send_separate(
         bot,
         event,
@@ -257,10 +254,6 @@ async def send_metadata_result(
         start_index=0,
         send_text=bool(text),
     )
-
-
-def _has_video_media(media_messages: list[tuple[str, Message]]) -> bool:
-    return any(kind == "video" for kind, _ in media_messages)
 
 
 async def _send_forward_chunks(
@@ -272,8 +265,8 @@ async def _send_forward_chunks(
     include_text: bool,
     chunk_size: int,
     timeout_seconds: float,
-) -> tuple[int, bool, bool]:
-    """发送合并转发分片，返回 (已发送媒体数, 文本是否发出, 是否超时)。"""
+) -> tuple[int, bool, str]:
+    """发送合并转发分片，返回 (已发送媒体数, 文本是否发出, 失败原因)。"""
     sent_count = 0
     text_sent = False
     for chunk_index, chunk in enumerate(_chunk_media_messages(media_messages, chunk_size)):
@@ -285,7 +278,7 @@ async def _send_forward_chunks(
             nodes.append(_node(bot, media))
         status = await _try_send_forward(bot, event, nodes, timeout_seconds=timeout_seconds)
         if status is None:
-            return sent_count, text_sent, True
+            return sent_count, text_sent, "timed out"
         if not status:
             logger.warning(
                 "[MediaParser] forward chunk failed -> chunk=%d sent_media=%d total_media=%d",
@@ -293,7 +286,7 @@ async def _send_forward_chunks(
                 sent_count,
                 len(media_messages),
             )
-            return sent_count, text_sent, False
+            return sent_count, text_sent, "rejected"
         sent_count += len(chunk)
         text_sent = text_sent or include_text_node
         logger.info(
@@ -302,7 +295,7 @@ async def _send_forward_chunks(
             sent_count,
             len(media_messages),
         )
-    return sent_count, text_sent, False
+    return sent_count, text_sent, ""
 
 
 def _chunk_media_messages(

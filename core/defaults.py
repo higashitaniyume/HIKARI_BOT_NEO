@@ -255,9 +255,12 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     },
     "send_strategy": {
         "prefer_forward_message": True,
-        "fallback_to_separate_media": True,
+        # 合并转发失败（NapCat 拒绝或超时）时宁可不发，也不逐条补发：补发会让同一批媒体
+        # 发两遍（生产实例：7 个视频转发超时后逐条重发，聊天记录随后才送达）。
+        "fallback_to_separate_media": False,
         "include_text_in_forward": True,
-        "forward_timeout_seconds": 90,
+        # 含视频的合并转发要先把文件上传到转发服务（7 个预告片约 2 分钟），超时给足。
+        "forward_timeout_seconds": 300,
     },
 }
 

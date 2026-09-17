@@ -10,12 +10,13 @@ from core.config_loader import DEFAULT_MEDIA_PARSER_CONFIG, load_plugin_config
 logger = logging.getLogger("HikariBot.MediaParserConfig")
 
 # `parsers.<平台>` 除上游的 关闭 / 全部发送 / 仅文本 / 仅富媒体 外，本地额外支持
-# 「仅视频」：只发送该链接解析出的视频，不发送图片和文本。
+# 「仅视频」：只发送该链接解析出的视频，不发送图片；游戏信息等文本随合并转发首条一起
+# 发出，不单独发文本消息。
 # 上游把不认识的模式当成「关闭」（`_parser_enabled` → `controller_has_any_output`），
-# 所以进入上游前必须先归一化成「仅富媒体」（关文本、开富媒体），再由本地发送链
-# 按 VIDEO_ONLY_PLATFORMS_KEY 把图片过滤掉。
+# 所以进入上游前必须先归一化成「全部发送」（开文本、开富媒体），再由本地发送链按
+# VIDEO_ONLY_PLATFORMS_KEY 把图片过滤掉。
 OUTPUT_MODE_VIDEO_ONLY = "仅视频"
-UPSTREAM_MODE_RICH_ONLY = "仅富媒体"
+UPSTREAM_MODE_FULL = "全部发送"
 VIDEO_ONLY_PLATFORMS_KEY = "_video_only_platforms"
 
 _first_load_done = False
@@ -51,7 +52,7 @@ def normalize_output_modes(cfg: dict[str, Any]) -> dict[str, Any]:
         return cfg
 
     cfg["parsers"] = {
-        name: (UPSTREAM_MODE_RICH_ONLY if str(name) in video_only else mode)
+        name: (UPSTREAM_MODE_FULL if str(name) in video_only else mode)
         for name, mode in parsers.items()
     }
     cfg[VIDEO_ONLY_PLATFORMS_KEY] = sorted(video_only)

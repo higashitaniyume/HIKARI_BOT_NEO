@@ -119,8 +119,8 @@
   },
   "send_strategy": {
     "prefer_forward_message": true,
-    "fallback_to_separate_media": true,
+    "fallback_to_separate_media": false,
     "include_text_in_forward": true,
-    "forward_timeout_seconds": 90
+    "forward_timeout_seconds": 300
   }
 }

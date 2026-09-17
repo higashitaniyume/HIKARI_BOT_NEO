@@ -1,9 +1,9 @@
-"""「仅视频」输出模式回归：模式归一化、图片过滤与无视频时的行为。
+"""「仅视频」输出模式回归：模式归一化、图片过滤与游戏信息文本。
 
-`parsers.<平台> = 仅视频` 是本地扩展：只发送该链接解析出的视频，图片和文本都不发。
-上游把不认识的模式当成「关闭」（`_parser_enabled` → `controller_has_any_output`），
-所以 `normalize_output_modes()` 必须先把它转成上游的「仅富媒体」，再由本地发送链
-丢掉图片——这里锁定这三步的衔接。
+`parsers.<平台> = 仅视频` 是本地扩展：只发送该链接解析出的视频，图片不发；游戏信息等
+文本随合并转发首条一起发出，不单独发文本消息。上游把不认识的模式当成「关闭」
+（`_parser_enabled` → `controller_has_any_output`），所以 `normalize_output_modes()`
+先把它转成上游的「全部发送」，再由本地发送链丢掉图片——这里锁定这几步的衔接。
 """
 
 import json
@@ -23,7 +23,7 @@ from core.bot_messages import DEFAULT_MESSAGES  # noqa: E402
 from core.defaults import DEFAULT_MEDIA_PARSER_CONFIG  # noqa: E402
 from plugins.media_parser.config import (  # noqa: E402
     OUTPUT_MODE_VIDEO_ONLY,
-    UPSTREAM_MODE_RICH_ONLY,
+    UPSTREAM_MODE_FULL,
     VIDEO_ONLY_PLATFORMS_KEY,
     normalize_output_modes,
     video_only_platforms,
@@ -33,7 +33,7 @@ from plugins.media_parser.prepare import (  # noqa: E402
     _limit_metadata_for_send,
 )
 from plugins.media_parser.runtime import create_runtime  # noqa: E402
-from plugins.media_parser.sender import build_media_messages  # noqa: E402
+from plugins.media_parser.sender import build_media_messages, build_metadata_text  # noqa: E402
 
 STEAM_APP_URL = "https://store.steampowered.com/app/3971950/In_Falsus/"
 EXAMPLE_CONFIG = (
@@ -59,10 +59,10 @@ def _steam_metadata(**overrides) -> dict:
 
 class VideoOnlyModeNormalizationTests(unittest.TestCase):
     def test_video_only_is_translated_for_upstream(self) -> None:
-        """「仅视频」必须变成上游认得的「仅富媒体」，否则 Steam 会被当成关闭。"""
+        """「仅视频」必须变成上游认得的「全部发送」，否则 Steam 会被当成关闭。"""
         cfg = normalize_output_modes({"parsers": {"steam": "仅视频"}})
 
-        self.assertEqual(UPSTREAM_MODE_RICH_ONLY, cfg["parsers"]["steam"])
+        self.assertEqual(UPSTREAM_MODE_FULL, cfg["parsers"]["steam"])
         self.assertEqual(["steam"], cfg[VIDEO_ONLY_PLATFORMS_KEY])
         self.assertEqual({"steam"}, video_only_platforms(cfg))
 
@@ -84,7 +84,7 @@ class VideoOnlyModeNormalizationTests(unittest.TestCase):
 
         normalize_output_modes(cfg)
 
-        self.assertEqual(UPSTREAM_MODE_RICH_ONLY, cfg["parsers"]["steam"])
+        self.assertEqual(UPSTREAM_MODE_FULL, cfg["parsers"]["steam"])
         self.assertEqual(["steam"], cfg[VIDEO_ONLY_PLATFORMS_KEY])
 
     def test_normalized_config_still_creates_steam_parser(self) -> None:
@@ -117,12 +117,13 @@ class VideoOnlyOutputModeTests(unittest.TestCase):
         metadata = _steam_metadata()
 
         self.assertTrue(_apply_output_modes(self.runtime, metadata))
-        self.assertFalse(metadata["_enable_text_metadata"])
+        # 只发视频：图片不发；游戏信息文本仍保留，但要随合并转发首条一起发出
+        self.assertTrue(metadata["_enable_text_metadata"])
         self.assertTrue(metadata["_enable_rich_media"])
         self.assertTrue(metadata["_video_only"])
 
     def test_video_only_platform_without_video_keeps_item_for_notice(self) -> None:
-        """没有视频时保留条目（标记仅视频），由发送链回「没有可发送的视频」。"""
+        """没有视频时保留条目（标记仅视频）但不带文本，由发送链回「没有可发送的视频」。"""
         metadata = _steam_metadata(video_urls=[])
 
         self.assertTrue(_apply_output_modes(self.runtime, metadata))
@@ -185,6 +186,22 @@ class VideoOnlyOutputModeTests(unittest.TestCase):
 
 
 class VideoOnlyMessageTests(unittest.TestCase):
+    def test_game_info_omits_image_count(self) -> None:
+        """仅视频平台的游戏信息不写「图片 N」，否则会和实际发送内容矛盾。"""
+        text = build_metadata_text(
+            {
+                "platform": "steam",
+                "title": "In Falsus",
+                "_video_only": True,
+                "_original_video_count": 7,
+                "_original_image_count": 20,
+            },
+            max_desc_chars=600,
+        )
+
+        self.assertIn("媒体：视频 7", text)
+        self.assertNotIn("图片", text)
+
     def test_no_video_message_is_defined(self) -> None:
         """仅视频平台没解析到视频时用独立文案，避免和「没有图片/视频」混淆。"""
         self.assertIn("no_video", DEFAULT_MESSAGES["media_parser"])
@@ -192,10 +209,11 @@ class VideoOnlyMessageTests(unittest.TestCase):
     def test_example_messages_match_default(self) -> None:
         example = json.loads(EXAMPLE_MESSAGES.read_text(encoding="utf-8"))
 
-        self.assertEqual(
-            DEFAULT_MESSAGES["media_parser"]["no_video"],
-            example["media_parser"]["no_video"],
-        )
+        for key in ("no_video", "info_media_count_video"):
+            self.assertEqual(
+                DEFAULT_MESSAGES["media_parser"][key],
+                example["media_parser"][key],
+            )
 
 
 if __name__ == "__main__":

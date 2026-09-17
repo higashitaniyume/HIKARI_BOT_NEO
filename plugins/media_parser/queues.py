@@ -364,11 +364,13 @@ async def _send_processed_item(item: MediaSendQueueItem) -> None:
             msg("media_parser.metadata_error", platform=platform, reason=reason, url=err.get("source_url", "")),
         )
     elif not any(m.get("_enable_text_metadata") for m in item.processed):
-        # 「仅视频」平台没解析到视频时单独提示，避免和「没有图片/视频」混淆
-        if item.processed and all(m.get("_video_only") for m in item.processed):
-            await item.bot.send(item.event, Message(msg("media_parser.no_video")))
-        else:
-            await item.bot.send(item.event, Message(msg("media_parser.no_media")))
+        # 只有「本来就没有可发送的媒体」才回提示；合并转发被拒或超时一律静默，
+        # 符合「合并失败就一定不发」。
+        if not any((m.get("video_urls") or m.get("image_urls")) for m in item.processed):
+            if item.processed and all(m.get("_video_only") for m in item.processed):
+                await item.bot.send(item.event, Message(msg("media_parser.no_video")))
+            else:
+                await item.bot.send(item.event, Message(msg("media_parser.no_media")))
     stats_increment(item.event, "media_parser_parsed", len(item.processed))
 
 

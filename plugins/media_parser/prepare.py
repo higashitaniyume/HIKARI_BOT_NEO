@@ -250,13 +250,16 @@ def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -
     if metadata.get("error"):
         return text_enabled
     if video_only:
-        # 「仅视频」：只发送解析出的视频；没有视频时保留条目，由发送链提示用户。
-        if not metadata.get("video_urls"):
-            logger.info(
-                "[MediaParser] video-only platform without video -> platform=%s url=%s",
-                metadata.get("platform") or metadata.get("parser_name") or "unknown",
-                metadata.get("source_url") or metadata.get("url") or "",
-            )
+        if metadata.get("video_urls"):
+            # 「仅视频」：只发视频（图片在下载前丢弃），游戏信息等文本随合并转发首条一起发出。
+            return rich_enabled
+        # 只有截图没有视频：连游戏信息也不发，交给发送链回「没有可发送的视频」。
+        metadata["_enable_text_metadata"] = False
+        logger.info(
+            "[MediaParser] video-only platform without video -> platform=%s url=%s",
+            metadata.get("platform") or metadata.get("parser_name") or "unknown",
+            metadata.get("source_url") or metadata.get("url") or "",
+        )
         return rich_enabled
     if rich_enabled and (metadata.get("video_urls") or metadata.get("image_urls")):
         return True
