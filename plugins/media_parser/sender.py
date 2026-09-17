@@ -195,15 +195,16 @@ async def send_metadata_result(
     fallback_separate = bool(send_strategy.get("fallback_to_separate_media", True))
     include_text_in_forward = bool(send_strategy.get("include_text_in_forward", True))
     forward_timeout_seconds = max(1.0, float(send_strategy.get("forward_timeout_seconds", 90)))
+    has_video = _has_video_media(media_messages)
 
-    if prefer_forward and len(media_messages) > 1:
+    if prefer_forward and len(media_messages) > 1 and not has_video:
         logger.info(
             "[MediaParser] sending media as forward chunks -> media=%d chunk_size=%d timeout=%.1fs",
             len(media_messages),
             max_send,
             forward_timeout_seconds,
         )
-        sent_count, text_sent = await _send_forward_chunks(
+        sent_count, text_sent, timed_out = await _send_forward_chunks(
             bot,
             event,
             text=text,
@@ -214,6 +215,16 @@ async def send_metadata_result(
         )
         if sent_count == len(media_messages):
             return sent_count
+        if timed_out:
+            # NapCat 上传合并转发是异步的：超时只说明「还没返回」，实际上往往仍在后台上传并
+            # 最终送达（生产实例：7 个视频的聊天记录超时约 2 分钟后才发出）。这时逐条补发
+            # 就会把同一批媒体发两遍，所以按已送达处理，只留日志。
+            logger.warning(
+                "[MediaParser] forward timed out, skip separate resend to avoid duplicates -> sent_media=%d total_media=%d",
+                sent_count,
+                len(media_messages),
+            )
+            return len(media_messages)
         if not fallback_separate:
             return sent_count
         logger.info(
@@ -230,6 +241,14 @@ async def send_metadata_result(
             send_text=bool(text and not text_sent),
         )
 
+    if prefer_forward and has_video and len(media_messages) > 1:
+        # 合并转发要把每个媒体先上传到转发服务，视频又大又慢，超时后极易演变成上面那种
+        # 重复发送；视频直接逐条发送更快也更稳。
+        logger.info(
+            "[MediaParser] sending video media separately -> media=%d",
+            len(media_messages),
+        )
+
     return await _send_separate(
         bot,
         event,
@@ -238,6 +257,10 @@ async def send_metadata_result(
         start_index=0,
         send_text=bool(text),
     )
+
+
+def _has_video_media(media_messages: list[tuple[str, Message]]) -> bool:
+    return any(kind == "video" for kind, _ in media_messages)
 
 
 async def _send_forward_chunks(
@@ -249,7 +272,8 @@ async def _send_forward_chunks(
     include_text: bool,
     chunk_size: int,
     timeout_seconds: float,
-) -> tuple[int, bool]:
+) -> tuple[int, bool, bool]:
+    """发送合并转发分片，返回 (已发送媒体数, 文本是否发出, 是否超时)。"""
     sent_count = 0
     text_sent = False
     for chunk_index, chunk in enumerate(_chunk_media_messages(media_messages, chunk_size)):
@@ -259,14 +283,17 @@ async def _send_forward_chunks(
             nodes.append(_node(bot, Message(text)))
         for _, media in chunk:
             nodes.append(_node(bot, media))
-        if not await _try_send_forward(bot, event, nodes, timeout_seconds=timeout_seconds):
+        status = await _try_send_forward(bot, event, nodes, timeout_seconds=timeout_seconds)
+        if status is None:
+            return sent_count, text_sent, True
+        if not status:
             logger.warning(
                 "[MediaParser] forward chunk failed -> chunk=%d sent_media=%d total_media=%d",
                 chunk_index + 1,
                 sent_count,
                 len(media_messages),
             )
-            return sent_count, text_sent
+            return sent_count, text_sent, False
         sent_count += len(chunk)
         text_sent = text_sent or include_text_node
         logger.info(
@@ -275,7 +302,7 @@ async def _send_forward_chunks(
             sent_count,
             len(media_messages),
         )
-    return sent_count, text_sent
+    return sent_count, text_sent, False
 
 
 def _chunk_media_messages(
@@ -325,7 +352,13 @@ async def _try_send_forward(
     nodes: list[MessageSegment],
     *,
     timeout_seconds: float,
-) -> bool:
+) -> bool | None:
+    """发送一条合并转发。
+
+    Returns:
+        True 已送达；False 明确失败（可以安全回退逐条发送）；None 超时——NapCat 可能
+        仍在后台上传并最终送达，此时不能补发。
+    """
     try:
         async def _send() -> None:
             if isinstance(event, GroupMessageEvent):
@@ -337,7 +370,7 @@ async def _try_send_forward(
         return True
     except asyncio.TimeoutError:
         logger.warning("[MediaParser] forward message timed out after %.1fs", timeout_seconds)
-        return False
+        return None
     except Exception as e:
         logger.warning("[MediaParser] forward message failed: %s", e)
         return False

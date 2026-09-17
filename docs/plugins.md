@@ -39,7 +39,7 @@
 
 > YouTube 由独立的 `youtube_downloader` 插件处理；上游 v6.4.0 起自带的 Pixiv 解析在 vendored 副本中已剔除，Pixiv 链接继续由独立的 `pixiv_parser` 插件处理，避免重复解析。
 
-> **Steam：** 只解析商店游戏页 `store.steampowered.com/app/<appid>`（`/bundle`、`/sub`、`/publisher` 这类页面不解析）。标题、开发商、发行日期、价格和类型来自官方 `appdetails` 接口；一个游戏页会同时解析出封面/胶囊图、全部截图、预告片缩略图和预告片视频，但 `parsers.steam` 默认是 `仅视频`，因此只发送预告片视频，图片和文本信息都不发送（页面没有预告片时这条链接不发送任何内容）。想连截图一起发就改成 `全部发送` 或 `仅富媒体`；`max_send` 按「先保留视频、再用剩余额度补图片」的顺序裁剪，媒体多时下载与发送都会明显变慢，合并转发还可能因为单个资源上传失败而整包失败并降级为逐条发送，必要时调低 `max_send`。下载代理开关在 `proxy.steam`（`parse` 详情接口默认 `false`，`image` 图片 / `video` 视频默认 `true`，三者都只在配置了 `proxy.address` 时才真正生效）；`steam.use_xiaoheihe` 打开后改走小黑盒完整游戏路径，补充评分、在线人数、销量排行等统计（默认关闭）。
+> **Steam：** 只解析商店游戏页 `store.steampowered.com/app/<appid>`（`/bundle`、`/sub`、`/publisher` 这类页面不解析）。标题、开发商、发行日期、价格和类型来自官方 `appdetails` 接口；一个游戏页会同时解析出封面/胶囊图、全部截图、预告片缩略图和预告片视频，但 `parsers.steam` 默认是 `仅视频`，因此只发送预告片视频，图片和文本信息都不发送（页面没有预告片时这条链接不发送任何内容）。想连截图一起发就改成 `全部发送` 或 `仅富媒体`；`max_send` 按「先保留视频、再用剩余额度补图片」的顺序裁剪，媒体多时下载与发送都会明显变慢。预告片视频始终逐条发送（不塞进合并转发），因为把大视频打进聊天记录时 NapCat 上传极慢，超时后补发会让同一批媒体发两遍。下载代理开关在 `proxy.steam`（`parse` 详情接口默认 `false`，`image` 图片 / `video` 视频默认 `true`，三者都只在配置了 `proxy.address` 时才真正生效）；`steam.use_xiaoheihe` 打开后改走小黑盒完整游戏路径，补充评分、在线人数、销量排行等统计（默认关闭）。
 
 **关键配置：**
 
@@ -52,6 +52,9 @@
 | `parse_queue.enabled` | 是否启用解析队列（后台 worker） |
 | `parse_queue.max_concurrent` | 同时解析的最大链接数 |
 | `max_send` | 单条链接最多发送多少媒体，默认 80 |
+| `send_strategy.prefer_forward_message` | 媒体多于 1 个时是否合并转发，默认 `true`；只要其中**含视频**就改为逐条发送（视频进合并转发又慢又容易被判超时） |
+| `send_strategy.fallback_to_separate_media` / `include_text_in_forward` | 合并转发被 NapCat 明确拒绝时是否降级逐条发送（默认 `true`）／合并转发首条是否带上文本元数据（默认 `true`） |
+| `send_strategy.forward_timeout_seconds` | 合并转发超时秒数，默认 `90`；超时只说明 NapCat 还没返回（通常仍在后台上传并会送达），按已送达处理、不再补发，避免同一批媒体发两遍 |
 | `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` / `仅视频`（`仅视频` 只发送该链接解析出的视频，图片和文本都不发送，默认仅 Steam） |
 | `message.text_metadata.show_url` | 是否在解析结果里附上"原始链接：…"，默认 `true` |
 | `message.text_metadata.max_desc_chars` | 简介/正文最多显示多少字符，默认 600 |
