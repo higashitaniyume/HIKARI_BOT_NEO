@@ -124,6 +124,7 @@
     "no_link": "没有找到可解析的平台链接。",
     "empty": "没有解析到可发送的内容。",
     "no_media": "解析成功，但没有可发送的图片或视频。",
+    "no_video": "解析成功，但没有可发送的视频。",
     "rate_limited": "解析太频繁了：{reason}",
     "metadata_error": "媒体解析失败\n平台：{platform}\n原因：{reason}\n链接：{url}",
     "info_header": "媒体解析成功\n平台：{platform}",

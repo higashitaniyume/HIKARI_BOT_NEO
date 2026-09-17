@@ -14,6 +14,8 @@ from third_party.astrbot_plugin_media_parser.core.downloader import (
 )
 from third_party.astrbot_plugin_media_parser.core.parser.manager import ParserManager
 
+from .config import normalize_output_modes
+
 
 @dataclass(slots=True)
 class MediaParserRuntime:
@@ -24,7 +26,12 @@ class MediaParserRuntime:
 
 
 def create_runtime(config: dict[str, Any]) -> MediaParserRuntime:
-    """Create a fresh upstream runtime from the latest HIKARI JSON config."""
+    """Create a fresh upstream runtime from the latest HIKARI JSON config.
+
+    这里会再做一次本地输出模式归一化（幂等）：`parsers.<平台> = 仅视频` 是本地扩展，
+    上游把不认识的模式当成「关闭」，所以任何调用方直接传原始配置也不会让平台失效。
+    """
+    config = normalize_output_modes(dict(config))
     config_manager = ConfigManager(config)
     parser_manager = ParserManager(config_manager.create_parsers())
     download_manager = DownloadManager(

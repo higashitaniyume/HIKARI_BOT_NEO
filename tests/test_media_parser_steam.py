@@ -100,13 +100,18 @@ class SteamParserRoutingTests(unittest.TestCase):
 
 class SteamDefaultConfigTests(unittest.TestCase):
     def test_default_config_declares_steam_output_mode(self) -> None:
-        """显式声明而不是靠上游“缺键=全部发送”兜底，避免默认值随上游漂移。"""
-        self.assertEqual("全部发送", DEFAULT_MEDIA_PARSER_CONFIG["parsers"]["steam"])
+        """显式声明而不是靠上游“缺键=全部发送”兜底，避免默认值随上游漂移。
+
+        Steam 默认「仅视频」：只发预告片，不发截图与文本（本地扩展模式，
+        由 `normalize_output_modes()` 翻译成上游认得的「仅富媒体」）。
+        """
+        self.assertEqual("仅视频", DEFAULT_MEDIA_PARSER_CONFIG["parsers"]["steam"])
 
     def test_default_config_instantiates_steam_parser(self) -> None:
         runtime = create_runtime(copy.deepcopy(DEFAULT_MEDIA_PARSER_CONFIG))
 
-        self.assertEqual((True, True), runtime.config_manager.parser_output.output_for_controller("steam"))
+        # 仅视频 => 关文本、开富媒体（文本与图片都不发送）
+        self.assertEqual((False, True), runtime.config_manager.parser_output.output_for_controller("steam"))
         self.assertIsInstance(runtime.parser_manager.find_parser(STEAM_APP_URL), SteamParser)
 
     def test_default_runtime_extracts_standalone_steam_link(self) -> None:

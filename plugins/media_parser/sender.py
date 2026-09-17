@@ -129,6 +129,8 @@ def build_media_messages(metadata: dict[str, Any], *, max_send: int) -> list[tup
     video_modes = metadata.get("video_modes") or []
     image_modes = metadata.get("image_modes") or []
     video_count = len(video_urls)
+    # 「仅视频」平台（parsers.<平台> = 仅视频）只发送视频，跳过全部图片。
+    video_only = bool(metadata.get("_video_only"))
 
     for index, mode in enumerate(video_modes):
         if len(messages) >= max_send:
@@ -140,6 +142,9 @@ def build_media_messages(metadata: dict[str, Any], *, max_send: int) -> list[tup
             uri = _first_url(video_urls, index)
         if uri:
             messages.append(("video", Message(MessageSegment.video(uri))))
+
+    if video_only:
+        return messages
 
     for index, mode in enumerate(image_modes):
         if len(messages) >= max_send:

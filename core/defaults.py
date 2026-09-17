@@ -163,7 +163,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "xianyu": "全部发送",
         "toutiao": "全部发送",
         "xiaoheihe": "全部发送",
-        "steam": "全部发送",
+        "steam": "仅视频",
         "twitter": "全部发送",
     },
     "message": {
