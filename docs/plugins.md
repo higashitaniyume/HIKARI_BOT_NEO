@@ -33,11 +33,13 @@
 
 基于 vendored 的 [`drdon1234/astrbot_plugin_media_parser`](../third_party/astrbot_plugin_media_parser) 解析多个平台链接，使用 HIKARI 的 OneBot 发送链发送文本、图片和视频。
 
-**支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X（各平台短链均可识别，如 `b23.tv`、`v.douyin.com`、`xhslink.com` / `xhslink.cn`、`vm.tiktok.com`）
+**支持平台：** B站、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Steam、Twitter/X（各平台短链均可识别，如 `b23.tv`、`v.douyin.com`、`xhslink.com` / `xhslink.cn`、`vm.tiktok.com`）
 
 **QQ 分享卡片：** 直接分享成 QQ 小程序 / 新闻 / 音乐卡片（json / xml 消息段）时，会从卡片元数据里取回真实链接再解析——除 `meta.detail_1.qqdocurl`、`meta.news.jumpUrl` 外，也会扫描 `detail_1.url` 等其他字段，并还原 `\/` 与 HTML 转义；只有命中受支持平台域名的链接才会进入解析。
 
 > YouTube 由独立的 `youtube_downloader` 插件处理；上游 v6.4.0 起自带的 Pixiv 解析在 vendored 副本中已剔除，Pixiv 链接继续由独立的 `pixiv_parser` 插件处理，避免重复解析。
+
+> **Steam：** 只解析商店游戏页 `store.steampowered.com/app/<appid>`（`/bundle`、`/sub`、`/publisher` 这类页面不解析）。标题、开发商、发行日期、价格和类型来自官方 `appdetails` 接口；一个游戏页会同时解析出封面/胶囊图、全部截图、预告片缩略图和预告片视频，但 `parsers.steam` 默认是 `仅视频`，因此只发送预告片视频、不发送截图（页面没有预告片时回一句「解析成功，但没有可发送的视频。」）。游戏信息（平台/标题/作者/发行时间/媒体数量/原始链接）会作为合并转发的第一条节点一起发出，不额外单发文本消息。想连截图一起发就改成 `全部发送` 或 `仅富媒体`；`max_send` 按「先保留视频、再用剩余额度补图片」的顺序裁剪，媒体多时下载与发送都会明显变慢。下载代理开关在 `proxy.steam`（`parse` 详情接口默认 `false`，`image` 图片 / `video` 视频默认 `true`，三者都只在配置了 `proxy.address` 时才真正生效）；`steam.use_xiaoheihe` 打开后改走小黑盒完整游戏路径，补充评分、在线人数、销量排行等统计（默认关闭）。
 
 **关键配置：**
 
@@ -50,7 +52,10 @@
 | `parse_queue.enabled` | 是否启用解析队列（后台 worker） |
 | `parse_queue.max_concurrent` | 同时解析的最大链接数 |
 | `max_send` | 单条链接最多发送多少媒体，默认 80 |
-| `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` |
+| `send_strategy.prefer_forward_message` | 媒体多于 1 个时必须合并转发（含视频，游戏信息等文本作为首条节点一起发出），默认 `true`；只有单个媒体才直接发送 |
+| `send_strategy.fallback_to_separate_media` / `include_text_in_forward` | 合并转发被 NapCat 拒绝或超时后是否降级逐条发送，默认 `false`（**合并失败就什么都不发**，避免同一批媒体收到两遍；改成 `true` 才逐条补发）／合并转发首条是否带上文本元数据，默认 `true` |
+| `send_strategy.forward_timeout_seconds` | 合并转发超时秒数，默认 `300`；含视频的转发要先把文件上传到转发服务（7 个预告片约 2 分钟），超时即按「合并失败」处理 |
+| `parsers.<平台>` | 各平台输出模式：`关闭` / `全部发送` / `仅文本` / `仅富媒体` / `仅视频`（`仅视频` 只发送该链接解析出的视频、不发图片，游戏信息随合并转发一起发出，默认仅 Steam） |
 | `message.text_metadata.show_url` | 是否在解析结果里附上"原始链接：…"，默认 `true` |
 | `message.text_metadata.max_desc_chars` | 简介/正文最多显示多少字符，默认 600 |
 | `permissions` | QQ/群黑白名单 |
@@ -64,7 +69,7 @@
 
 **B站 Cookie 辅助登录：** 开启 `bilibili_enhanced.use_cookie` 和 `admin_assist.enable` 后，Cookie 缺失或失效时 Bot 会私聊超级管理员。回复"确定"后会收到 Bilibili 登录二维码图片和备用链接；扫码成功后新 Cookie 自动保存，无需手动替换。超级管理员也可发送 `B站登录` / `B站Cookie` 手动触发。
 
-> **未接入的上游能力：** vendored 的 ZIP 归档（`message.archive`）、LLM 翻译（`translation`）、媒体中转（`media_relay`）和消息聚合（`message.packing`）依赖上游 AstrBot 的消息链。本仓库用自己的发送链（`send_strategy` 控制合并转发与回退，文本由本地组装），这些配置键保留在示例配置中但不生效。
+> **未接入的上游能力：** vendored 的 ZIP 归档（`message.archive`）、LLM 翻译（`translation`）、媒体中转（`media_relay`）和消息聚合（`message.packing`）依赖上游 AstrBot 的消息链。本仓库用自己的发送链（`send_strategy` 控制合并转发与失败策略，文本由本地组装），这些配置键保留在示例配置中但不生效。
 
 **显式命令：**
 ```text
@@ -205,6 +210,91 @@ docker run -d -p 3000:3000 moefurina/ncm-api:latest
 | `send_link_info` | 是否发送标题、作者、时长等详情 |
 | `download_timeout` | 下载超时（秒） |
 | `cookiefile` | yt-dlp cookies 文件路径（登录验证） |
+
+---
+
+## QQ 音乐解析
+
+**配置文件：** `BotData/plugin_configs/qqmusic_parser.json`
+
+使用 `yt-dlp` 的 `qqmusic` 提取器下载 QQ 音乐歌曲。自动检测 `y.qq.com` / `i.y.qq.com` 链接与 QQ 音乐分享卡片（`com.tencent.music.lua`）。
+
+**支持链接：**
+
+- `https://i.y.qq.com/v8/playsong.html?...&songmid=003dKInI1dmvj6...`（分享卡片里的 jumpUrl）
+- `https://i.y.qq.com/v8/playsong.html?songid=587897337#webchat_redirect`（同页面，但用数字 ID）
+- `https://y.qq.com/n/ryqq/songDetail/<songmid>`
+- `https://y.qq.com/n/yqq/song/<songmid>.html`（旧版）
+
+> **两套 ID 都会遇到。** `songmid` 是 14 位字母数字（如 `003dKInI1dmvj6`），`songid` 是纯数字（如 `587897337`）。
+> yt-dlp 只认 `songmid`；数字 `songid` 会先经 QQ 接口换算，插件已自动处理，用户侧无感知。
+> 另外 `i.y.qq.com/v8/playsong.html` 会 302 到 yt-dlp 不支持的 `ryqq_v2` 路径，插件统一归一化为 `y.qq.com/n/ryqq/songDetail/<songmid>` 后再下载。
+
+**音质：**
+
+| 档位 | 格式 ID | 匿名可用 | 登录后 |
+|------|---------|----------|--------|
+| 无损 FLAC | `flac` | ✗ | ✓（需会员，且该曲有无损版） |
+| 320k MP3 | `320mp3` | ✗ | ✓（需会员） |
+| 128k MP3 | `128mp3` | ✓ | ✓ |
+| 96k AAC | `96aac` | ✓ | ✓ |
+| 48k AAC | `48aac` | ✓ | ✓ |
+
+**匿名请求的上限就是 128k MP3（QQ 的「标准音质」档）**，实测频率上限约 16 kHz；即使是免费的 128k 档，`flac`/`320mp3` 的 vkey 也不会下发。想要 320k / FLAC 必须配置登录 cookie。插件不做任何转码，下载到的就是服务端原档。
+
+**触发方式：**
+
+- 私聊：直接发送链接或卡片即自动解析（`auto_parse`）
+- 群聊：默认需 `引用` 卡片/链接消息并 `@机器人`；加入 `auto_parse_groups` 白名单的群发链接即自动解析
+- 非白名单群未 @bot 的 QQ 音乐卡片：回复一句「引用 + @bot」引导提示（`card_hint` 控制，同群默认冷却 300 秒）
+
+**发送方式：** 默认通过 NapCat 上传文件到聊天（`歌手 - 歌名.flac` / `.mp3`），可切换为语音消息。
+
+### 配置登录 cookie
+
+cookie 文件是**账号凭据**，不进 git（`BotData/cookies/*` 已被 `.gitignore` 忽略），默认路径为 `BotData/cookies/qqmusic.txt`。
+
+1. 在浏览器登录 [y.qq.com](https://y.qq.com)，用导出 cookie 的扩展（如 Get cookies.txt LOCALLY）导出 **Netscape 格式** 文本。
+2. 存成 `BotData/cookies/qqmusic.txt`。文件应为 `# Netscape HTTP Cookie File` 开头的 TAB 分隔格式，含 `qqmusic_key`、`uin`、`fqm_pvqid` 等字段——这三者是 yt-dlp 判定「已登录」与换取 320k/FLAC vkey 的关键。
+3. 重启容器（cookie 按 mtime 缓存，改文件后重启最稳）：
+
+```bash
+docker compose restart hikaribot
+```
+
+本地 Docker 直接放在仓库的 `BotData/cookies/qqmusic.txt` 即可（compose 把 `./BotData` 挂到 `/app/BotData`）。
+
+**服务器部署注意：** `deploy.ps1` 只同步 git 可见文件，被忽略的 cookie **不会**被上传，需要在服务器上单独放置：
+
+```powershell
+# 从本机推送（服务器数据目录是 /opt/hikaribot-docker/BotData）
+scp .\BotData\cookies\qqmusic.txt root@192.168.31.2:/opt/hikaribot-docker/BotData/cookies/qqmusic.txt
+```
+
+```bash
+# 服务器上重启生效
+cd /opt/hikaribot-docker && docker compose restart hikaribot
+```
+
+cookie 会过期（`qqmusic_key` 有效期约数月），失效后 320k/FLAC 会重新变成拿不到。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用 |
+| `auto_parse` | 是否自动解析（私聊；群聊见 `auto_parse_groups`） |
+| `auto_parse_groups` | 群白名单（`enable` + `groups`），名单内发链接即自动解析 |
+| `card_hint.enabled` / `card_hint.cooldown_seconds` | 非白名单群引导提示开关与同群冷却秒数 |
+| `format_priority` | 音质优先级（yt-dlp 格式 ID），默认 `flac > 320mp3 > 128mp3 > 96aac > 48aac`，按第一个可用的下发 |
+| `cookiefile` | Netscape 格式 cookie 路径，相对路径按仓库根目录解析 |
+| `send_strategy` | `"upload"` = 上传文件（默认），`"record"` = 语音消息 |
+| `max_file_mb` | 单文件大小上限，默认 200 MB |
+| `max_links_per_message` | 单条消息最多处理几首，默认 3 |
+| `send_link_info` | 是否发送歌名、歌手、专辑、时长、音质、大小 |
+| `download_timeout` / `socket_timeout` / `retries` | 下载超时与重试 |
+| `api_timeout` | QQ 接口超时（用于 songid 换算与付费标志查询），默认 30s |
+| `permissions` | 黑白名单 |
 
 ---
 

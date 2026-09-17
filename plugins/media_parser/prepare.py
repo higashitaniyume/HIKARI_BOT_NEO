@@ -18,7 +18,7 @@ from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_ur
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
 
 from .cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
-from .config import get_config
+from .config import get_config, video_only_platforms
 from .runtime import MediaParserRuntime
 from .queues import (
     MediaParseQueueItem,
@@ -88,6 +88,7 @@ SUPPORTED_LINK_MARKERS = (
     "m.tb.cn",
     "toutiao.com",
     "xiaoheihe.cn",
+    "steampowered.com",
     "twitter.com",
     "x.com",
 )
@@ -228,12 +229,38 @@ def _loads_json_container(raw: str) -> Any:
     return parsed if isinstance(parsed, (dict, list)) else None
 
 
+def _is_video_only(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
+    """按 metadata 的平台名判断该平台是否配置成「仅视频」。"""
+    platforms = video_only_platforms(runtime.config)
+    if not platforms:
+        return False
+    for key in ("platform", "parser_name"):
+        name = str(metadata.get(key) or "").strip()
+        if name and name in platforms:
+            return True
+    return False
+
+
 def _apply_output_modes(runtime: MediaParserRuntime, metadata: dict[str, Any]) -> bool:
     text_enabled, rich_enabled = runtime.config_manager.parser_output.output_for_metadata(metadata)
+    video_only = _is_video_only(runtime, metadata)
     metadata["_enable_text_metadata"] = text_enabled
     metadata["_enable_rich_media"] = rich_enabled
+    metadata["_video_only"] = video_only
     if metadata.get("error"):
         return text_enabled
+    if video_only:
+        if metadata.get("video_urls"):
+            # 「仅视频」：只发视频（图片在下载前丢弃），游戏信息等文本随合并转发首条一起发出。
+            return rich_enabled
+        # 只有截图没有视频：连游戏信息也不发，交给发送链回「没有可发送的视频」。
+        metadata["_enable_text_metadata"] = False
+        logger.info(
+            "[MediaParser] video-only platform without video -> platform=%s url=%s",
+            metadata.get("platform") or metadata.get("parser_name") or "unknown",
+            metadata.get("source_url") or metadata.get("url") or "",
+        )
+        return rich_enabled
     if rich_enabled and (metadata.get("video_urls") or metadata.get("image_urls")):
         return True
     if text_enabled:
@@ -568,27 +595,32 @@ def _prepare_retry_reason(result: MediaPrepareAttempt) -> str:
 
 
 def _limit_metadata_for_send(metadata: dict[str, Any], *, max_send: int) -> dict[str, Any]:
+    video_only = bool(metadata.get("_video_only"))
     video_urls = list(metadata.get("video_urls") or [])
-    image_urls = list(metadata.get("image_urls") or [])
+    original_images = list(metadata.get("image_urls") or [])
+    # 「仅视频」平台在下载前就把图片丢掉：既不下载也不发送，省掉大量无用请求。
+    image_urls = [] if video_only else original_images
     total_count = len(video_urls) + len(image_urls)
-    if total_count <= max_send:
+    original_total = len(video_urls) + len(original_images)
+    if total_count <= max_send and len(image_urls) == len(original_images):
         return metadata
 
     keep_video_count = min(len(video_urls), max_send)
-    keep_image_count = max(0, max_send - keep_video_count)
+    keep_image_count = 0 if video_only else max(0, max_send - keep_video_count)
     limited = dict(metadata)
     limited["_original_video_count"] = len(video_urls)
-    limited["_original_image_count"] = len(image_urls)
+    limited["_original_image_count"] = len(original_images)
     limited["video_urls"] = video_urls[:keep_video_count]
     limited["image_urls"] = image_urls[:keep_image_count]
     _slice_metadata_list(limited, "video_cover_urls", keep_video_count)
     _slice_metadata_list(limited, "video_cover_url_lists", keep_video_count)
     _slice_metadata_list(limited, "video_force_downloads", keep_video_count)
     logger.info(
-        "[MediaParser] media list limited before download -> platform=%s original=%d keep=%d",
+        "[MediaParser] media list limited before download -> platform=%s original=%d keep=%d%s",
         metadata.get("platform") or metadata.get("parser_name") or "unknown",
-        total_count,
+        original_total,
         keep_video_count + keep_image_count,
+        " (video-only)" if video_only else "",
     )
     return limited
 

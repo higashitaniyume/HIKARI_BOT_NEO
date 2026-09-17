@@ -1453,7 +1453,7 @@ http://192.168.31.2:53123
 
 完整平台组由服务运行时代码返回，当前包括：
 
-- 聚合媒体解析：Bilibili、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Twitter/X。
+- 聚合媒体解析：Bilibili、抖音、TikTok、快手、微博、小红书、闲鱼、今日头条、小黑盒、Steam、Twitter/X。
 - Pixiv。
 - YouTube。
 - Cobalt：Instagram、Facebook。

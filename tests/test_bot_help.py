@@ -27,7 +27,7 @@ class BotHelpTests(unittest.TestCase):
                 name="媒体解析",
                 aliases=(),
                 handler=_noop_handler,
-                description="解析抖音/B站/小红书/小黑盒等平台链接",
+                description="解析抖音/B站/小红书/小黑盒/Steam等平台链接",
                 usage="媒体解析 <链接>",
             ),
             CommandSpec(
@@ -54,7 +54,7 @@ class BotHelpTests(unittest.TestCase):
         ):
             text = bot_help._format_command_list()
 
-        self.assertIn("- 媒体解析：解析抖音/B站/小红书/小黑盒等平台链接", text)
+        self.assertIn("- 媒体解析：解析抖音/B站/小红书/小黑盒/Steam等平台链接", text)
         self.assertNotIn("媒体解析 <链接>", text)
         self.assertNotIn("B站登录", text)
         self.assertNotIn("B站Cookie", text)
@@ -77,7 +77,7 @@ class BotHelpTests(unittest.TestCase):
 
         self.assertIn("📂 基础", text)
         self.assertIn("📂 贴纸", text)
-        self.assertIn("📂 媒体（Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Instagram / Facebook / YouTube / 网易云）", text)
+        self.assertIn("📂 媒体（Pixiv / 抖音 / B站 / 小红书 / 小黑盒 / Steam / Instagram / Facebook / YouTube / 网易云）", text)
         self.assertNotIn("贴纸包", text)
         self.assertNotIn("隐藏命令", text)
         self.assertIn("发送「帮助 分区名」查看分区详情", text)

@@ -52,11 +52,12 @@ class MediaParserRuntimeWithShimTests(unittest.TestCase):
         astrbot.api.logger.setLevel(0)
         runtime = create_runtime({"parsers": {"bilibili": "全部发送"}})
         names = [type(p).__name__ for p in runtime.parser_manager.parsers]
-        # 未指定的平台默认“全部发送”，10 个平台全量创建；Pixiv 已随 vendor 摘除。
+        # 未指定的平台默认“全部发送”，11 个平台全量创建；Pixiv 已随 vendor 摘除。
+        # 该清单跟随 vendored 平台集合，更新 vendor 后需同步。
         self.assertEqual(names, [
             "BilibiliParser", "DouyinParser", "TikTokParser", "KuaishouParser",
             "WeiboParser", "XiaohongshuParser", "XianyuParser", "ToutiaoParser",
-            "XiaoheiheParser", "TwitterParser",
+            "XiaoheiheParser", "SteamParser", "TwitterParser",
         ])
         self.assertNotIn("PixivParser", names)
 

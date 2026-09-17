@@ -163,6 +163,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "xianyu": "全部发送",
         "toutiao": "全部发送",
         "xiaoheihe": "全部发送",
+        "steam": "仅视频",
         "twitter": "全部发送",
     },
     "message": {
@@ -216,11 +217,19 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "address": "",
         "tiktok": False,
         "xiaoheihe_video": True,
+        "steam": {
+            "parse": False,
+            "image": True,
+            "video": True,
+        },
         "twitter": {
             "parse": False,
             "image": True,
             "video": True,
         },
+    },
+    "steam": {
+        "use_xiaoheihe": False,
     },
     "bilibili_enhanced": {
         "use_cookie": False,
@@ -246,9 +255,12 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
     },
     "send_strategy": {
         "prefer_forward_message": True,
-        "fallback_to_separate_media": True,
+        # 合并转发失败（NapCat 拒绝或超时）时宁可不发，也不逐条补发：补发会让同一批媒体
+        # 发两遍（生产实例：7 个视频转发超时后逐条重发，聊天记录随后才送达）。
+        "fallback_to_separate_media": False,
         "include_text_in_forward": True,
-        "forward_timeout_seconds": 90,
+        # 含视频的合并转发要先把文件上传到转发服务（7 个预告片约 2 分钟），超时给足。
+        "forward_timeout_seconds": 300,
     },
 }
 
@@ -286,6 +298,39 @@ DEFAULT_NETEASE_CONFIG: dict[str, Any] = {
     },
     "cache_dir": "/tmp/hikari_bot/netease",
     "cache_ttl_seconds": 600,
+    "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
+}
+
+DEFAULT_QQMUSIC_CONFIG: dict[str, Any] = {
+    "enabled": True,
+    "auto_parse": True,
+    "max_links_per_message": 3,
+    # 音质优先级：取值是 yt-dlp qqmusic 提取器的格式 ID。
+    # 匿名请求只能拿到 128mp3 / 96aac / 48aac（QQ 的「标准音质」档）；
+    # 配置 cookiefile 后会多出 320mp3（会员）与 flac（无损）。
+    "format_priority": ["flac", "320mp3", "128mp3", "96aac", "48aac"],
+    "max_file_mb": 200,
+    "send_link_info": True,
+    # "upload" = upload_group_file/upload_private_file（音乐文件推荐）
+    # "record" = MessageSegment.record() 语音消息
+    "send_strategy": "upload",
+    "download_timeout": 600,
+    "socket_timeout": 30,
+    "retries": 3,
+    "api_timeout": 30,
+    "cache_dir": "/tmp/hikari_bot/qqmusic",
+    "cache_ttl_seconds": 600,
+    # Netscape 格式 cookie 文件；相对路径按仓库根目录解析。真实文件不进 git。
+    "cookiefile": "BotData/cookies/qqmusic.txt",
+    # 默认群聊为手动解析（仅被 @bot 触发）；只有启用且群号在列表内的群才自动解析。
+    "auto_parse_groups": {
+        "enable": False,
+        "groups": [],
+    },
+    "card_hint": {
+        "enabled": True,
+        "cooldown_seconds": 300,
+    },
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 

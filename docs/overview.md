@@ -60,6 +60,7 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | YouTube 视频下载 | 直接发送 YouTube 链接 | [plugins.md](plugins.md#youtube-视频下载) |
 | 网易云音乐解析 | 发送网易云链接或 QQ 分享卡片 | [plugins.md](plugins.md#网易云音乐解析) |
 | SoundCloud 音频下载 | 直接发送 SoundCloud 链接 | [plugins.md](plugins.md#soundcloud-音频下载) |
+| QQ 音乐解析 | 发送 QQ 音乐链接或分享卡片（群聊需 @bot） | [plugins.md](plugins.md#qq-音乐解析) |
 | 媒体详情 Web | 浏览器打开 `http://IP:53123/` | [plugins.md](plugins.md#媒体详情-web) |
 | Telegram 贴纸包解析 | `tg贴纸 <链接>` | [plugins.md](plugins.md#telegram-贴纸包解析) |
 | 本地贴纸包 | 关键词触发 / `贴纸包` 命令 | [plugins.md](plugins.md#本地贴纸包) |

@@ -401,6 +401,10 @@ def _normalize_auto_parse_groups(value: Any) -> dict[str, Any]:
     return {"enable": bool(src.get("enable", False)), "groups": groups}
 
 
+# 这些插件的权限页额外提供「群聊自动解析」配置（默认手动解析，列表内群自动）
+_AUTO_PARSE_GROUP_PLUGINS = {"netease_parser.json", "qqmusic_parser.json"}
+
+
 def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8") or "{}")
@@ -430,8 +434,8 @@ def _access_rule_item(name: str, path: Path) -> dict[str, Any]:
         "permissions": permissions,
         "mtime": path.stat().st_mtime,
     }
-    if name == "netease_parser.json":
-        # 网易云解析：额外返回群聊自动解析配置（默认手动解析，列表内群自动）
+    if name in _AUTO_PARSE_GROUP_PLUGINS:
+        # 网易云 / QQ 音乐解析：额外返回群聊自动解析配置（默认手动解析，列表内群自动）
         item["auto_parse_groups"] = _normalize_auto_parse_groups(data.get("auto_parse_groups"))
     return item
 
@@ -488,8 +492,8 @@ def _write_access_rules(data: dict[str, Any]) -> dict[str, Any]:
     else:
         current["permissions"] = new_permissions
 
-    if name == "netease_parser.json" and "auto_parse_groups" in data:
-        # 网易云解析：群聊自动解析配置（默认手动解析，列表内群自动）
+    if name in _AUTO_PARSE_GROUP_PLUGINS and "auto_parse_groups" in data:
+        # 网易云 / QQ 音乐解析：群聊自动解析配置（默认手动解析，列表内群自动）
         current["auto_parse_groups"] = _normalize_auto_parse_groups(data.get("auto_parse_groups"))
 
     tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")

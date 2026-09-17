@@ -18,6 +18,10 @@ env/
 *.swp
 *.swo
 
+# AI 工具本地目录（Claude Code / ZCode 的本地设置与会话记录，不进 git）
+.claude/
+.zcode/
+
 # Environment files (forbidden in this project)
 .env
 .env.*
@@ -26,6 +30,10 @@ dotenv*
 
 # Cobalt API cookies (contains Instagram session secrets)
 /cookies.json
+
+# 登录 cookie（含账号凭据，绝不入库）。默认位置见 qqmusic_parser 的 cookiefile 配置。
+BotData/cookies/*
+!BotData/cookies/.gitkeep
 
 # Config files with secrets (templates in *.example.json)
 BotData/config.json
@@ -58,6 +66,8 @@ UserData/stats/
 UserData/rss_subscriber_state.json
 UserData/sts2_wiki_cache.json
 UserData/sts2_wiki_cache.json.*.tmp
+# 临时媒体清理进度（运行时状态，各部署各自维护）
+UserData/temp_media_cleanup.json
 !UserData/.gitkeep
 
 # Local deployment legal documents

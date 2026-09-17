@@ -1,0 +1,37 @@
+{
+  "enabled": true,
+  "auto_parse": true,
+  "max_links_per_message": 3,
+  "format_priority": ["flac", "320mp3", "128mp3", "96aac", "48aac"],
+  "max_file_mb": 200,
+  "send_link_info": true,
+  "send_strategy": "upload",
+  "download_timeout": 600,
+  "socket_timeout": 30,
+  "retries": 3,
+  "api_timeout": 30,
+  "cache_dir": "/tmp/hikari_bot/qqmusic",
+  "cache_ttl_seconds": 600,
+  "cookiefile": "BotData/cookies/qqmusic.txt",
+  "auto_parse_groups": {
+    "enable": false,
+    "groups": []
+  },
+  "card_hint": {
+    "enabled": true,
+    "cooldown_seconds": 300
+  },
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    }
+  }
+}

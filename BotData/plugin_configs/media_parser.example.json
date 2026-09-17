@@ -27,6 +27,7 @@
     "xianyu": "全部发送",
     "toutiao": "全部发送",
     "xiaoheihe": "全部发送",
+    "steam": "仅视频",
     "twitter": "全部发送"
   },
   "message": {
@@ -80,11 +81,19 @@
     "address": "",
     "tiktok": false,
     "xiaoheihe_video": true,
+    "steam": {
+      "parse": false,
+      "image": true,
+      "video": true
+    },
     "twitter": {
       "parse": false,
       "image": true,
       "video": true
     }
+  },
+  "steam": {
+    "use_xiaoheihe": false
   },
   "bilibili_enhanced": {
     "use_cookie": false,
@@ -110,8 +119,8 @@
   },
   "send_strategy": {
     "prefer_forward_message": true,
-    "fallback_to_separate_media": true,
+    "fallback_to_separate_media": false,
     "include_text_in_forward": true,
-    "forward_timeout_seconds": 90
+    "forward_timeout_seconds": 300
   }
 }
