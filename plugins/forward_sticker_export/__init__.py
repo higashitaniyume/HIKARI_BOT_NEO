@@ -336,7 +336,7 @@ async def cmd_export_forward_stickers(ctx: CommandContext) -> None:
         await ctx.send(Message(msg("forward_export.expand_failed")))
         return
 
-    if cfg.get("animated_only", True):
+    if cfg.get("animated_only", False):
         candidates = [
             img for img in images
             if str(img.get("summary") or "").strip() == _ANIMATED_SUMMARY
@@ -346,7 +346,7 @@ async def cmd_export_forward_stickers(ctx: CommandContext) -> None:
 
     logger.info(
         "[ForwardExport] 展开完成 id=%s 图片总数=%d 待导出=%d animated_only=%s pack=%r",
-        forward_id, len(images), len(candidates), cfg.get("animated_only", True), pack,
+        forward_id, len(images), len(candidates), cfg.get("animated_only", False), pack,
     )
 
     if not candidates:

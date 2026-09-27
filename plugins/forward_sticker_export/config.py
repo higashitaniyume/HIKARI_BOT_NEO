@@ -15,9 +15,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_depth": 6,
     # 单次最多导出的图片数量上限。
     "max_images": 300,
-    # 只导出 QQ 表情面板的动画表情（summary == "[动画表情]"）。
-    # 设为 False 则合并记录里的所有图片都会被导出。
-    "animated_only": True,
+    # 默认导出合并记录里的所有图片（含动画表情、普通图片表情、截图等）。
+    # 设为 True 则只导出 QQ 表情面板的动画表情（summary == "[动画表情]"）。
+    "animated_only": False,
     # 未显式指定包名时的默认贴纸包名。
     "default_pack": "合并转发导出",
     # 下载/转码相关。

@@ -760,7 +760,7 @@ BotData/plugin_configs/sticker_inbox.json
 
 **工作方式：** 从被引用消息里取出合并转发的 `res_id`，调用 OneBot / NapCat 的 `get_forward_msg` 拉取内容；节点里遇到 `forward` 段（嵌套合并转发）时，优先用内联 `content` 展开，否则按其 `id` 再次调用 `get_forward_msg` 递归拉取（按 `max_depth` 限深、按已见 id 去环）。抠出的图片下载后统一走 `media_transcoder.ensure_sticker_gif` 转 GIF，调用 `sticker_library.save_gifs_to_pack()`（`source="forward_export"`，按 GIF 哈希去重）入库。
 
-**只导出动画表情：** 默认 `animated_only=true`，只导出 NapCat 标记 `summary="[动画表情]"` 的表情（与贴纸定向收集同一套判定）。设为 `false` 则合并记录里的所有图片都会被导出。
+**导出范围：** 默认 `animated_only=false`，合并记录里的**所有图片**（动画表情、普通图片表情、截图等）都会被下载导出。设为 `true` 则只导出 NapCat 标记 `summary="[动画表情]"` 的表情（与贴纸定向收集同一套判定）。
 
 **权限：** 默认 `require_admin=true`，仅超级管理员或群 owner/admin 可用（该命令写入共享贴纸库）。设为 `false` 则所有人可用。
 
@@ -772,7 +772,7 @@ BotData/plugin_configs/sticker_inbox.json
 | `require_admin` | 是否仅管理员可用 |
 | `max_depth` | 递归展开嵌套合并转发的最大层数 |
 | `max_images` | 单次最多导出的图片数量上限 |
-| `animated_only` | 只导出动画表情（`summary="[动画表情]"`） |
+| `animated_only` | 只导出动画表情（`summary="[动画表情]"`）；默认 `false` = 导出所有图片 |
 | `default_pack` | 未指定包名时的默认贴纸包 |
 | `temp_root` | 下载/转码临时目录 |
 | `download_timeout_seconds` / `max_download_mb` | 单张下载超时与大小上限 |
