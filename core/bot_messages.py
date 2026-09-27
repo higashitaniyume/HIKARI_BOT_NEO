@@ -106,6 +106,15 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "send_direct": "正在逐个发送...",
         "send_forward": "正在以合并转发形式发送（分 {count} 组）...",
     },
+    "forward_export": {
+        "permission_denied": "只有超级管理员或群管理员可以导出合并转发里的表情。",
+        "no_forward": "没找到合并转发消息。请「引用/回复」那条合并聊天记录，再发送「导出表情 [贴纸包名]」。",
+        "scanning": "正在展开合并转发并提取表情，请稍候……",
+        "expand_failed": "展开合并转发失败，可能是记录过大、已过期或协议端不支持，请稍后再试。",
+        "nothing": "这条合并转发里没找到可导出的动画表情（共扫描到 {total} 张图片）。",
+        "all_failed": "找到 {count} 张表情，但全部下载/转换失败了，请稍后再试。",
+        "done": "已导出 {saved} 张表情到贴纸包「{pack}」（失败 {failed} 张）。",
+    },
     "jmcomic": {
         "start": "开始下载并转换 PDF：JM{jm_id}",
         "done": "完成：JM{album_id}",
