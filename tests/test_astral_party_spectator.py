@@ -269,8 +269,10 @@ class SpectatorFormattingTests(unittest.TestCase):
         self.assertIn("攻击 1", text)
         self.assertIn("防御 2", text)
         self.assertIn("[战斗0] 以毒攻毒", text)
-        self.assertIn("回合开始恢复3点生命值，持续2回合", text)
         self.assertIn("[战斗1·净化2] 防御(中)", text)
+        # 只显示卡牌名称，不带描述。
+        self.assertNotIn("回合开始恢复3点生命值", text)
+        self.assertNotIn("战斗中防御方可用", text)
         # 牌面被遮蔽的玩家只显示数量，不显示任何卡牌行。
         self.assertIn("【3】幻榊陽（米米）", text)
         self.assertIn("服务器只提供数量，牌面被遮蔽", text)
@@ -333,7 +335,6 @@ class SpectatorCommandTests(unittest.IsolatedAsyncioTestCase):
             "timeout": 30,
             "max_chars": 3000,
             "max_name_chars": 40,
-            "max_description_chars": 60,
         }
 
     async def test_command_is_registered(self) -> None:

@@ -46,7 +46,6 @@ def _render(snapshot: SpectatorSnapshot, code: str) -> str:
         watch_code=code,
         max_chars=int(cfg.get("max_chars") or 3000),
         max_name_chars=int(cfg.get("max_name_chars") or 40),
-        max_description_chars=int(cfg.get("max_description_chars") or 60),
     )
 
 

@@ -1,7 +1,7 @@
 """把手牌快照格式化成一条 QQ 文本消息。
 
-纯文本输出；长度按 `max_chars` 收敛，优先保留玩家基础信息和卡牌名称，
-空间不足时先裁掉卡牌描述，再裁掉末尾多余的卡牌。
+纯文本输出，只显示卡牌名称（不含卡牌描述）。长度按 `max_chars` 收敛，
+优先保留玩家基础信息，空间不足时末尾玩家的手牌会被截断并计数提示。
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from .models import SpectatorCard, SpectatorPlayer, SpectatorSnapshot
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
-# 顶部结构行（观战码、房间号、人数、隐藏提示）需要预留的字符数。
+# 顶部结构行（观战码、房间号、人数、省略提示）需要预留的字符数。
 _HEADING_BUDGET = 160
 _OMIT_NOTICE = "…还有 {count} 名玩家的手牌因长度限制未显示。"
 
@@ -61,29 +61,12 @@ def _card_tag(card: SpectatorCard) -> str:
     return f"[战斗{card.battle_cost}]"
 
 
-def _card_text(
-    card: SpectatorCard,
-    *,
-    with_description: bool,
-    max_name_chars: int,
-    max_description_chars: int,
-) -> str:
+def _card_text(card: SpectatorCard, *, max_name_chars: int) -> str:
     name = _truncate(_compact(card.name) or f"卡牌 {card.card_id}", max_name_chars)
-    text = f"{_card_tag(card)} {name}"
-    if with_description:
-        description = _truncate(_compact(card.description), max_description_chars)
-        if description:
-            text = f"{text}｜{description}"
-    return text
+    return f"{_card_tag(card)} {name}"
 
 
-def _player_block(
-    player: SpectatorPlayer,
-    *,
-    with_description: bool,
-    max_name_chars: int,
-    max_description_chars: int,
-) -> str:
+def _player_block(player: SpectatorPlayer, *, max_name_chars: int) -> str:
     nick = _truncate(_compact(player.nick) or player.player_id or "未知玩家", max_name_chars)
     header = f"【{player.slot + 1}】{nick}"
     if player.hero_name:
@@ -95,15 +78,7 @@ def _player_block(
         lines.append(f"  {stats}")
     lines.append(f"  {_hand_label(player)}")
     for card in player.cards:
-        lines.append(
-            "  · "
-            + _card_text(
-                card,
-                with_description=with_description,
-                max_name_chars=max_name_chars,
-                max_description_chars=max_description_chars,
-            )
-        )
+        lines.append("  · " + _card_text(card, max_name_chars=max_name_chars))
     return "\n".join(lines)
 
 
@@ -113,12 +88,10 @@ def format_hand_message(
     watch_code: str = "",
     max_chars: int = 3000,
     max_name_chars: int = 40,
-    max_description_chars: int = 60,
 ) -> str:
     """渲染观战手牌文本。"""
     budget = max(200, int(max_chars or 3000))
     name_chars = max(4, int(max_name_chars or 40))
-    description_chars = max(0, int(max_description_chars or 60))
 
     players = list(snapshot.players or [])
     lines: list[str] = []
@@ -137,31 +110,15 @@ def format_hand_message(
     blocks: list[str] = []
     shown = 0
     for player in players:
-        detailed = _player_block(
-            player,
-            with_description=True,
-            max_name_chars=name_chars,
-            max_description_chars=description_chars,
-        )
-        if len(detailed) <= remaining:
-            blocks.append(detailed)
-            remaining -= len(detailed) + 1
+        block = _player_block(player, max_name_chars=name_chars)
+        if len(block) <= remaining:
+            blocks.append(block)
+            remaining -= len(block) + 1
             shown += 1
             continue
-        brief = _player_block(
-            player,
-            with_description=False,
-            max_name_chars=name_chars,
-            max_description_chars=description_chars,
-        )
-        if len(brief) <= remaining:
-            blocks.append(brief)
-            remaining -= len(brief) + 1
-            shown += 1
-            continue
-        # 这名玩家连最简形式都放不下：能塞下就截断显示，之后只做计数提示。
+        # 这名玩家放不下：能塞下就截断显示，之后只做计数提示。
         if remaining >= 32:
-            blocks.append(_truncate(brief, remaining))
+            blocks.append(_truncate(block, remaining))
             shown += 1
         break
 

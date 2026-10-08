@@ -21,10 +21,9 @@ DEFAULT_ASTRAL_PARTY_CONFIG: dict[str, Any] = {
     "verify_ssl": True,
     "proxy": "",
     "user_agent": "HikariBot/1.0 AstralPartySpectatorQuery",
-    # 玩家昵称、卡牌名称、卡牌描述写进一条文本消息前的长度上限。
+    # 玩家昵称、卡牌名称写进一条文本消息前的长度上限。
     "max_name_chars": 40,
-    "max_description_chars": 60,
-    # 整条回复的最大字符数；超出时优先裁掉卡牌描述，再裁掉多余的卡牌。
+    # 整条回复的最大字符数；超出时从末尾玩家开始截断并提示省略了几人。
     "max_chars": 3000,
 }
 

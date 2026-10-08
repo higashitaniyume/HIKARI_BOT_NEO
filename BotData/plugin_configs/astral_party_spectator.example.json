@@ -6,6 +6,5 @@
   "proxy": "",
   "user_agent": "HikariBot/1.0 AstralPartySpectatorQuery",
   "max_name_chars": 40,
-  "max_description_chars": 60,
   "max_chars": 3000
 }
