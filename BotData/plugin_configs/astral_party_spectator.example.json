@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "endpoint": "http://192.168.31.2:18743",
+  "timeout": 90,
+  "verify_ssl": true,
+  "proxy": "",
+  "user_agent": "HikariBot/1.0 AstralPartySpectatorQuery",
+  "max_name_chars": 40,
+  "max_description_chars": 60,
+  "max_chars": 3000
+}

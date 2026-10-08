@@ -436,6 +436,13 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "risk_chat_notice": "这条回复被出站自审查拦下了，换个问法试试。",
         "risk_superuser_notify": "出站自审查拦截\n接口：{api}\n目标：{target}\n判定理由：{reason}\n拦截内容：{text}",
     },
+    "astral_party": {
+        "usage": "用法：查询 <观战码>\n例：查询 C27ED36\n查询吉星派对官方 PVE 观战房间，显示四名玩家的手牌。",
+        "not_available": "观战查询失败：{reason}",
+        "timeout": "观战查询超时了：{error}\n官方服务器有时响应较慢，稍后再试一次吧。",
+        "unavailable": "观战服务暂时不可用：{error}",
+        "failed": "观战查询失败，请稍后再试。（{error}）",
+    },
     "friend_manager": {
         "welcome": "你好！我是 HIKARI BOT，已通过你的好友申请～\n发送「帮助」查看功能列表，有什么问题可以直接问我！",
         "superuser_notify": "新好友添加通知\nQQ：{user_id}\n昵称：{nickname}\n时间：{time}",

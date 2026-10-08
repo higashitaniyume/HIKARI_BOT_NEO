@@ -1063,6 +1063,37 @@ async def build_message(ctx: PushContext):
 
 ---
 
+## 吉星派对观战手牌
+
+**配置文件：** `BotData/plugin_configs/astral_party_spectator.json`
+
+调用外部观战服务 [AstralPartySpectator](https://github.com/higashitaniyume/AstralPartySpectator) 的公开无状态接口 `GET /query?id=<观战码>`，把官方服务器实际下发的四名玩家手牌以文本消息发回。服务地址默认 `http://192.168.31.2:18743`，可在配置里改成任意可达地址。
+
+服务端行为：每次查询都会临时登录官方服务器、拉一次房间快照、再退出，所以单次耗时通常在数秒到数十秒，配置的 `timeout` 默认给到 90 秒。同一时间服务端只允许一个查询，并发命令会排队。
+
+**可用指令：**
+
+| 消息 | 效果 |
+|------|------|
+| `查询 <观战码>` | 显示四名玩家的手牌与公开属性 |
+| `观战 <观战码>` / `手牌 <观战码>` | 同上 |
+
+输出包含每名玩家的名次、昵称、英雄、HP/金币/攻击/防御，以及手牌列表（`[战斗费用] 卡牌名｜卡牌描述`）。服务器只给数量、没给牌面时，会明确显示「服务器只提供数量，牌面被遮蔽」，不会用数量推断牌面。
+
+**配置项：**
+
+| 键 | 说明 |
+|------|------|
+| `enabled` | 是否启用该命令 |
+| `endpoint` | 观战服务地址，默认 `http://192.168.31.2:18743` |
+| `timeout` | 单次查询超时（秒），默认 90 |
+| `verify_ssl` | HTTPS 服务时是否校验证书 |
+| `proxy` | 可选的 HTTP 代理 |
+| `max_name_chars` / `max_description_chars` | 昵称、卡牌描述单条截断长度 |
+| `max_chars` | 整条回复字符上限，默认 3000；超出时先裁掉卡牌描述，再裁掉末尾玩家的手牌并提示「…还有 N 名玩家…」 |
+
+---
+
 ## QQ 资料卡点赞
 
 **配置文件：** `BotData/plugin_configs/profile_like.json`
