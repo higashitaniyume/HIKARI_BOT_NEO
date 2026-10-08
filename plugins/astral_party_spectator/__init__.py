@@ -54,6 +54,7 @@ def _render(snapshot: SpectatorSnapshot, code: str) -> str:
     aliases=("观战", "手牌"),
     description="查询吉星派对观战码，显示四名玩家的手牌",
     usage="查询 <观战码>",
+    require_tome=True,
     category="游戏",
 )
 async def handle_spectator_query(ctx: CommandContext) -> None:

@@ -342,6 +342,8 @@ class SpectatorCommandTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("观战", spec.names)
         self.assertEqual(spec.category, "游戏")
+        # 群聊里必须 @机器人 才会响应。
+        self.assertTrue(spec.require_tome)
 
     async def test_empty_args_sends_usage(self) -> None:
         ctx = FakeContext("   ")
