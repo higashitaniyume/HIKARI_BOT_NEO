@@ -426,7 +426,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 
 **配置文件：** `BotData/plugin_configs/aiagent.json`
 
-最低优先级兜底插件。默认走 DeepSeek Responses API（无状态，支持服务端内置 `web_search`），也可切换为 OpenAI-compatible 的 `chat/completions` 接口。
+最低优先级兜底插件。默认走 DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式），也可切换为 OpenAI-compatible 的 `chat/completions` 接口；网页搜索由本地 `web_search` 函数工具执行（DeepSeek 官方 Search API 或 SearXNG）。
 
 配置文件是「多配置文档」：模型、人格、聊天、记忆、工具这些段放在 `profiles.<id>` 里，每套一份；
 总开关 `enabled`、配额 `quota`、黑白名单 `permissions` 是所有配置共用的全局段，留在顶层。
@@ -490,7 +490,9 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `api.protocol` | `responses`（DeepSeek Responses API，默认）或 `chat_completions` |
 | `thinking.enabled`、`thinking.reasoning_effort` | 思考模式开关与强度（`low`/`medium`/`high`/`max`） |
 | `tools.help.enabled` | 是否启用 bot_help 帮助文档工具（默认开） |
-| `tools.search.enabled` | 是否启用网页搜索（SearXNG） |
+| `tools.search.enabled` | 是否启用网页搜索（默认开） |
+| `tools.search.mode` | `builtin` 用 DeepSeek 官方 Search API（默认；按成功请求计费，flash 也能搜，非 DeepSeek 端点自动回退 SearXNG）或 `searxng` 只用自建实例 |
+| `tools.search.max_results`、`need_content` | 每次搜索返回条数（默认 5，上限 10）、是否带回网页正文（默认 false，更耗上下文） |
 | `tools.files.enabled` | 是否启用文件工具（读取人格资源、读取 `UserData`） |
 | `tools.files.allow_writes` | 是否允许 AI 写入 `UserData`（默认 **false**，写入工具不下发给模型；后台「AI Agent」页 Tools 管理里对应「允许 AI 写 UserData 文件」） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
@@ -565,7 +567,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | 工具 | 来源 | 说明 |
 |------|------|------|
 | `bot_help` | 内置 | 查询 `docs/` 功能文档（被问到"你会干什么"时自动使用） |
-| `web_search` | 内置 | 通过 SearXNG 搜索网页 |
+| `web_search` | 内置 | 通过 DeepSeek 官方 Search API（默认）或 SearXNG 搜索网页；支持 `site:`/`lang:`/`after:` 等语法 |
 | `group_members` | 内置 | 枚举当前群成员（只读，仅当前群） |
 | `group_member_profile` | 内置 | 查询当前群某成员的名片与资料（只读，仅当前群） |
 | `group_user_messages` | 内置 | 查询当前群某成员最近的历史发言（只读，仅当前群） |

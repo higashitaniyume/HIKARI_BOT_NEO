@@ -126,7 +126,7 @@ def _bot(**responses: Any) -> FakeBot:
 
 
 def _tool_names(cfg: dict[str, Any], context: Any = None) -> set[str]:
-    """提取下发的工具名；服务端内置工具（web_search）没有 function 键。"""
+    """提取下发的工具名（搜索等函数工具取 function.name）。"""
     names: set[str] = set()
     for tool in tool_registry.available_tools(cfg, context):
         if not isinstance(tool, dict):

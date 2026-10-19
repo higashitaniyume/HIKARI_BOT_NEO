@@ -3,7 +3,7 @@
         <div class="panel-heading">
           <div>
             <h2>AI Agent</h2>
-            <p>支持 DeepSeek Responses API（服务端内置 web_search）与 OpenAI Chat Completions 兼容接口；未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
+            <p>支持 DeepSeek Responses API 与 OpenAI Chat Completions 兼容接口；网页搜索走 DeepSeek 官方 Search API（或自建 SearXNG）。未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
           </div>
         </div>
 
@@ -233,9 +233,19 @@
                 <label>
                   <span>网页搜索</span>
                   <select id="aiagentSearchMode">
-                    <option value="builtin">DeepSeek 内置搜索（服务端执行）</option>
+                    <option value="builtin">DeepSeek 官方搜索（Search API）</option>
                     <option value="searxng">自建 SearXNG</option>
                   </select>
+                  <small>官方搜索按成功请求计费（5 元/1000 次）；非 DeepSeek 端点自动回退 SearXNG</small>
+                </label>
+                <label>
+                  <span>搜索结果条数</span>
+                  <input id="aiagentSearchMaxResults" type="number" min="1" max="10" step="1">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentSearchNeedContent" type="checkbox">
+                  <span>搜索时带回网页正文</span>
+                  <small>比摘要更完整，但更耗上下文；单次请求价格不变</small>
                 </label>
                 <label>
                   <span>选择模式</span>

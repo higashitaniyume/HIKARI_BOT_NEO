@@ -96,6 +96,7 @@
         "search": {
           "enabled": true,
           "mode": "builtin",
+          "need_content": false,
           "base_url": "http://searxng-core:8080",
           "timeout_seconds": 30,
           "max_results": 5,

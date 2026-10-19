@@ -719,6 +719,8 @@ function renderAiAgentConfig() {
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
   $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;
   $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
+  $("#aiagentSearchMaxResults").value = search.max_results ?? 5;
+  $("#aiagentSearchNeedContent").checked = search.need_content === true;
   renderAiAgentTools(false);
   renderAiAgentProfiles();
   renderAiAgentBindings();

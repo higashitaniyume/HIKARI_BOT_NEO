@@ -170,8 +170,9 @@ async def request_chat_completion(
 ) -> str:
     """AI Agent 对话入口。
 
-    按配置的 API 协议分发：`responses` 走 DeepSeek Responses API（服务端内置
-    web_search），`chat_completions` 走 OpenAI Chat Completions 兼容协议。
+    按配置的 API 协议分发：`responses` 走 DeepSeek Responses API，
+    `chat_completions` 走 OpenAI Chat Completions 兼容协议。搜索工具由本地
+    函数工具执行（见 tools/search.py），两种协议行为一致。
     """
     if api_protocol(cfg) == "responses":
         from .responses_client import request_response_completion

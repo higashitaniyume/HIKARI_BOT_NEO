@@ -3,9 +3,10 @@
 对接 DeepSeek 新架构（https://api-docs.deepseek.com/zh-cn/guides/responses_api）：
 - 无状态 Responses API，兼容 OpenAI Responses API 格式，不支持 previous_response_id；
 - 多轮工具调用通过 input items 数组构建（message / function_call /
-  function_call_output / web_search_call）；
-- web_search 为服务端内置工具（{"type": "web_search"}），模型发出 web_search_call
-  后由服务端执行搜索；把 web_search_call 原样回传即可恢复搜索结果；
+  function_call_output）；
+- web_search 是本地函数工具（DeepSeek 官方 Search API），不再依赖服务端内置
+  web_search（后者只在 deepseek-v4-pro 生效，flash 下会被忽略）；上游若仍返回
+  web_search_call item，原样回传以兼容；
 - 思考模式通过 reasoning.effort 控制。
 """
 
@@ -151,8 +152,8 @@ def _build_payload(
         # Chat Completions 嵌套 function 包装在 Responses API 会 400
         # （missing field name），发送前转为扁平 Responses 格式
         payload["tools"] = [_to_responses_tool(tool) for tool in tools]
-        # 默认不传 tool_choice（auto）：内置 web_search 由模型按需触发。
-        # 用户可在 config 中设为 "auto" / "none" / "required" 或 {"type": "web_search"}。
+        # 默认不传 tool_choice（auto）：web_search 是函数工具，由模型按需调用。
+        # 用户可在 config 中设为 "auto" / "none" / "required" 或指定函数工具。
         if tool_choice is not None:
             payload["tool_choice"] = _to_responses_tool_choice(tool_choice)
 
@@ -208,10 +209,10 @@ def _function_call_items(response: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _passthrough_items(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """需要回传给服务端的 output item：function_call 与 web_search_call。
+    """需要回传给服务端的 output item：function_call，以及兼容旧的 web_search_call。
 
-    web_search_call 原样回传后服务端会自动恢复搜索结果（无状态 API 的
-    多轮跟进方式）；function_call 连同 function_call_output 一起回传。
+    web_search_call 来自旧的服务端内置搜索；现在搜索改走本地函数工具，
+    这里保留原样回传路径以兼容仍有该 item 的响应。
     """
     return [
         item for item in _output_items(response) if item.get("type") in {"function_call", "web_search_call"}

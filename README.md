@@ -49,6 +49,7 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **AI 搜索升级**：`web_search` 改用 DeepSeek 官方 Search API（`/v1/tools/search`）——此前服务端内置 `web_search` 只在 `deepseek-v4-pro` 生效、flash 下会被忽略；现在 flash 也能搜，并支持 `site:` / `lang:` / `after:` / `before:` / 精确短语等语法、按用户原话补 `ori_question`、可选带回网页正文，408/429/5xx 自动重试；非 DeepSeek 端点自动回退 SearXNG，后台可调搜索条数与是否带回正文
 - **AI 看图增强**：AI Agent 图片输入改为默认开启，精度默认 `auto`（保留原图，截图里的文字可读）；模型名改用官方 `deepseek-flash`，主模型是 `deepseek-v4-pro` 等不支持看图的模型时，带图请求会自动切到 Flash，也可在后台「AI Agent」页单独指定「看图模型」；超过 2048px 或 3 MiB 的图片会先压缩再发送，避免超出 API 尺寸/体积限制
 - **Steam 解析正式接入**：`store.steampowered.com/app/<appid>` 商店游戏页现在能单独触发自动解析（此前只有同条消息里恰好带了别的受支持平台链接时才会被顺带解析）；`parsers.steam` 默认 `仅视频`，只发预告片、不发截图（游戏信息随合并转发首条一起发出），避免一个游戏页几十个媒体拖慢下载；后台「权限规则」新增「Steam 解析」，媒体详情页平台清单同步；多个媒体一律合并转发（视频也在里面），合并被拒或超时就什么都不发，不再逐条补发导致同一批媒体收到两遍
 - **媒体解析升级 v7.0.0**：vendored 解析器跟进上游——B站 Cookie 扫码登录与自动续期、抖音 Web 接口兜底、下载安全加固（SSRF 防护）、小红书 `xhslink.cn` 短链支持；上游新增的 Pixiv 解析被剔除（继续由自有 `pixiv_parser` 插件处理），并适配了 shim 日志与下载会话两处衔接

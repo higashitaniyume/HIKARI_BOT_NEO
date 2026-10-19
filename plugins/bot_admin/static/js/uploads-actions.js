@@ -291,6 +291,8 @@ function buildAiAgentPayload() {
       tool_timeout_seconds: Number($("#aiagentToolTimeout").value || 30),
       search: {
         mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
+        max_results: Number($("#aiagentSearchMaxResults").value || 5),
+        need_content: $("#aiagentSearchNeedContent").checked,
       },
       files: {
         allow_writes: $("#aiagentAllowFileWrites").checked,

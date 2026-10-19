@@ -55,8 +55,7 @@ MAX_PROFILE_NAME_CHARS = 40
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": False,
     # API 协议：
-    #   "responses" — DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式，
-    #                 支持服务端内置 web_search 工具）
+    #   "responses" — DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式）
     #   "chat_completions" — OpenAI Chat Completions 兼容协议（旧接口）
     "api": {
         "protocol": "responses",
@@ -167,10 +166,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "search": {
             "enabled": True,
-            # "builtin": 用 DeepSeek Responses API 服务端内置 web_search（无需自建搜索）；
-            # "searxng": 用自建 SearXNG 的函数工具（兼容任意 OpenAI 兼容端点）。
-            # Responses 协议下默认内置搜索；Chat Completions 协议下自动退回 SearXNG。
+            # "builtin": DeepSeek 官方 Search API（POST /v1/tools/search，按成功请求
+            #            计费，5 元/1000 次）；Responses / Chat Completions 都可用，
+            #            flash 也能搜。非 api.deepseek.com 端点没有该接口，自动回退 SearXNG。
+            # "searxng": 只用自建 SearXNG（兼容任意 OpenAI 兼容端点）。
             "mode": "builtin",
+            # 是否让搜索结果带回网页正文（need_content）；更完整但更耗上下文。
+            "need_content": False,
             "base_url": "http://searxng-core:8080",
             "timeout_seconds": 30,
             "max_results": 5,

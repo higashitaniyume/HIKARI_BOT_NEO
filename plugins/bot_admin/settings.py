@@ -396,6 +396,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "search": {
                 "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
                 "mode": search_mode,
+                "need_content": _parse_bool(input_search.get("need_content", current_search.get("need_content", False))),
                 "base_url": _parse_str(input_search.get("base_url", current_search.get("base_url", "http://searxng-core:8080")), max_length=512),
                 "timeout_seconds": _parse_int(input_search.get("timeout_seconds", current_search.get("timeout_seconds", 15)), 15, minimum=1, maximum=120),
                 "max_results": _parse_int(input_search.get("max_results", current_search.get("max_results", 5)), 5, minimum=1, maximum=10),
