@@ -13,7 +13,7 @@ from core.bot_messages import get_message as msg
 from .config import api_protocol
 from .tools import available_tools, execute_tool_call
 from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
-from .vision import has_images, strip_images
+from .vision import has_images, request_model, strip_images
 from .wiki import _latest_user_text, _prefetch_wiki_priority_tools
 
 logger = logging.getLogger("HikariBot.AIAgent.Client")
@@ -105,7 +105,8 @@ async def post_chat_completion(
 ) -> dict[str, Any]:
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "").strip()
-    model = str(model_cfg.get("model") or "").strip()
+    # 带图请求可能切换到专门的视觉模型（见 vision.request_model）。
+    model = request_model(cfg, has_images(messages))
     if not model:
         raise RuntimeError("AI Agent 模型名称未配置。")
 

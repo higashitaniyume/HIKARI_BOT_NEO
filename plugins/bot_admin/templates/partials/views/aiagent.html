@@ -47,7 +47,7 @@
 
           <label>
             <span>模型名称</span>
-            <input id="aiagentModel" placeholder="deepseek-v4-flash" required>
+            <input id="aiagentModel" placeholder="deepseek-flash" required>
           </label>
 
           <label>
@@ -148,7 +148,7 @@
             <div class="aiagent-tools-head">
               <div>
                 <h3 id="aiagentVisionTitle">思考与图片输入</h3>
-                <p>图片输入需要模型本身支持视觉（例如 deepseek-v4-flash-vision-exp）；模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
+                <p>DeepSeek 目前只有 deepseek-flash 支持看图（deepseek-v4-pro 不支持）；带图请求会自动切到 Flash，也可以在这里单独指定看图模型。模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
               </div>
               <div class="aiagent-tools-controls">
                 <label class="checkbox-field">
@@ -168,6 +168,10 @@
                   <input id="aiagentVisionEnabled" type="checkbox">
                   <span>启用图片输入</span>
                 </label>
+                <label>
+                  <span>看图模型</span>
+                  <input id="aiagentVisionModel" placeholder="留空自动用 deepseek-flash">
+                </label>
                 <label class="checkbox-field">
                   <input id="aiagentVisionIncludeQuoted" type="checkbox">
                   <span>连带读取被引用消息里的图片</span>
@@ -179,10 +183,10 @@
                 <label>
                   <span>图片精度</span>
                   <select id="aiagentVisionDetail">
+                    <option value="auto">auto（默认，保留原图）</option>
                     <option value="low">low（512×512，最省 token）</option>
-                    <option value="high">high</option>
-                    <option value="original">original</option>
-                    <option value="auto">auto</option>
+                    <option value="high">high（保留原图）</option>
+                    <option value="original">original（保留原图）</option>
                   </select>
                 </label>
                 <label>

@@ -22,7 +22,7 @@ from core.bot_messages import get_message as msg
 from .client import AIAgentRequestError, _tool_wanted, _tools_cfg
 from .tools import available_tools, execute_tool_call
 from .utils import safe_float, safe_int
-from .vision import has_images, strip_images
+from .vision import has_images, request_model, strip_images
 from .wiki import _latest_user_text, _prefetch_wiki_priority_items
 
 logger = logging.getLogger("HikariBot.AIAgent.Responses")
@@ -132,7 +132,8 @@ def _build_payload(
     tools: list[dict[str, Any]],
 ) -> dict[str, Any]:
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
-    model = str(model_cfg.get("model") or "").strip()
+    # 带图请求可能切换到专门的视觉模型（见 vision.request_model）。
+    model = request_model(cfg, has_images(input_items))
     if not model:
         raise RuntimeError("AI Agent 模型名称未配置。")
 

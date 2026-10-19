@@ -323,9 +323,9 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     search_mode = _parse_str(input_search.get("mode", current_search.get("mode", "builtin")), max_length=16).strip().lower()
     if search_mode not in {"builtin", "searxng"}:
         search_mode = "builtin"
-    vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "low")), max_length=16).strip().lower()
+    vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "auto")), max_length=16).strip().lower()
     if vision_detail not in VISION_DETAILS:
-        vision_detail = "low"
+        vision_detail = "auto"
 
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
@@ -346,11 +346,12 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
         },
         "vision": {
-            "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", False))),
+            "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", True))),
+            "model": _parse_str(input_vision.get("model", current_vision.get("model", "")), max_length=160).strip(),
             "max_images": _parse_int(input_vision.get("max_images", current_vision.get("max_images", 2)), 2, minimum=1, maximum=8),
             "detail": vision_detail,
             "include_quoted": _parse_bool(input_vision.get("include_quoted", current_vision.get("include_quoted", True))),
-            "max_bytes": _parse_int(input_vision.get("max_bytes", current_vision.get("max_bytes", 5242880)), 5242880, minimum=65536, maximum=33554432),
+            "max_bytes": _parse_int(input_vision.get("max_bytes", current_vision.get("max_bytes", 10485760)), 10485760, minimum=65536, maximum=33554432),
             "download_timeout_seconds": _parse_int(input_vision.get("download_timeout_seconds", current_vision.get("download_timeout_seconds", 20)), 20, minimum=3, maximum=120),
         },
         "persona": {

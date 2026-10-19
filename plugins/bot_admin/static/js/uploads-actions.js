@@ -262,10 +262,11 @@ function buildAiAgentPayload() {
     },
     vision: {
       enabled: $("#aiagentVisionEnabled").checked,
+      model: $("#aiagentVisionModel").value.trim(),
       include_quoted: $("#aiagentVisionIncludeQuoted").checked,
       max_images: Number($("#aiagentVisionMaxImages").value || 2),
       detail: $("#aiagentVisionDetail").value,
-      max_bytes: Number($("#aiagentVisionMaxKb").value || 5120) * 1024,
+      max_bytes: Number($("#aiagentVisionMaxKb").value || 10240) * 1024,
       download_timeout_seconds: Number($("#aiagentVisionTimeout").value || 20),
     },
     persona: {

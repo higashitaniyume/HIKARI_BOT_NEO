@@ -10,7 +10,7 @@
       "model": {
         "base_url": "https://api.deepseek.com",
         "api_key": "",
-        "model": "deepseek-v4-flash",
+        "model": "deepseek-flash",
         "temperature": 0.7,
         "top_p": 1,
         "max_tokens": 8192,
@@ -23,11 +23,12 @@
         "reasoning_effort": "high"
       },
       "vision": {
-        "enabled": false,
+        "enabled": true,
+        "model": "",
         "max_images": 2,
-        "detail": "low",
+        "detail": "auto",
         "include_quoted": true,
-        "max_bytes": 5242880,
+        "max_bytes": 10485760,
         "download_timeout_seconds": 20
       },
       "persona": {

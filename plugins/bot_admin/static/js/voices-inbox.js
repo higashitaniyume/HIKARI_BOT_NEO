@@ -650,7 +650,7 @@ function renderAiAgentConfig() {
   $("#aiagentEnabled").checked = cfg.enabled === true;
   $("#aiagentProtocol").value = api.protocol === "chat_completions" ? "chat_completions" : "responses";
   $("#aiagentBaseUrl").value = model.base_url || "https://api.deepseek.com";
-  $("#aiagentModel").value = model.model || "deepseek-v4-flash";
+  $("#aiagentModel").value = model.model || "deepseek-flash";
   $("#aiagentApiKey").value = "";
   $("#aiagentApiKeyHint").textContent = model.api_key_set ? "已配置；留空保存会保留原 Key。" : "未配置";
   $("#aiagentProxy").value = model.proxy || "";
@@ -690,10 +690,11 @@ function renderAiAgentConfig() {
     ? thinking.reasoning_effort
     : "high";
   $("#aiagentVisionEnabled").checked = vision.enabled === true;
+  $("#aiagentVisionModel").value = vision.model || "";
   $("#aiagentVisionIncludeQuoted").checked = vision.include_quoted !== false;
   $("#aiagentVisionMaxImages").value = vision.max_images ?? 2;
-  $("#aiagentVisionDetail").value = ["low", "high", "original", "auto"].includes(vision.detail) ? vision.detail : "low";
-  $("#aiagentVisionMaxKb").value = Math.round((vision.max_bytes ?? 5242880) / 1024);
+  $("#aiagentVisionDetail").value = ["low", "high", "original", "auto"].includes(vision.detail) ? vision.detail : "auto";
+  $("#aiagentVisionMaxKb").value = Math.round((vision.max_bytes ?? 10485760) / 1024);
   $("#aiagentVisionTimeout").value = vision.download_timeout_seconds ?? 20;
   $("#aiagentMaxToolRounds").value = tools.max_tool_rounds ?? 4;
   $("#aiagentToolTimeout").value = tools.tool_timeout_seconds ?? 30;

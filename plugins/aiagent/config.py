@@ -64,7 +64,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "base_url": "https://api.deepseek.com",
         "api_key": "",
-        "model": "deepseek-v4-flash",
+        # 官方模型名（deepseek-v4-flash 等旧名已下线，仍可用但会被转发到最新 Flash）
+        "model": "deepseek-flash",
         "temperature": 0.7,
         "top_p": 1.0,
         "max_tokens": 8192,
@@ -78,15 +79,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "reasoning_effort": "high",
     },
-    # 图片输入。需要视觉模型（如 deepseek-v4-flash-vision-exp）；模型不支持时
-    # 会自动去掉图片重试一次，所以开错了不会让机器人失声，只是白下载一遍。
+    # 图片输入（https://api-docs.deepseek.com/zh-cn/guides/vision）：
+    # deepseek-flash 原生支持图像理解（deepseek-v4-pro 不支持），所以默认开启。
+    # detail 默认 auto（当前等价于原图），截图/图表里的文字才能看清；
+    # low 会先把图片缩到 512×512，只适合看大概内容。
     "vision": {
-        "enabled": False,
+        "enabled": True,
+        # 带图请求使用的模型；留空表示沿用主模型。官方 api.deepseek.com 端点下，
+        # 主模型不是 deepseek-flash 时带图请求会自动切到 deepseek-flash
+        # （目前只有 Flash 支持图像理解）。换其他厂商端点时可在后台单独指定。
+        "model": "",
         "max_images": 2,
-        # low 会把图片缩到 512×512，每张最多按 384 token 计费，最省钱。
-        "detail": "low",
+        "detail": "auto",
         "include_quoted": True,
-        "max_bytes": 5242880,
+        # 下载上限（API 单图上限 32 MiB）；尺寸或体积过大的图会先压缩再发送。
+        "max_bytes": 10485760,
         "download_timeout_seconds": 20,
     },
     "persona": {

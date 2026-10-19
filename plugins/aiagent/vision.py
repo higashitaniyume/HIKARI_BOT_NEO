@@ -1,19 +1,22 @@
 """给 AI Agent 加「眼睛」：把 QQ 消息里的图片转成模型能吃的图片块。
 
-DeepSeek 的 deepseek-v4-flash-vision-exp 支持图片输入
-（https://api-docs.deepseek.com/guides/vision/）：
+DeepSeek 的 deepseek-flash 原生支持图片输入
+（https://api-docs.deepseek.com/zh-cn/guides/vision；deepseek-v4-pro 不支持）：
 
 - Chat Completions：content 变成块数组，图片块是
   ``{"type": "image_url", "image_url": {"url": ..., "detail": ...}}``；
 - Responses API：图片块是 ``{"type": "input_image", "image_url": <字符串>,
   "detail": ...}``，文本块要写成 ``input_text``；
 - 只有 user 消息能带图片，system / assistant 带图片会 400；
-- detail=low 会把图片缩到 512×512，每张图最多按 384 token 计费。
+- detail=low 会把图片缩到 512×512；high / original / auto 保留原图，
+  每张图最多按 1024 token 计费。
 
 QQ 图床直链带鉴权参数且时效很短，模型侧未必拉得到，所以这里先本地下载再转成
-base64 data URI 发出去。格式按字节头识别（文档明确说不看文件名和 MIME 声明）。
+base64 data URI 发出去。格式按字节头识别（文档明确说不看文件名和 MIME 声明）；
+尺寸或体积过大的图先用 Pillow 压到模型友好的大小，避免超过 API 的单边 8192px
+与体积限制，也避免请求体过大。
 
-下载侧做了 SSRF 防护（见 `_host_is_allowed` / `_download_data_uri`）：
+下载侧做了 SSRF 防护（见 `_host_is_allowed` / `_download_image`）：
 只允许 http/https 默认端口，拒绝 localhost、私有/回环/链路本地/保留地址，
 域名按 DNS 解析结果逐个校验，重定向自己跟随并逐跳重新校验目标。
 """
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import ipaddress
 import logging
 from typing import Any
@@ -34,6 +38,15 @@ from .utils import safe_int
 logger = logging.getLogger("HikariBot.AIAgent.Vision")
 
 VISION_DETAILS = ("low", "high", "original", "auto")
+
+# 官方 DeepSeek 端点与目前唯一支持图像理解的模型。
+_DEEPSEEK_HOST = "api.deepseek.com"
+_VISION_MODEL = "deepseek-flash"
+
+# 模型侧会把图片缩到总像素约 1300×1300，再大只是白占上传带宽。
+_MAX_EDGE = 2048
+# 超过这个体积就先重新编码，避免请求体被几张高码率截图撑大。
+_PASSTHROUGH_BYTES = 3 * 1024 * 1024
 
 # 重定向自己跟随，以便逐跳重新校验目标主机（避免 302 到内网的 SSRF）。
 _MAX_REDIRECTS = 3
@@ -49,17 +62,44 @@ _MIME_SIGNATURES: tuple[tuple[bytes, str], ...] = (
 
 def vision_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     section = cfg.get("vision") if isinstance(cfg.get("vision"), dict) else {}
-    detail = str(section.get("detail") or "low").strip().lower()
+    detail = str(section.get("detail") or "auto").strip().lower()
     return {
-        "enabled": bool(section.get("enabled", False)),
+        "enabled": bool(section.get("enabled", True)),
+        "model": str(section.get("model") or "").strip(),
         "max_images": safe_int(section.get("max_images"), 2, minimum=1, maximum=8),
-        "detail": detail if detail in VISION_DETAILS else "low",
+        "detail": detail if detail in VISION_DETAILS else "auto",
         "include_quoted": bool(section.get("include_quoted", True)),
-        "max_bytes": safe_int(section.get("max_bytes"), 5_242_880, minimum=65536, maximum=33_554_432),
+        "max_bytes": safe_int(section.get("max_bytes"), 10_485_760, minimum=65536, maximum=33_554_432),
         "download_timeout_seconds": safe_int(
             section.get("download_timeout_seconds"), 20, minimum=3, maximum=120
         ),
     }
+
+
+def request_model(cfg: dict[str, Any], has_image: bool) -> str:
+    """当前请求该用哪个模型。
+
+    不带图时永远是主模型；带图时优先 `vision.model`，其次在官方
+    api.deepseek.com 端点下自动切到 deepseek-flash（目前只有它支持图像理解，
+    deepseek-v4-pro 会直接 400）。其他厂商端点不做猜测，沿用主模型。
+    """
+    model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+    main_model = str(model_cfg.get("model") or "").strip()
+    if not has_image:
+        return main_model
+
+    override = vision_cfg(cfg)["model"]
+    if override:
+        return override
+
+    try:
+        host = (urlparse(str(model_cfg.get("base_url") or "")).hostname or "").strip().lower()
+    except ValueError:
+        host = ""
+    if host == _DEEPSEEK_HOST and main_model.lower() != _VISION_MODEL:
+        logger.debug("[AIAgent] 主模型 %s 不支持图片输入，带图请求改用 %s", main_model, _VISION_MODEL)
+        return _VISION_MODEL
+    return main_model
 
 
 def collect_image_urls(event: Any, cfg: dict[str, Any]) -> list[str]:
@@ -101,13 +141,19 @@ async def build_image_blocks(urls: list[str], cfg: dict[str, Any]) -> list[dict[
     timeout = httpx.Timeout(settings["download_timeout_seconds"])
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         downloads = await asyncio.gather(
-            *(_download_data_uri(client, url, settings["max_bytes"]) for url in urls)
+            *(_download_image(client, url, settings["max_bytes"]) for url in urls)
         )
-    return [
-        {"type": "image_url", "image_url": {"url": data_uri, "detail": settings["detail"]}}
-        for data_uri in downloads
-        if data_uri
-    ]
+
+    blocks: list[dict[str, Any]] = []
+    for item in downloads:
+        if not item:
+            continue
+        raw, mime = item
+        # 解码/缩放是同步 CPU 活，丢到线程里，别卡住事件循环。
+        raw, mime = await asyncio.to_thread(_prepare_image, raw, mime)
+        data_uri = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+        blocks.append({"type": "image_url", "image_url": {"url": data_uri, "detail": settings["detail"]}})
+    return blocks
 
 
 def text_block(text: str) -> dict[str, Any]:
@@ -249,41 +295,115 @@ async def _fetch_once(
         return 0, None, ""
 
 
-async def _download_data_uri(client: httpx.AsyncClient, url: str, max_bytes: int) -> str:
-    """下载图片并转 base64 data URI，逐跳校验重定向目标。"""
+async def _download_image(
+    client: httpx.AsyncClient, url: str, max_bytes: int
+) -> tuple[bytes, str] | None:
+    """下载图片并识别真实格式，逐跳校验重定向目标。"""
     target = url
     for _ in range(_MAX_REDIRECTS + 1):
         host = (urlparse(target).hostname or "").strip().lower().rstrip(".")
         if not await _host_is_allowed(host):
             logger.warning("[AIAgent] 图片地址指向受限主机，已跳过 %.80s", target)
-            return ""
+            return None
 
         status, payload, location = await _fetch_once(client, target, max_bytes)
         if status in _REDIRECT_STATUSES:
             if not location:
                 logger.warning("[AIAgent] 图片重定向缺少 Location，已跳过 %.80s", target)
-                return ""
+                return None
             target = urljoin(target, location)
             if not _is_safe_url(target):
                 logger.warning("[AIAgent] 图片重定向到不允许的地址，已跳过 %.80s", target)
-                return ""
+                return None
             continue
         if status == 0:
-            return ""
+            return None
         if status >= 400:
             logger.warning("[AIAgent] 图片下载失败 HTTP %s %.80s", status, target)
-            return ""
+            return None
         if payload is None:
-            return ""
+            return None
 
         mime = _sniff_mime(payload)
         if not mime:
             logger.warning("[AIAgent] 不支持的图片格式，已跳过 %.80s", target)
-            return ""
-        return f"data:{mime};base64,{base64.b64encode(payload).decode('ascii')}"
+            return None
+        return payload, mime
 
     logger.warning("[AIAgent] 图片重定向次数过多，已跳过 %.80s", url)
-    return ""
+    return None
+
+
+def _prepare_image(raw: bytes, mime: str) -> tuple[bytes, str]:
+    """把过大的图片缩到模型友好的尺寸；动图或解码失败的原样返回。
+
+    模型会把图片缩到总像素约 1300×1300，同时 API 限制单边 8192px、
+    单图 32 MiB，所以这里提前把长边压到 2048px、体积压到 3 MiB 以内。
+    """
+    if mime == "image/gif":
+        return raw, mime
+    try:
+        from PIL import Image, ImageOps
+    except Exception:  # Pillow 不可用时退回原图，交给模型侧自己缩放
+        return raw, mime
+
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            if getattr(image, "is_animated", False):
+                return raw, mime
+            if max(image.size) <= _MAX_EDGE and len(raw) <= _PASSTHROUGH_BYTES:
+                return raw, mime
+
+            image = ImageOps.exif_transpose(image)
+            resized = max(image.size) > _MAX_EDGE
+            if resized:
+                image.thumbnail((_MAX_EDGE, _MAX_EDGE), Image.Resampling.LANCZOS)
+            encoded, encoded_mime = _encode_image(image, mime)
+    except Exception as e:
+        logger.debug("[AIAgent] 图片预处理失败，按原样发送: %s", e)
+        return raw, mime
+
+    # 只是为了压体积才重编码、结果反而更大时，保留原图。
+    if not resized and len(encoded) >= len(raw):
+        return raw, mime
+    return encoded, encoded_mime
+
+
+def _encode_image(image: Any, mime: str) -> tuple[bytes, str]:
+    """按原格式重新编码；PNG 压不下来时改用 WebP。"""
+    from PIL import Image
+
+    if mime == "image/png":
+        buffer = io.BytesIO()
+        if image.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+            image = image.convert("RGBA")
+        image.save(buffer, "PNG", compress_level=6)
+        encoded = buffer.getvalue()
+        if len(encoded) <= _PASSTHROUGH_BYTES:
+            return encoded, "image/png"
+        buffer = io.BytesIO()
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGBA")
+        image.save(buffer, "WEBP", quality=90, method=4)
+        return buffer.getvalue(), "image/webp"
+
+    if mime == "image/webp":
+        buffer = io.BytesIO()
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGBA")
+        image.save(buffer, "WEBP", quality=90, method=4)
+        return buffer.getvalue(), "image/webp"
+
+    # JPEG 兜底：透明图先拍平到白底，否则直接 save 会报错。
+    if image.mode not in ("RGB", "L"):
+        flattened = Image.new("RGB", image.size, (255, 255, 255))
+        rgba = image.convert("RGBA")
+        flattened.paste(rgba, mask=rgba.getchannel("A"))
+        image = flattened
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=88, optimize=True)
+    return buffer.getvalue(), "image/jpeg"
+
 
 
 def _sniff_mime(raw: bytes) -> str:
