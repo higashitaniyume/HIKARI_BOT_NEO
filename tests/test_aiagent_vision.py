@@ -8,9 +8,15 @@
 from __future__ import annotations
 
 import base64
+import io
 import unittest
 from typing import Any
 from unittest.mock import AsyncMock, patch
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - Pillow 是项目依赖，缺失时跳过相关用例
+    Image = None
 
 import plugins.aiagent as aiagent
 from plugins.aiagent import client as aiagent_client
@@ -27,6 +33,12 @@ _PLACEHOLDER_IMAGE = {
     "type": "image_url",
     "image_url": {"url": "data:image/png;base64,AAA", "detail": "low"},
 }
+
+
+def _png_bytes(size: tuple[int, int], color: tuple[int, int, int] = (200, 30, 30)) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", size, color).save(buffer, "PNG")
+    return buffer.getvalue()
 
 
 class FakeSegment:
@@ -185,8 +197,9 @@ class VisionUnsupportedResponsesAsyncClient:
 def vision_config(**overrides: Any) -> dict[str, Any]:
     section: dict[str, Any] = {
         "enabled": True,
+        "model": "",
         "max_images": 2,
-        "detail": "low",
+        "detail": "auto",
         "include_quoted": True,
         "max_bytes": 65536,
         "download_timeout_seconds": 20,
@@ -235,11 +248,12 @@ def responses_cfg() -> dict[str, object]:
 class VisionConfigTests(unittest.TestCase):
     def test_defaults_when_section_missing(self) -> None:
         settings = vision.vision_cfg({})
-        self.assertFalse(settings["enabled"])
+        self.assertTrue(settings["enabled"])
+        self.assertEqual(settings["model"], "")
         self.assertEqual(settings["max_images"], 2)
-        self.assertEqual(settings["detail"], "low")
+        self.assertEqual(settings["detail"], "auto")
         self.assertTrue(settings["include_quoted"])
-        self.assertEqual(settings["max_bytes"], 5_242_880)
+        self.assertEqual(settings["max_bytes"], 10_485_760)
         self.assertEqual(settings["download_timeout_seconds"], 20)
 
     def test_out_of_range_values_are_clamped(self) -> None:
@@ -254,9 +268,67 @@ class VisionConfigTests(unittest.TestCase):
         for detail in vision.VISION_DETAILS:
             self.assertEqual(vision.vision_cfg(vision_config(detail=detail))["detail"], detail)
         self.assertEqual(vision.vision_cfg(vision_config(detail=" HIGH "))["detail"], "high")
-        # 非法值回落到 low（最省钱的档位）
-        self.assertEqual(vision.vision_cfg(vision_config(detail="ultra"))["detail"], "low")
-        self.assertEqual(vision.vision_cfg(vision_config(detail=""))["detail"], "low")
+        # 非法值回落到默认档位 auto（保留原图，截图文字才看得清）
+        self.assertEqual(vision.vision_cfg(vision_config(detail="ultra"))["detail"], "auto")
+        self.assertEqual(vision.vision_cfg(vision_config(detail=""))["detail"], "auto")
+
+
+class RequestModelTests(unittest.TestCase):
+    @staticmethod
+    def _cfg(model: str, base_url: str, vision_model: str = "") -> dict[str, Any]:
+        return {
+            "model": {"model": model, "base_url": base_url},
+            "vision": {"model": vision_model},
+        }
+
+    def test_text_request_always_uses_main_model(self) -> None:
+        cfg = self._cfg("deepseek-v4-pro", "https://api.deepseek.com")
+        self.assertEqual(vision.request_model(cfg, False), "deepseek-v4-pro")
+
+    def test_official_endpoint_switches_to_flash_for_images(self) -> None:
+        cfg = self._cfg("deepseek-v4-pro", "https://api.deepseek.com")
+        self.assertEqual(vision.request_model(cfg, True), "deepseek-flash")
+        # /v1 写法同样识别成官方端点
+        cfg = self._cfg("deepseek-v4-pro", "https://api.deepseek.com/v1")
+        self.assertEqual(vision.request_model(cfg, True), "deepseek-flash")
+
+    def test_flash_stays_flash_and_custom_endpoint_keeps_main_model(self) -> None:
+        self.assertEqual(
+            vision.request_model(
+                self._cfg("deepseek-flash", "https://api.deepseek.com"), True
+            ),
+            "deepseek-flash",
+        )
+        self.assertEqual(
+            vision.request_model(self._cfg("qwen-vl-max", "https://dashscope.example/v1"), True),
+            "qwen-vl-max",
+        )
+
+    def test_explicit_vision_model_always_wins(self) -> None:
+        cfg = self._cfg("deepseek-v4-pro", "https://api.deepseek.com", vision_model="qwen-vl-max")
+        self.assertEqual(vision.request_model(cfg, True), "qwen-vl-max")
+        self.assertEqual(vision.request_model(cfg, False), "deepseek-v4-pro")
+
+
+class PrepareImageTests(unittest.TestCase):
+    def test_undecodable_bytes_pass_through(self) -> None:
+        self.assertEqual(vision._prepare_image(b"not really a jpeg", "image/jpeg"), (b"not really a jpeg", "image/jpeg"))
+
+    def test_gif_is_not_reencoded(self) -> None:
+        self.assertEqual(vision._prepare_image(GIF, "image/gif"), (GIF, "image/gif"))
+
+    @unittest.skipIf(Image is None, "Pillow 未安装")
+    def test_small_image_passes_through_unchanged(self) -> None:
+        raw = _png_bytes((64, 64))
+        self.assertEqual(vision._prepare_image(raw, "image/png"), (raw, "image/png"))
+
+    @unittest.skipIf(Image is None, "Pillow 未安装")
+    def test_oversized_image_is_downscaled(self) -> None:
+        raw = _png_bytes((3000, 1200))
+        encoded, mime = vision._prepare_image(raw, "image/png")
+        self.assertEqual(mime, "image/png")
+        self.assertLessEqual(max(Image.open(io.BytesIO(encoded)).size), vision._MAX_EDGE)
+        self.assertLess(len(encoded), len(raw))
 
 
 class CollectImageUrlsTests(unittest.TestCase):
@@ -615,6 +687,73 @@ class ResponsesBlockConversionTests(unittest.TestCase):
                 ],
             },
         )
+
+
+class RecordingChatAsyncClient:
+    """记录请求体并直接返回成功回复。"""
+
+    post_payloads: list[dict[str, object]] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def post(self, url: str, *, headers: dict[str, str], json: dict[str, object]):
+        RecordingChatAsyncClient.post_payloads.append(json)
+        return FakeResponse(200, {"choices": [{"message": {"role": "assistant", "content": "好的"}}]})
+
+
+class VisionModelPayloadTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _image_items() -> list[dict[str, Any]]:
+        return [
+            {
+                "role": "user",
+                "content": [{"type": "input_image", "image_url": "data:image/png;base64,AAA"}],
+            }
+        ]
+
+    def test_responses_payload_uses_vision_model_only_with_images(self) -> None:
+        cfg = responses_cfg()
+        cfg["model"] = {
+            **cfg["model"],
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-pro",
+        }
+        image_payload = responses_client._build_payload(cfg, "sys", self._image_items(), [])
+        self.assertEqual(image_payload["model"], "deepseek-flash")
+
+        text_payload = responses_client._build_payload(
+            cfg, "sys", [{"role": "user", "content": "你好"}], []
+        )
+        self.assertEqual(text_payload["model"], "deepseek-v4-pro")
+
+    async def test_chat_payload_uses_vision_model_only_with_images(self) -> None:
+        RecordingChatAsyncClient.post_payloads = []
+        cfg = chat_cfg()
+        cfg["model"] = {
+            **cfg["model"],
+            "base_url": "https://api.deepseek.com",
+            "model": "deepseek-v4-pro",
+        }
+        messages = [{"role": "user", "content": [vision.text_block("看图"), _PLACEHOLDER_IMAGE]}]
+        with patch.object(aiagent_client.httpx, "AsyncClient", RecordingChatAsyncClient):
+            message = await aiagent_client.post_chat_completion(cfg, messages, [])
+
+        self.assertEqual(message["content"], "好的")
+        self.assertEqual(RecordingChatAsyncClient.post_payloads[0]["model"], "deepseek-flash")
+
+        RecordingChatAsyncClient.post_payloads = []
+        with patch.object(aiagent_client.httpx, "AsyncClient", RecordingChatAsyncClient):
+            await aiagent_client.post_chat_completion(
+                cfg, [{"role": "user", "content": "你好"}], []
+            )
+        self.assertEqual(RecordingChatAsyncClient.post_payloads[0]["model"], "deepseek-v4-pro")
 
 
 class BuildMessagesTests(unittest.TestCase):

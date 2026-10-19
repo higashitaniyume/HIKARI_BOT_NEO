@@ -3,7 +3,7 @@
         <div class="panel-heading">
           <div>
             <h2>AI Agent</h2>
-            <p>支持 DeepSeek Responses API（服务端内置 web_search）与 OpenAI Chat Completions 兼容接口；未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
+            <p>支持 DeepSeek Responses API 与 OpenAI Chat Completions 兼容接口；网页搜索走 DeepSeek 官方 Search API（或自建 SearXNG）。未命中其他插件时，私聊直接回复，群聊需 @机器人。</p>
           </div>
         </div>
 
@@ -47,7 +47,7 @@
 
           <label>
             <span>模型名称</span>
-            <input id="aiagentModel" placeholder="deepseek-v4-flash" required>
+            <input id="aiagentModel" placeholder="deepseek-flash" required>
           </label>
 
           <label>
@@ -148,7 +148,7 @@
             <div class="aiagent-tools-head">
               <div>
                 <h3 id="aiagentVisionTitle">思考与图片输入</h3>
-                <p>图片输入需要模型本身支持视觉（例如 deepseek-v4-flash-vision-exp）；模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
+                <p>DeepSeek 目前只有 deepseek-flash 支持看图（deepseek-v4-pro 不支持）；带图请求会自动切到 Flash，也可以在这里单独指定看图模型。模型拒绝图片时会自动去掉图片重发一次，不会让机器人失声。</p>
               </div>
               <div class="aiagent-tools-controls">
                 <label class="checkbox-field">
@@ -168,6 +168,10 @@
                   <input id="aiagentVisionEnabled" type="checkbox">
                   <span>启用图片输入</span>
                 </label>
+                <label>
+                  <span>看图模型</span>
+                  <input id="aiagentVisionModel" placeholder="留空自动用 deepseek-flash">
+                </label>
                 <label class="checkbox-field">
                   <input id="aiagentVisionIncludeQuoted" type="checkbox">
                   <span>连带读取被引用消息里的图片</span>
@@ -179,10 +183,10 @@
                 <label>
                   <span>图片精度</span>
                   <select id="aiagentVisionDetail">
+                    <option value="auto">auto（默认，保留原图）</option>
                     <option value="low">low（512×512，最省 token）</option>
-                    <option value="high">high</option>
-                    <option value="original">original</option>
-                    <option value="auto">auto</option>
+                    <option value="high">high（保留原图）</option>
+                    <option value="original">original（保留原图）</option>
                   </select>
                 </label>
                 <label>
@@ -229,9 +233,19 @@
                 <label>
                   <span>网页搜索</span>
                   <select id="aiagentSearchMode">
-                    <option value="builtin">DeepSeek 内置搜索（服务端执行）</option>
+                    <option value="builtin">DeepSeek 官方搜索（Search API）</option>
                     <option value="searxng">自建 SearXNG</option>
                   </select>
+                  <small>官方搜索按成功请求计费（5 元/1000 次）；非 DeepSeek 端点自动回退 SearXNG</small>
+                </label>
+                <label>
+                  <span>搜索结果条数</span>
+                  <input id="aiagentSearchMaxResults" type="number" min="1" max="10" step="1">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentSearchNeedContent" type="checkbox">
+                  <span>搜索时带回网页正文</span>
+                  <small>比摘要更完整，但更耗上下文；单次请求价格不变</small>
                 </label>
                 <label>
                   <span>选择模式</span>

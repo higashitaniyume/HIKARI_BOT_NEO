@@ -831,7 +831,7 @@ multipart/form-data
       "base_url": "https://api.deepseek.com/v1",
       "api_key": "",
       "api_key_set": true,
-      "model": "deepseek-chat",
+      "model": "deepseek-flash",
       "temperature": 0.7,
       "top_p": 1.0,
       "max_tokens": 1024,
@@ -872,7 +872,7 @@ multipart/form-data
     {
       "id": "default",
       "name": "默认配置",
-      "model": "deepseek-v4-flash",
+      "model": "deepseek-flash",
       "base_url": "https://api.deepseek.com",
       "protocol": "responses",
       "persona_path": "BotData/agent_personas/default",

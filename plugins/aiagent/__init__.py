@@ -42,7 +42,7 @@ from .memory import (
 )
 from .tools import available_tools, execute_tool_call
 from .utils import normalize_text, safe_int, strip_markdown
-from .vision import build_image_blocks, collect_image_urls, text_block
+from .vision import build_image_blocks, collect_image_urls, request_model, text_block
 
 logger = logging.getLogger("HikariBot.AIAgent")
 
@@ -252,7 +252,12 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
     try:
         image_blocks = await build_image_blocks(image_urls, cfg)
         if image_blocks:
-            logger.info("[AIAgent] 附带 %d 张图片送模型 -> %s", len(image_blocks), session)
+            logger.info(
+                "[AIAgent] 附带 %d 张图片送模型（%s） -> %s",
+                len(image_blocks),
+                request_model(cfg, True),
+                session,
+            )
             if not text:
                 text = msg("aiagent.vision_image_only")
         elif not text:

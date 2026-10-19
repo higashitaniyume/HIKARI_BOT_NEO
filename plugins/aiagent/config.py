@@ -55,8 +55,7 @@ MAX_PROFILE_NAME_CHARS = 40
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": False,
     # API 协议：
-    #   "responses" — DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式，
-    #                 支持服务端内置 web_search 工具）
+    #   "responses" — DeepSeek Responses API（无状态，兼容 OpenAI Responses 格式）
     #   "chat_completions" — OpenAI Chat Completions 兼容协议（旧接口）
     "api": {
         "protocol": "responses",
@@ -64,7 +63,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": {
         "base_url": "https://api.deepseek.com",
         "api_key": "",
-        "model": "deepseek-v4-flash",
+        # 官方模型名（deepseek-v4-flash 等旧名已下线，仍可用但会被转发到最新 Flash）
+        "model": "deepseek-flash",
         "temperature": 0.7,
         "top_p": 1.0,
         "max_tokens": 8192,
@@ -78,15 +78,21 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": True,
         "reasoning_effort": "high",
     },
-    # 图片输入。需要视觉模型（如 deepseek-v4-flash-vision-exp）；模型不支持时
-    # 会自动去掉图片重试一次，所以开错了不会让机器人失声，只是白下载一遍。
+    # 图片输入（https://api-docs.deepseek.com/zh-cn/guides/vision）：
+    # deepseek-flash 原生支持图像理解（deepseek-v4-pro 不支持），所以默认开启。
+    # detail 默认 auto（当前等价于原图），截图/图表里的文字才能看清；
+    # low 会先把图片缩到 512×512，只适合看大概内容。
     "vision": {
-        "enabled": False,
+        "enabled": True,
+        # 带图请求使用的模型；留空表示沿用主模型。官方 api.deepseek.com 端点下，
+        # 主模型不是 deepseek-flash 时带图请求会自动切到 deepseek-flash
+        # （目前只有 Flash 支持图像理解）。换其他厂商端点时可在后台单独指定。
+        "model": "",
         "max_images": 2,
-        # low 会把图片缩到 512×512，每张最多按 384 token 计费，最省钱。
-        "detail": "low",
+        "detail": "auto",
         "include_quoted": True,
-        "max_bytes": 5242880,
+        # 下载上限（API 单图上限 32 MiB）；尺寸或体积过大的图会先压缩再发送。
+        "max_bytes": 10485760,
         "download_timeout_seconds": 20,
     },
     "persona": {
@@ -160,10 +166,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
         "search": {
             "enabled": True,
-            # "builtin": 用 DeepSeek Responses API 服务端内置 web_search（无需自建搜索）；
-            # "searxng": 用自建 SearXNG 的函数工具（兼容任意 OpenAI 兼容端点）。
-            # Responses 协议下默认内置搜索；Chat Completions 协议下自动退回 SearXNG。
+            # "builtin": DeepSeek 官方 Search API（POST /v1/tools/search，按成功请求
+            #            计费，5 元/1000 次）；Responses / Chat Completions 都可用，
+            #            flash 也能搜。非 api.deepseek.com 端点没有该接口，自动回退 SearXNG。
+            # "searxng": 只用自建 SearXNG（兼容任意 OpenAI 兼容端点）。
             "mode": "builtin",
+            # 是否让搜索结果带回网页正文（need_content）；更完整但更耗上下文。
+            "need_content": False,
             "base_url": "http://searxng-core:8080",
             "timeout_seconds": 30,
             "max_results": 5,
