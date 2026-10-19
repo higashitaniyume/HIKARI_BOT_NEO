@@ -1,8 +1,8 @@
 """DeepSeek Responses API 协议测试。
 
 覆盖: 端点拼接、payload 结构（instructions/input/max_output_tokens/reasoning）、
-服务端内置 web_search 工具、web_search_call 原样回传、函数工具循环、
-400 降级、wiki 预取的 input item 注入、搜索模式选择。
+web_search 函数工具（DeepSeek 官方 Search API）、web_search_call 兼容回传、
+函数工具循环、400 降级、wiki 预取的 input item 注入、搜索模式选择。
 """
 
 from __future__ import annotations
@@ -285,10 +285,18 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         # 非思考模式仍发送温度参数
         self.assertIn("temperature", payload)
 
-    async def test_builtin_search_tool_is_declared_in_responses_mode(self) -> None:
+    async def test_builtin_search_tool_is_declared_as_function(self) -> None:
         tools = tool_registry.available_tools(base_cfg())
-        self.assertIn({"type": "web_search"}, tools)
-        self.assertNotIn("web_search", [t.get("function", {}).get("name") for t in tools if isinstance(t, dict)])
+        names = {t["function"]["name"] for t in tools if isinstance(t.get("function"), dict)}
+        self.assertIn(search_tool.TOOL_NAME, names)
+        self.assertNotIn({"type": "web_search"}, tools)
+        definition = next(
+            t for t in tools if isinstance(t.get("function"), dict) and t["function"]["name"] == search_tool.TOOL_NAME
+        )
+        properties = definition["function"]["parameters"]["properties"]
+        self.assertIn("query", properties)
+        self.assertIn("max_results", properties)
+        self.assertIn("need_content", properties)
 
     async def test_searxng_mode_keeps_function_search_tool(self) -> None:
         tools = tool_registry.available_tools(base_cfg(search_mode="searxng"))
@@ -296,7 +304,7 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(search_tool.TOOL_NAME, names)
         self.assertNotIn({"type": "web_search"}, tools)
 
-    async def test_chat_protocol_with_builtin_mode_falls_back_to_searxng(self) -> None:
+    async def test_builtin_mode_also_uses_function_tool_in_chat_protocol(self) -> None:
         cfg = base_cfg()
         assert isinstance(cfg, dict)
         cfg["api"] = {"protocol": "chat_completions"}
@@ -320,7 +328,6 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         first = ToolLoopResponsesAsyncClient.post_payloads[0]
         tools = first["tools"]
         assert isinstance(tools, list)
-        self.assertIn({"type": "web_search"}, tools)
         # function 工具必须是扁平格式（顶层 name），而非 Chat Completions 的
         # function 嵌套包装，否则 Responses API 返回 missing field `name`
         function_tools = [tool for tool in tools if tool.get("type") == "function"]
@@ -330,7 +337,11 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("function", function_tool)
             self.assertIn("description", function_tool)
             self.assertIn("parameters", function_tool)
-        self.assertIn("bot_help", [tool["name"] for tool in function_tools])
+        function_names = [tool["name"] for tool in function_tools]
+        self.assertIn("bot_help", function_names)
+        # 搜索现在是函数工具（DeepSeek 官方 Search API），不再依赖服务端内置工具
+        self.assertIn(search_tool.TOOL_NAME, function_names)
+        self.assertNotIn({"type": "web_search"}, tools)
 
         second = ToolLoopResponsesAsyncClient.post_payloads[1]
         input_items = second["input"]
@@ -407,8 +418,22 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(call_item["arguments"])["query"], "苦力怕")
         output_item = next(item for item in input_items if isinstance(item, dict) and item.get("type") == "function_call_output")
         self.assertEqual(output_item["call_id"], call_item["call_id"])
-        # 内置搜索模式下不注入额外的 web_search 函数调用
-        self.assertNotIn("web_search", [item.get("name") for item in input_items if isinstance(item, dict)])
+        # wiki 预取会连带一次 web_search（现在也是函数工具，走 DeepSeek 官方搜索）
+        prefetched_names = [
+            item.get("name")
+            for item in input_items
+            if isinstance(item, dict) and item.get("type") == "function_call"
+        ]
+        self.assertEqual(prefetched_names, ["mc_wiki_search", "web_search"])
+        search_output = next(
+            item
+            for item in input_items
+            if isinstance(item, dict)
+            and item.get("type") == "function_call_output"
+            and item.get("call_id") == "auto_web_search_after_wiki"
+        )
+        # 测试配置没有 API Key：不应发真实请求，而是返回可读错误
+        self.assertIn("API Key", str(search_output["output"]))
 
 
 if __name__ == "__main__":

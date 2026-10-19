@@ -192,6 +192,7 @@ def base_cfg(
         "tools": {
             "search": {
                 "enabled": search_enabled,
+                "mode": "searxng",
                 "base_url": "http://searxng-core:8080",
                 "timeout_seconds": 5,
                 "max_results": 5,

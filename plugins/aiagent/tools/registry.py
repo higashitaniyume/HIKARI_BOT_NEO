@@ -8,7 +8,6 @@ from typing import Any
 from core.ai_tool_registry import AIToolContext, execute_ai_tool, iter_ai_tools
 from core.config_loader import load_main_config
 
-from ..config import api_protocol
 from ..utils import safe_bool, safe_float
 
 from . import files, group, help, search
@@ -39,20 +38,12 @@ async def _run_tool(coro: Any, name: str, timeout: float) -> str:
         )
 
 
-def _use_builtin_search(cfg: dict[str, Any]) -> bool:
-    """Responses 协议 + mode=builtin 时使用服务端内置 web_search 工具。"""
-    return api_protocol(cfg) == "responses" and search.mode(cfg) == "builtin"
-
-
 def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     if search.enabled(cfg):
-        if _use_builtin_search(cfg):
-            # DeepSeek Responses API 服务端内置搜索：模型发出 web_search_call，
-            # 服务端执行搜索并自动注入结果，无需本地函数工具。
-            tools.append(search.builtin_definition())
-        else:
-            tools.append(search.definition())
+        # DeepSeek 官方 Search API 与 SearXNG 都走同一个 web_search 函数工具，
+        # 参数与描述按当前后端区分（官方搜索支持 site:/lang:/after: 等语法）。
+        tools.append(search.definition(cfg))
     if files.enabled(cfg):
         tools.extend(files.definitions(cfg))
     if group.is_group_event(context):
@@ -84,18 +75,11 @@ async def execute_tool_call(
     timeout = _tool_timeout(cfg)
 
     if name == search.TOOL_NAME and search.enabled(cfg):
-        if _use_builtin_search(cfg):
-            # 内置搜索由服务端执行，不应出现函数调用；防御模型误调用
-            content = json.dumps(
-                {"error": "web_search 由服务端内置执行，无需函数调用"},
-                ensure_ascii=False,
-            )
-        else:
-            try:
-                content = await _run_tool(search.execute(cfg, arguments), name, timeout)
-            except Exception as e:
-                logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
-                content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
+        try:
+            content = await _run_tool(search.execute(cfg, arguments, context), name, timeout)
+        except Exception as e:
+            logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
+            content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
     elif files.can_handle(name) and files.enabled(cfg):
         try:
             content = files.execute(name, cfg, arguments)
