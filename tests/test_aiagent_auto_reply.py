@@ -157,6 +157,17 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
             {"enabled": True, "groups": ["123456"], "cooldown_seconds": 9},
         )
 
+    def test_multiline_whitelist_is_deduped_and_filtered(self) -> None:
+        result = self._save(
+            {
+                "auto_reply": {
+                    "enabled": True,
+                    "groups": "123456\n789012，345678, 123456\nnot-a-group",
+                }
+            }
+        )
+        self.assertEqual(result["auto_reply"]["groups"], ["123456", "789012", "345678"])
+
     def test_keeps_existing_whitelist_when_form_omits_it(self) -> None:
         current = copy.deepcopy(aiagent_config.DEFAULT_CONFIG)
         current["auto_reply"] = {"enabled": True, "groups": ["123456"], "cooldown_seconds": 5}

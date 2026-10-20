@@ -934,7 +934,7 @@ multipart/form-data
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
 | `tools.max_tool_rounds` | number | 0-5 |
 | `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |
-| `auto_reply.groups` | string[] | 自动回复群白名单；留空 = 不自动回复任何群，不设数量上限 |
+| `auto_reply.groups` | string[] | 自动回复群白名单；留空 = 不自动回复任何群，不设数量上限（后台按行/逗号/空格输入，保存时去重） |
 | `auto_reply.cooldown_seconds` | number | 0-3600，同一个群两次自动回复的最小间隔 |
 
 `tools.plugin_tools` 字段：

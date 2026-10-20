@@ -335,10 +335,11 @@
                   <input id="aiagentAutoReplyEnabled" type="checkbox">
                   <span>启用群聊自动回复</span>
                 </label>
-                <label>
+                <label class="wide-field">
                   <span>白名单群号（必填）</span>
-                  <input id="aiagentAutoReplyGroups" type="text" placeholder="例如：123456, 789012">
-                  <small>留空 = 不自动回复任何群；不在名单内的群仍只响应 @ / 引用 / 昵称</small>
+                  <textarea id="aiagentAutoReplyGroups" rows="6" spellcheck="false" placeholder="一行一个群号，例如：&#10;123456789&#10;987654321"></textarea>
+                  <small id="aiagentAutoReplyGroupCount">当前 0 个群号</small>
+                  <small>一行一个，也支持逗号/空格分隔；留空 = 不自动回复任何群；不设数量上限</small>
                 </label>
                 <label>
                   <span>同群冷却（秒）</span>

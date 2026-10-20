@@ -6,6 +6,7 @@ $("#voiceUploadForm").addEventListener("submit", uploadVoices);
 $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
 $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
+$("#aiagentAutoReplyGroups").addEventListener("input", updateAiAgentAutoReplyGroupCount);
 $("#pushConfigForm").addEventListener("submit", savePushConfig);
 $("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);

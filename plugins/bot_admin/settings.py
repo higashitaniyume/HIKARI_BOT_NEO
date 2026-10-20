@@ -51,9 +51,9 @@ def _tts_config_state() -> dict[str, Any]:
 
 
 def _parse_group_ids(value: Any) -> list[str]:
-    """规整「群号白名单」：接受列表或逗号/换行分隔的字符串，只保留数字群号。"""
+    """规整「群号白名单」：接受列表或逗号/空格/换行分隔的字符串，只保留数字群号。"""
     if isinstance(value, str):
-        raw_items: list[str] = value.replace("\n", ",").split(",")
+        raw_items = re.split(r"[\s,，]+", value)
     elif isinstance(value, list):
         raw_items = [str(item) for item in value]
     else:
