@@ -933,6 +933,9 @@ multipart/form-data
 | `tools.files` | object | 文件工具配置 |
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
 | `tools.max_tool_rounds` | number | 0-5 |
+| `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |
+| `auto_reply.groups` | string[] | 自动回复群白名单；留空 = 不自动回复任何群，不设数量上限 |
+| `auto_reply.cooldown_seconds` | number | 0-3600，同一个群两次自动回复的最小间隔 |
 
 `tools.plugin_tools` 字段：
 
@@ -952,7 +955,7 @@ multipart/form-data
 - `disabled_names` 用于禁用默认启用的 tool。
 - `allow_side_effects=false` 时，`readonly=false` 的 tool 即使被选中也不会给模型。
 
-除 `enabled` 外的字段都写入 `profile` 指定的那一套配置，其他配置文件不受影响。
+除 `enabled`、`auto_reply.*`（以及 `quota.*`、`permissions`、`chatlog.*`）这些全局段外，其余字段都写入 `profile` 指定的那一套配置，其他配置文件不受影响。
 
 成功响应同 `GET /api/aiagent-config`，并增加：
 

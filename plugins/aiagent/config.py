@@ -45,7 +45,7 @@ CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 # 属于单个配置文件的段（后台「AI」页编辑）。
 PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "vision", "persona", "chat", "memory", "tools")
 # 所有配置文件共用的全局段（后台「AI 配额」页 / 「AI Agent」页编辑）。
-GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog")
+GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog", "auto_reply")
 
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_PROFILE_NAME = "默认配置"
@@ -160,6 +160,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # 是否连机器人自己的发言也记
         "record_bot": False,
     },
+    # 群聊自动回复：只有白名单内的群会“没 @ 也回复”，默认关闭。
+    # 群列表不设上限；cooldown_seconds 是同一个群两次自动回复之间的最小间隔。
+    "auto_reply": {
+        "enabled": False,
+        "groups": [],
+        "cooldown_seconds": 5,
+    },
     "tools": {
         "help": {
             "enabled": True,
@@ -253,6 +260,8 @@ DEFAULT_DOCUMENT: dict[str, Any] = {
     "permissions": copy.deepcopy(DEFAULT_CONFIG["permissions"]),
     # 全局段：本地聊天记录是整机一份（一个保留策略），不随配置文件切换
     "chatlog": copy.deepcopy(DEFAULT_CONFIG["chatlog"]),
+    # 全局段：自动回复白名单也是整机一份，不随配置文件切换
+    "auto_reply": copy.deepcopy(DEFAULT_CONFIG["auto_reply"]),
 }
 
 BINDING_KINDS: tuple[str, ...] = ("group", "private")
@@ -403,6 +412,12 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
     else:
         chatlog = copy.deepcopy(DEFAULT_DOCUMENT["chatlog"])
 
+    # auto_reply 是全局段：白名单与冷却整机一份，缺失时补默认值。
+    if isinstance(src.get("auto_reply"), dict):
+        auto_reply = _deep_merge(DEFAULT_DOCUMENT["auto_reply"], src["auto_reply"])
+    else:
+        auto_reply = copy.deepcopy(DEFAULT_DOCUMENT["auto_reply"])
+
     return {
         "enabled": bool(src.get("enabled", DEFAULT_DOCUMENT["enabled"])),
         "active_profile": active,
@@ -411,6 +426,7 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
         "quota": quota,
         "permissions": copy.deepcopy(permissions),
         "chatlog": chatlog,
+        "auto_reply": auto_reply,
     }
 
 

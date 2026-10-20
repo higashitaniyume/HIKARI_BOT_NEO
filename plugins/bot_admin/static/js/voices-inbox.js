@@ -715,6 +715,10 @@ function renderAiAgentConfig() {
   $("#aiagentChatlogMaxMb").value = chatlog.max_total_mb ?? 200;
   $("#aiagentChatlogGroups").value = (Array.isArray(chatlog.groups) ? chatlog.groups : []).join(", ");
   $("#aiagentChatlogRecordBot").checked = chatlog.record_bot === true;
+  const autoReply = cfg.auto_reply || {};
+  $("#aiagentAutoReplyEnabled").checked = autoReply.enabled === true;
+  $("#aiagentAutoReplyGroups").value = (Array.isArray(autoReply.groups) ? autoReply.groups : []).join(", ");
+  $("#aiagentAutoReplyCooldown").value = autoReply.cooldown_seconds ?? 5;
   const wikiPrefetch = tools.wiki_prefetch || {};
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
   $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;

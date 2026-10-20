@@ -323,6 +323,11 @@ function buildAiAgentPayload() {
       max_total_mb: Number($("#aiagentChatlogMaxMb").value || 200),
       record_bot: $("#aiagentChatlogRecordBot").checked,
     },
+    auto_reply: {
+      enabled: $("#aiagentAutoReplyEnabled").checked,
+      groups: parseAiAgentGroupIds($("#aiagentAutoReplyGroups").value),
+      cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
+    },
   };
 }
 

@@ -288,6 +288,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_member_profile = current_tools.get("member_profile") if isinstance(current_tools.get("member_profile"), dict) else {}
     current_user_messages = current_tools.get("user_messages") if isinstance(current_tools.get("user_messages"), dict) else {}
     current_chatlog = current.get("chatlog") if isinstance(current.get("chatlog"), dict) else {}
+    current_auto_reply = current.get("auto_reply") if isinstance(current.get("auto_reply"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
@@ -305,6 +306,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_member_profile = input_tools.get("member_profile") if isinstance(input_tools.get("member_profile"), dict) else {}
     input_user_messages = input_tools.get("user_messages") if isinstance(input_tools.get("user_messages"), dict) else {}
     input_chatlog = data.get("chatlog") if isinstance(data.get("chatlog"), dict) else {}
+    input_auto_reply = data.get("auto_reply") if isinstance(data.get("auto_reply"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -392,6 +394,17 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "max_total_mb": _parse_int(input_chatlog.get("max_total_mb", current_chatlog.get("max_total_mb", 200)), 200, minimum=1, maximum=20000),
             "record_bot": _parse_bool(input_chatlog.get("record_bot", current_chatlog.get("record_bot", False))),
         },
+        # 自动回复白名单：只有列在这里的群才会“没 @ 也回复”，不设数量上限。
+        "auto_reply": {
+            "enabled": _parse_bool(input_auto_reply.get("enabled", current_auto_reply.get("enabled", False))),
+            "groups": _parse_group_ids(input_auto_reply.get("groups", current_auto_reply.get("groups", []))),
+            "cooldown_seconds": _parse_int(
+                input_auto_reply.get("cooldown_seconds", current_auto_reply.get("cooldown_seconds", 5)),
+                5,
+                minimum=0,
+                maximum=3600,
+            ),
+        },
         "tools": {
             "search": {
                 "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
@@ -445,6 +458,8 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
+    if next_config["auto_reply"]["enabled"] and not next_config["auto_reply"]["groups"]:
+        raise ValueError("启用群聊自动回复时，至少要填写一个白名单群号。")
     # 保留配额配置（本页面不含 quota 字段，由「AI 配额」页面单独管理）
     next_config["quota"] = current.get("quota", {})
     # 只在指定了配置文件时传第二个参数，保持旧调用签名可用。

@@ -324,6 +324,31 @@
             <div id="aiagentToolList" class="aiagent-tool-list" aria-live="polite"></div>
           </section>
 
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentAutoReplyTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentAutoReplyTitle">群聊自动回复</h3>
+                <p>全局设置，所有配置文件共用。只有白名单内的群会在没有 @ 机器人时也自动回复，白名单不设数量上限。同一群两次回复之间至少间隔冷却秒数，连发消息时只回第一条。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentAutoReplyEnabled" type="checkbox">
+                  <span>启用群聊自动回复</span>
+                </label>
+                <label>
+                  <span>白名单群号（必填）</span>
+                  <input id="aiagentAutoReplyGroups" type="text" placeholder="例如：123456, 789012">
+                  <small>留空 = 不自动回复任何群；不在名单内的群仍只响应 @ / 引用 / 昵称</small>
+                </label>
+                <label>
+                  <span>同群冷却（秒）</span>
+                  <input id="aiagentAutoReplyCooldown" type="number" min="0" max="3600" step="1">
+                  <small>冷却内到达的消息不会回复，也不会排队补发</small>
+                </label>
+              </div>
+            </div>
+          </section>
+
           <button type="submit" class="primary">保存 AI Agent 设置</button>
         </form>
       </section>

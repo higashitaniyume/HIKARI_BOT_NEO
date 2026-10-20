@@ -20,6 +20,7 @@ from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command, is_command_handled, mark_event_handled
 from core.stats_tracker import increment as stats_increment
 
+from . import auto_reply
 from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
@@ -197,7 +198,7 @@ async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_
         await bot.send(event, Message(truncated))
 
 
-async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) -> None:
+async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, *, auto: bool = False) -> None:
     text = normalize_text(text)
     cfg = get_config_for_event(event)
 
@@ -217,6 +218,9 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
 
     session = session_key(event)
     if text.casefold() in {"reset", "重置", "清空上下文"}:
+        # 自动回复时不要把群友随口说的「重置」当成控制指令；要重置请 @ 机器人。
+        if auto:
+            return
         clear_session(session)
         clear_memory(event, cfg)
         await bot.send(event, Message(msg("aiagent.reset_done")))
@@ -226,18 +230,27 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
     max_user_chars = safe_int(chat_cfg.get("max_user_chars"), 2000, minimum=1, maximum=20000)
     if len(text) > max_user_chars:
+        if auto:
+            return
         await bot.send(event, Message(msg("aiagent.too_long", max_chars=max_user_chars)))
         mark_event_handled(event)
         return
 
-    remain = _check_cooldown(event.get_user_id(), chat_cfg.get("cooldown_seconds", 3))
-    if remain > 0:
-        await bot.send(event, Message(msg("aiagent.cooldown", seconds=remain)))
-        mark_event_handled(event)
-        return
+    # 自动回复只受同群冷却约束（在 matcher 里已经检查），不再按用户冷却，
+    # 否则同一个人连发两条时第二条会被悄悄丢掉。
+    if not auto:
+        remain = _check_cooldown(event.get_user_id(), chat_cfg.get("cooldown_seconds", 3))
+        if remain > 0:
+            await bot.send(event, Message(msg("aiagent.cooldown", seconds=remain)))
+            mark_event_handled(event)
+            return
 
-    # 配额：原子「检查 + 预留」，失败（未成功回复）时在 finally 里退回
-    quota_block, quota_reserved = reserve_quota(cfg, event)
+    # 配额：原子「检查 + 预留」，失败（未成功回复）时在 finally 里退回。
+    # 自动回复是机器人主动接话，不消耗用户/群配额；成本由白名单和冷却控制。
+    quota_block: dict[str, Any] | None = None
+    quota_reserved = False
+    if not auto:
+        quota_block, quota_reserved = reserve_quota(cfg, event)
     if quota_block is not None:
         block = dict(quota_block)
         block["who"] = "群聊" if block.get("who") == "group" else "私聊"
@@ -286,11 +299,15 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
             await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
             await bot.send(event, Message(reply))
+        if isinstance(event, GroupMessageEvent):
+            auto_reply.note_bot_spoke(cfg, event.group_id)
         delivered = True
         stats_increment(event, "ai_chat_sessions", 1)
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
+        if auto:
+            return
         if e.status_code in {401, 403}:
             await bot.send(event, Message(msg("aiagent.auth_failed")))
         elif e.status_code == 429:
@@ -302,14 +319,20 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
         mark_event_handled(event)
     except httpx.TimeoutException as e:
         logger.warning("[AIAgent] 请求超时: %s", e)
+        if auto:
+            return
         await bot.send(event, Message(msg("aiagent.timeout")))
         mark_event_handled(event)
     except httpx.HTTPError as e:
         logger.warning("[AIAgent] 网络请求失败: %s", e)
+        if auto:
+            return
         await bot.send(event, Message(msg("aiagent.network_error")))
         mark_event_handled(event)
     except Exception as e:
         logger.exception("[AIAgent] 聊天失败: %s", e)
+        if auto:
+            return
         await bot.send(event, Message(msg("aiagent.failed")))
         mark_event_handled(event)
     finally:
@@ -318,13 +341,21 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str) 
             refund_quota(cfg, event)
 
 
-async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str) -> None:
+async def _handle_chat_event(bot: Bot, event: MessageEvent, text: str, *, auto: bool = False) -> None:
     session = session_key(event)
     async with _session_lock(session):
-        await _handle_chat_event_unlocked(bot, event, text)
+        if auto:
+            await _handle_chat_event_unlocked(bot, event, text, auto=True)
+        else:
+            await _handle_chat_event_unlocked(bot, event, text)
 
 
-def _should_auto_reply(event: MessageEvent) -> bool:
+def _is_directly_addressed(event: MessageEvent) -> bool:
+    """是否被直接叫到：群里的 @ / 引用机器人 / 叫昵称，或私聊。
+
+    OneBot 适配器会把「引用机器人」和「以机器人昵称开头」都折算成 `to_me`，
+    所以这里只看 `is_tome()` 即可。
+    """
     if isinstance(event, GroupMessageEvent):
         return event.is_tome()
     return True
@@ -343,7 +374,10 @@ aiagent_auto_matcher = on_message(priority=99, block=False)
 
 @aiagent_auto_matcher.handle()
 async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
-    if is_command_handled(event) or not _should_auto_reply(event):
+    if is_command_handled(event):
+        return
+    # 不把自己的发言当成群友消息，避免自动回复自问自答。
+    if str(event.get_user_id()) == str(getattr(event, "self_id", "")):
         return
 
     cfg = get_config_for_event(event)
@@ -358,7 +392,36 @@ async def _handle_auto_chat(bot: Bot, event: MessageEvent) -> None:
         )
         return
 
-    await _handle_chat_event(bot, event, event.get_plaintext())
+    direct = _is_directly_addressed(event)
+    auto = False
+    if not direct:
+        if not isinstance(event, GroupMessageEvent):
+            return
+        if not auto_reply.allowed(cfg, event.group_id):
+            return
+        # 纯表情 / 纯语音 / 纯贴纸没有可回复内容，不占用冷却，避免把下一条
+        # 正常文字消息也卡掉。
+        if not event.get_plaintext().strip() and not collect_image_urls(event, cfg):
+            return
+        if not auto_reply.claim(cfg, event.group_id):
+            logger.debug(
+                "[AIAgent] 自动回复冷却中，跳过 -> group=%s user=%s",
+                event.group_id,
+                event.get_user_id(),
+            )
+            return
+        auto = True
+        logger.debug(
+            "[AIAgent] 自动回复触发 -> group=%s user=%s",
+            event.group_id,
+            event.get_user_id(),
+        )
+
+    try:
+        await _handle_chat_event(bot, event, event.get_plaintext(), auto=auto)
+    finally:
+        if auto:
+            auto_reply.release(event.group_id)
 
 
 # 多配置文件的管理命令（AI配置列表 / 切换AI配置 / 解绑AI配置）。
