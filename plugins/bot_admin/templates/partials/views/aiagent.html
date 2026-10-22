@@ -144,6 +144,12 @@
             <input id="aiagentGroupSharedMax" type="number" min="0" max="40" step="1">
           </label>
 
+          <label class="checkbox-field">
+            <input id="aiagentQuoteReply" type="checkbox">
+            <span>回复时引用原消息</span>
+            <small>开启后，AI 的回复会以引用回复的形式挂在触发它的消息下；超长回复改用合并转发时无法携带引用。</small>
+          </label>
+
           <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentVisionTitle">
             <div class="aiagent-tools-head">
               <div>

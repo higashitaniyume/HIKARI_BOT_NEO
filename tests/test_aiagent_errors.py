@@ -58,9 +58,12 @@ def make_private_event(user_id: str = "333", self_id: str = "1") -> PrivateMessa
 class RecordingBot:
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.messages: list[Message] = []
 
     async def send(self, event: Any, message: Message) -> None:
-        self.sent.append(str(message))
+        self.messages.append(message)
+        # 引用段不算文本内容，这里只记录真正发出的文字
+        self.sent.append(message.extract_plain_text())
 
 
 def enabled_cfg(**overrides: Any) -> dict[str, Any]:
@@ -174,6 +177,9 @@ class QuotaReservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         status = quota_mod.get_quota_status(cfg, event)
         self.assertEqual(status["daily"]["used"], 1)
         self.assertEqual(bot.sent, ["你好呀"])
+        # 成功回复默认引用触发它的那条消息
+        self.assertEqual(bot.messages[0][0].type, "reply")
+        self.assertEqual(str(bot.messages[0][0].data["id"]), "1")
 
     async def test_failure_refunds_reserved_quota(self) -> None:
         cfg = self._quota_cfg()

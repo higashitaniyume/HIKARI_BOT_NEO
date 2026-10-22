@@ -672,6 +672,7 @@ function renderAiAgentConfig() {
   const sharedChat = chat.group_shared_context || {};
   $("#aiagentGroupSharedContext").checked = sharedChat.enabled === true;
   $("#aiagentGroupSharedMax").value = sharedChat.max_messages ?? 10;
+  $("#aiagentQuoteReply").checked = chat.quote_reply !== false;
 
   const select = $("#aiagentPersonaSelect");
   select.replaceChildren(option("", "手动填写路径"));

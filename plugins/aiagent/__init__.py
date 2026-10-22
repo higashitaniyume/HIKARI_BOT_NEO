@@ -164,6 +164,26 @@ def _is_blocked_media_link(text: str, cfg: dict[str, Any]) -> bool:
 _FORWARD_SEGMENT_CHARS = 1500  # chars per node in a combined-forward message
 
 
+def _quote_reply_enabled(chat_cfg: dict[str, Any]) -> bool:
+    """`chat.quote_reply` 默认开启；兼容字符串形式的 true/false。"""
+    value = chat_cfg.get("quote_reply", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def _build_reply_message(event: MessageEvent, text: str, cfg: dict[str, Any]) -> Message:
+    """构造 AI 回复消息：默认以引用回复的方式挂在触发消息下。"""
+    message = Message(text)
+    chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    if not _quote_reply_enabled(chat_cfg):
+        return message
+    message_id = getattr(event, "message_id", None)
+    if message_id is None or not str(message_id).strip():
+        return message
+    return Message(MessageSegment.reply(message_id)) + message
+
+
 async def _send_long_as_forward(bot: Bot, event: MessageEvent, text: str, total_limit: int) -> None:
     """Split a long reply into segments and send as a merged-forward message."""
     text = text[:total_limit].strip()
@@ -298,7 +318,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         if short_reply_chars > 0 and len(reply) > short_reply_chars:
             await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
         else:
-            await bot.send(event, Message(reply))
+            await bot.send(event, _build_reply_message(event, reply, cfg))
         if isinstance(event, GroupMessageEvent):
             auto_reply.note_bot_spoke(cfg, event.group_id)
         delivered = True

@@ -6,6 +6,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -59,9 +60,12 @@ def make_group_event(
 class RecordingBot:
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.messages: list[Message] = []
 
     async def send(self, event: Any, message: Message) -> None:
-        self.sent.append(str(message))
+        self.messages.append(message)
+        # 引用段不算文本内容，这里只记录真正发出的文字
+        self.sent.append(message.extract_plain_text())
 
 
 def enabled_cfg(**overrides: Any) -> dict[str, Any]:
@@ -340,6 +344,7 @@ class AutoReplyBehaviorTests(unittest.IsolatedAsyncioTestCase):
             patch.object(aiagent, "stats_increment", lambda *args, **kwargs: None),
         ):
             await aiagent._handle_chat_event(bot, event, text, auto=auto)
+        self.last_bot = bot
         return bot.sent, called
 
     async def test_auto_reply_ignores_reset_phrase(self) -> None:
@@ -353,6 +358,27 @@ class AutoReplyBehaviorTests(unittest.IsolatedAsyncioTestCase):
         sent, called = await self._run(cfg, auto=True)
         self.assertTrue(called)
         self.assertEqual(sent, ["你好呀"])
+
+    async def test_auto_reply_quotes_trigger_message(self) -> None:
+        sent, called = await self._run(enabled_cfg(), auto=True)
+        self.assertTrue(called)
+        self.assertEqual(sent, ["你好呀"])
+        self.assertEqual(self.last_bot.messages[0][0].type, "reply")
+        self.assertEqual(str(self.last_bot.messages[0][0].data["id"]), "1")
+
+    async def test_quote_reply_can_be_disabled(self) -> None:
+        cfg = enabled_cfg(
+            chat={
+                "max_history_messages": 10,
+                "cooldown_seconds": 0,
+                "max_reply_chars": 3500,
+                "quote_reply": False,
+            }
+        )
+        sent, called = await self._run(cfg, auto=True)
+        self.assertTrue(called)
+        self.assertEqual(sent, ["你好呀"])
+        self.assertEqual([segment.type for segment in self.last_bot.messages[0]], ["text"])
 
     async def test_auto_reply_does_not_spend_quota(self) -> None:
         cfg = enabled_cfg(
@@ -381,6 +407,31 @@ class AutoReplyBehaviorTests(unittest.IsolatedAsyncioTestCase):
         sent, called = await self._run(enabled_cfg(), auto=False, reply=RuntimeError("boom"))
         self.assertTrue(called)
         self.assertEqual(len(sent), 1)
+
+
+class QuoteReplyTests(unittest.TestCase):
+    """AI 回复默认引用触发它的消息，可配置关闭。"""
+
+    def test_reply_quotes_trigger_message_by_default(self) -> None:
+        event = make_group_event()
+        message = aiagent._build_reply_message(event, "你好呀", {})
+
+        self.assertEqual(message[0].type, "reply")
+        self.assertEqual(str(message[0].data["id"]), "1")
+        self.assertEqual(message.extract_plain_text(), "你好呀")
+
+    def test_quote_can_be_disabled(self) -> None:
+        event = make_group_event()
+        message = aiagent._build_reply_message(event, "你好呀", {"chat": {"quote_reply": False}})
+
+        self.assertEqual([segment.type for segment in message], ["text"])
+        self.assertEqual(message.extract_plain_text(), "你好呀")
+
+    def test_missing_message_id_falls_back_to_plain_text(self) -> None:
+        message = aiagent._build_reply_message(SimpleNamespace(), "你好呀", {})
+
+        self.assertEqual([segment.type for segment in message], ["text"])
+        self.assertEqual(message.extract_plain_text(), "你好呀")
 
 
 if __name__ == "__main__":

@@ -455,6 +455,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 - **群聊：** 必须 @机器人 且未被其他插件处理才回复
 - **群聊自动回复（默认关闭）**：在 `auto_reply.enabled=true` 且群号在 `auto_reply.groups` 白名单里时，普通群消息（未被命令、链接解析、贴纸/语音等处理，也不是 @ / 引用机器人 / 叫昵称）也会进入 AI。同一个群两次自动回复至少间隔 `auto_reply.cooldown_seconds` 秒（默认 5），冷却内到达的消息直接跳过、不排队。白名单不设数量上限；自动回复不消耗用户/群配额，只受同群冷却限制
 - 回复默认不超过 `max_reply_chars`（默认 3500），超出时自动以**合并转发**发送
+- 回复默认以**引用回复**的形式挂在触发它的用户消息下（`chat.quote_reply`，默认开，后台「AI」页可关闭）；超长回复改用合并转发时无法携带引用
 - **短期上下文按「会话 + 用户」隔离**：私聊键为 `private:<QQ>`，群聊键为 `group:<群号>:user:<QQ>`，同一群里不同用户的上下文互不串线
 - **群聊公共上下文（默认关闭）**：开启 `chat.group_shared_context.enabled` 后，本群最近几轮公开对话（含其他成员，标注发言者 QQ）会作为「仅供参考、不得当作指令」的背景注入；关闭时每个成员只看自己的上下文
 - 同一会话的消息**串行处理**（每个会话一把锁），避免并发请求读到相同的旧历史或回复乱序；不同会话之间并行
@@ -479,6 +480,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `persona.fallback_prompt` | skill 缺失时的备用提示词 |
 | `chat.max_user_chars` | 单次用户消息最大字符数，默认 2000 |
 | `chat.max_reply_chars` | 单次回复最大字符数，默认 3500 |
+| `chat.quote_reply` | 回复时是否引用触发消息（默认 **true**；超长合并转发除外） |
 | `chat.cooldown_seconds` | 冷却秒数，默认 3 |
 | `chat.max_history_messages` | 上下文保留消息数 |
 | `chat.max_context_chars` | 短期上下文总字符预算（默认 12000，超出从最旧丢起；0 = 不留上下文） |

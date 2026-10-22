@@ -49,6 +49,7 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **AI 引用回复**：AI 的回复现在会以引用回复的形式挂在触发它的消息下（群聊/私聊都生效），多话题并发时更容易看清在回哪条；`chat.quote_reply` 默认开，后台「AI Agent」页可关闭；超长回复改用合并转发时无法携带引用
 - **AI 群聊自动回复**：新增全局 `auto_reply` 白名单（只有名单里的群会“没 @ 也回”，名单不设数量上限）；普通群消息逐条触发，同群冷却默认 5 秒，冷却内消息直接跳过、不排队；复用 AI Agent 的人格/记忆/工具，自动回复不占对话配额，失败静默；后台「AI Agent」页可开关与配置
 - **AI 搜索升级**：`web_search` 改用 DeepSeek 官方 Search API（`/v1/tools/search`）——此前服务端内置 `web_search` 只在 `deepseek-v4-pro` 生效、flash 下会被忽略；现在 flash 也能搜，并支持 `site:` / `lang:` / `after:` / `before:` / 精确短语等语法、按用户原话补 `ori_question`、可选带回网页正文，408/429/5xx 自动重试；非 DeepSeek 端点自动回退 SearXNG，后台可调搜索条数与是否带回正文
 - **AI 看图增强**：AI Agent 图片输入改为默认开启，精度默认 `auto`（保留原图，截图里的文字可读）；模型名改用官方 `deepseek-flash`，主模型是 `deepseek-v4-pro` 等不支持看图的模型时，带图请求会自动切到 Flash，也可在后台「AI Agent」页单独指定「看图模型」；超过 2048px 或 3 MiB 的图片会先压缩再发送，避免超出 API 尺寸/体积限制

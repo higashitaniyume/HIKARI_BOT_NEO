@@ -922,6 +922,7 @@ multipart/form-data
 | `persona.fallback_prompt` | string | 默认人格提示词 |
 | `chat.max_user_chars` | number | 1-20000 |
 | `chat.max_reply_chars` | number | 100-12000 |
+| `chat.quote_reply` | boolean | 回复时是否引用触发消息，默认 true |
 | `chat.max_history_messages` | number | 0-40 |
 | `chat.cooldown_seconds` | number | 0-3600 |
 | `chat.system_prompt_extra` | string | 附加系统提示词 |
