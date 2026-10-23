@@ -42,7 +42,7 @@ from .memory import (
     summarize_session_memory,
 )
 from .tools import available_tools, execute_tool_call
-from .utils import normalize_text, safe_int, strip_markdown
+from .utils import normalize_text, safe_bool, safe_int, strip_markdown
 from .vision import build_image_blocks, collect_image_urls, request_model, text_block
 
 logger = logging.getLogger("HikariBot.AIAgent")

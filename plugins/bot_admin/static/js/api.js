@@ -101,6 +101,7 @@ function applyAiAgentConfigPayload(data) {
   state.aiagentProfiles = data.profiles || [];
   state.aiagentActiveProfile = data.active_profile || "";
   state.aiagentEditingProfile = data.editing_profile || data.active_profile || "";
+  state.aiagentStickerPacks = data.sticker_packs || [];
   const bindings = data.bindings || {};
   state.aiagentBindings = {
     group: bindings.group || {},
