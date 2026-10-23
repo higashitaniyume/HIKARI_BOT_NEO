@@ -86,6 +86,10 @@ for (const btn of document.querySelectorAll("[data-binding-tab]")) {
 $("#aiagentPluginToolsEnabled").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentAllowSideEffectTools").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentToolSelectionMode").addEventListener("change", () => renderAiAgentTools(true));
+$("#aiagentStickerPacksAll")?.addEventListener("change", (event) => {
+  const select = $("#aiagentStickerPacks");
+  if (select) select.disabled = event.currentTarget.checked;
+});
 $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 

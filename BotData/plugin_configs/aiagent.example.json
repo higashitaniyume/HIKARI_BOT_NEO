@@ -43,8 +43,7 @@
       },
       "chat": {
         "max_user_chars": 2000,
-        "max_reply_chars": 3500,
-        "short_reply_chars": 200,
+        "max_reply_chars": 8000,
         "quote_reply": true,
         "max_history_messages": 10,
         "max_context_chars": 12000,
@@ -75,7 +74,18 @@
           "weibo.cn",
           "tiktok.com",
           "vm.tiktok.com"
-        ]
+        ],
+        "single_message_chars": 1200,
+        "forward_node_chars": 1500,
+        "forward_max_nodes": 30,
+        "history_reply_chars": 1200,
+        "sticker": {
+          "enabled": false,
+          "packs": [],
+          "probability": 1.0,
+          "max_per_reply": 1,
+          "allow_auto_reply": true
+        }
       },
       "memory": {
         "enabled": true,
@@ -100,9 +110,7 @@
         },
         "files": {
           "enabled": true,
-          "allow_writes": false,
-          "max_read_chars": 20000,
-          "max_write_chars": 20000
+          "max_read_chars": 20000
         },
         "group_members": {
           "enabled": true,
@@ -128,7 +136,32 @@
           "enabled": true,
           "web_search": true
         },
-        "tool_timeout_seconds": 30
+        "tool_timeout_seconds": 30,
+        "images": {
+          "enabled": true,
+          "allow_send": false,
+          "max_results": 5,
+          "max_images_per_send": 3,
+          "safesearch": 1,
+          "max_download_mb": 15,
+          "download_timeout_seconds": 20
+        },
+        "workspace": {
+          "enabled": true,
+          "allow_writes": false,
+          "allow_delete": false,
+          "allow_send": false,
+          "allow_in_auto_reply": false,
+          "ingest_incoming": true,
+          "include_quoted_files": true,
+          "incoming_max_mb": 100,
+          "incoming_max_files": 3,
+          "incoming_retention_days": 7,
+          "max_file_mb": 20,
+          "max_total_mb": 300,
+          "max_files": 500,
+          "max_send_mb": 100
+        }
       }
     }
   },

@@ -107,8 +107,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "chat": {
         "max_user_chars": 2000,
-        "max_reply_chars": 3500,
-        "short_reply_chars": 200,
+        "max_reply_chars": 8000,
+        "single_message_chars": 1200,
+        "forward_node_chars": 1500,
+        "forward_max_nodes": 30,
+        "history_reply_chars": 1200,
+
         # 回复时是否引用触发回复的那条消息（群聊 / 私聊都生效）。
         # 超长回复会以合并转发发送，转发本身无法携带引用。
         "quote_reply": True,
@@ -122,6 +126,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "group_shared_context": {
             "enabled": False,
             "max_messages": 10,
+        },
+        "sticker": {
+            "enabled": False,
+            "packs": [],
+            "probability": 1.0,
+            "max_per_reply": 1,
+            "allow_auto_reply": True,
         },
         "blocked_url_domains": [
             "douyin.com",
@@ -180,6 +191,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             #            计费，5 元/1000 次）；Responses / Chat Completions 都可用，
             #            flash 也能搜。非 api.deepseek.com 端点没有该接口，自动回退 SearXNG。
             # "searxng": 只用自建 SearXNG（兼容任意 OpenAI 兼容端点）。
+            # "hybrid": 并发 DeepSeek Search API + SearXNG，合并去重。
             "mode": "builtin",
             # 是否让搜索结果带回网页正文（need_content）；更完整但更耗上下文。
             "need_content": False,
@@ -190,11 +202,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "language": "auto",
             "categories": "general",
         },
-        "files": {
+        "images": {
+            "enabled": True,
+            "allow_send": False,
+            "max_results": 5,
+            "max_per_send": 3,
+            "safesearch": 1,
+            "max_bytes": 10485760,
+            "download_timeout_seconds": 20,
+        },
+        "workspace": {
             "enabled": True,
             "allow_writes": False,
+            "allow_delete": False,
+            "allow_send": False,
+            "allow_in_auto_reply": False,
+            "ingest_incoming": True,
+            "include_quoted_files": True,
+            "incoming_max_mb": 100,
+            "incoming_max_files": 3,
+            "incoming_retention_days": 7,
+            "max_file_mb": 20,
+            "max_total_mb": 300,
+            "max_files": 500,
+            "max_send_mb": 100,
+        },
+        "files": {
+            "enabled": True,
+
             "max_read_chars": 20000,
-            "max_write_chars": 20000,
+
         },
         # 群聊工具（只读，且只在当前群生效）：枚举本群成员、查成员名片资料、查成员发言
         "group_members": {
@@ -336,6 +373,9 @@ def _normalize_profile(raw: Any) -> dict[str, Any]:
     src = raw if isinstance(raw, dict) else {}
     patch = {key: src[key] for key in PROFILE_KEYS if isinstance(src.get(key), dict)}
     profile = _deep_merge({key: DEFAULT_PROFILE[key] for key in PROFILE_KEYS}, patch)
+    chat_src = src.get("chat") if isinstance(src.get("chat"), dict) else {}
+    if "single_message_chars" not in chat_src and "short_reply_chars" in chat_src:
+        profile.setdefault("chat", {})["single_message_chars"] = chat_src["short_reply_chars"]
     return {
         "name": _safe_profile_name(src.get("name")),
         **{key: profile[key] for key in PROFILE_KEYS},

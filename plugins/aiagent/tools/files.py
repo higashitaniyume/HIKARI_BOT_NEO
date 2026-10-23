@@ -7,11 +7,8 @@ from typing import Any
 from ..utils import safe_bool, safe_int
 
 READ_PERSONA_RESOURCE = "read_persona_resource"
-READ_USER_FILE = "read_user_file"
-WRITE_USER_FILE = "write_user_file"
 
 BOTDATA_PERSONA_ROOT = Path("BotData/agent_personas")
-USERDATA_ROOT = Path("UserData")
 BOTDATA_PERSONA_EXTENSIONS = {".md", ".txt", ".json"}
 
 
@@ -28,12 +25,8 @@ def enabled(cfg: dict[str, Any]) -> bool:
     return safe_bool(config(cfg).get("enabled"), True)
 
 
-def allow_writes(cfg: dict[str, Any]) -> bool:
-    return safe_bool(config(cfg).get("allow_writes"), False)
-
-
 def definitions(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    definitions = [
+    return [
         {
             "type": "function",
             "function": {
@@ -54,63 +47,12 @@ def definitions(cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
                     "additionalProperties": False,
                 },
             },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": READ_USER_FILE,
-                "description": "Read a UTF-8 text file from UserData only.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Relative path inside UserData.",
-                        }
-                    },
-                    "required": ["path"],
-                    "additionalProperties": False,
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": WRITE_USER_FILE,
-                "description": (
-                    "Write UTF-8 text to a file under UserData only. "
-                    "Use append mode when preserving existing content matters."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "Relative path inside UserData.",
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "Text content to write.",
-                        },
-                        "mode": {
-                            "type": "string",
-                            "description": "overwrite replaces the file; append adds to the end.",
-                            "enum": ["overwrite", "append"],
-                        },
-                    },
-                    "required": ["path", "content"],
-                    "additionalProperties": False,
-                },
-            },
-        },
+        }
     ]
-    if not allow_writes(cfg or {}):
-        definitions = [item for item in definitions if item["function"]["name"] != WRITE_USER_FILE]
-    return definitions
 
 
 def can_handle(name: str) -> bool:
-    return name in {READ_PERSONA_RESOURCE, READ_USER_FILE, WRITE_USER_FILE}
+    return name == READ_PERSONA_RESOURCE
 
 
 def _resolve_limited_path(root: Path, raw_path: Any) -> Path:
@@ -173,53 +115,7 @@ def _read_persona_resource(cfg: dict[str, Any], arguments: dict[str, Any]) -> st
     return _read_text_file(BOTDATA_PERSONA_ROOT, arguments.get("path"), max_chars)
 
 
-def _read_user_file(cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
-    files_cfg = config(cfg)
-    max_chars = safe_int(files_cfg.get("max_read_chars"), 20000, minimum=1000, maximum=200000)
-    return _read_text_file(USERDATA_ROOT, arguments.get("path"), max_chars)
-
-
-def _write_user_file(cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
-    files_cfg = config(cfg)
-    max_chars = safe_int(files_cfg.get("max_write_chars"), 20000, minimum=1000, maximum=200000)
-    path = _resolve_limited_path(USERDATA_ROOT, arguments.get("path"))
-    content = str(arguments.get("content") or "")
-    if len(content) > max_chars:
-        return json.dumps(
-            {
-                "path": _relative_path(USERDATA_ROOT, path),
-                "error": f"content exceeds max_write_chars ({max_chars})",
-            },
-            ensure_ascii=False,
-        )
-    mode = str(arguments.get("mode") or "overwrite").strip().lower()
-    if mode not in {"overwrite", "append"}:
-        return json.dumps({"path": _relative_path(USERDATA_ROOT, path), "error": "invalid mode"}, ensure_ascii=False)
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if mode == "append":
-        with path.open("a", encoding="utf-8") as f:
-            f.write(content)
-    else:
-        path.write_text(content, encoding="utf-8")
-    return json.dumps(
-        {
-            "path": _relative_path(USERDATA_ROOT, path),
-            "bytes": len(content.encode("utf-8")),
-            "mode": mode,
-            "ok": True,
-        },
-        ensure_ascii=False,
-    )
-
-
 def execute(name: str, cfg: dict[str, Any], arguments: dict[str, Any]) -> str:
-    if name == WRITE_USER_FILE and not allow_writes(cfg):
-        return json.dumps({"error": "write_user_file is disabled by configuration"}, ensure_ascii=False)
     if name == READ_PERSONA_RESOURCE:
         return _read_persona_resource(cfg, arguments)
-    if name == READ_USER_FILE:
-        return _read_user_file(cfg, arguments)
-    if name == WRITE_USER_FILE:
-        return _write_user_file(cfg, arguments)
     return json.dumps({"error": f"unknown file tool: {name}"}, ensure_ascii=False)

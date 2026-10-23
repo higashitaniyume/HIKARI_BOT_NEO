@@ -664,7 +664,11 @@ function renderAiAgentConfig() {
   $("#aiagentPersonaMaxChars").value = persona.max_chars ?? 12000;
   $("#aiagentFallbackPrompt").value = persona.fallback_prompt || "";
   $("#aiagentMaxUserChars").value = chat.max_user_chars ?? 2000;
-  $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 3500;
+  $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 8000;
+  $("#aiagentSingleMessageChars").value = chat.single_message_chars ?? (chat.short_reply_chars ?? 1200);
+  $("#aiagentForwardNodeChars").value = chat.forward_node_chars ?? 1500;
+  $("#aiagentForwardMaxNodes").value = chat.forward_max_nodes ?? 30;
+  $("#aiagentHistoryReplyChars").value = chat.history_reply_chars ?? 1200;
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
   $("#aiagentMaxContextChars").value = chat.max_context_chars ?? 12000;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
@@ -724,9 +728,54 @@ function renderAiAgentConfig() {
   const wikiPrefetch = tools.wiki_prefetch || {};
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
   $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;
-  $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
+  $("#aiagentSearchMode").value = ["searxng", "hybrid"].includes(search.mode) ? search.mode : "builtin";
   $("#aiagentSearchMaxResults").value = search.max_results ?? 5;
   $("#aiagentSearchNeedContent").checked = search.need_content === true;
+  const images = tools.images || {};
+  $("#aiagentImagesEnabled").checked = images.enabled !== false;
+  $("#aiagentImagesAllowSend").checked = images.allow_send === true;
+  $("#aiagentImagesMaxResults").value = images.max_results ?? 5;
+  $("#aiagentImagesMaxSend").value = images.max_images_per_send ?? 3;
+  $("#aiagentImagesSafesearch").value = String(images.safesearch ?? 1);
+  $("#aiagentImagesMaxDownloadMb").value = images.max_download_mb ?? 15;
+  $("#aiagentImagesTimeout").value = images.download_timeout_seconds ?? 20;
+
+  const workspace = tools.workspace || {};
+  $("#aiagentWorkspaceEnabled").checked = workspace.enabled !== false;
+  $("#aiagentWorkspaceAllowWrites").checked = workspace.allow_writes === true;
+  $("#aiagentWorkspaceAllowDelete").checked = workspace.allow_delete === true;
+  $("#aiagentWorkspaceAllowSend").checked = workspace.allow_send === true;
+  $("#aiagentWorkspaceAllowAutoReply").checked = workspace.allow_in_auto_reply === true;
+  $("#aiagentWorkspaceIngestIncoming").checked = workspace.ingest_incoming !== false;
+  $("#aiagentWorkspaceIncludeQuoted").checked = workspace.include_quoted_files !== false;
+  $("#aiagentWorkspaceIncomingMaxMb").value = workspace.incoming_max_mb ?? 100;
+  $("#aiagentWorkspaceIncomingMaxFiles").value = workspace.incoming_max_files ?? 3;
+  $("#aiagentWorkspaceIncomingRetention").value = workspace.incoming_retention_days ?? 7;
+  $("#aiagentWorkspaceMaxFileMb").value = workspace.max_file_mb ?? 20;
+  $("#aiagentWorkspaceMaxTotalMb").value = workspace.max_total_mb ?? 300;
+  $("#aiagentWorkspaceMaxFiles").value = workspace.max_files ?? 500;
+  $("#aiagentWorkspaceMaxSendMb").value = workspace.max_send_mb ?? 100;
+
+  const sticker = chat.sticker || {};
+  $("#aiagentStickerEnabled").checked = sticker.enabled === true;
+  $("#aiagentStickerProbability").value = sticker.probability ?? 1.0;
+  $("#aiagentStickerMaxPerReply").value = sticker.max_per_reply ?? 1;
+  $("#aiagentStickerAllowAutoReply").checked = sticker.allow_auto_reply !== false;
+  const configuredPacks = Array.isArray(sticker.packs) ? sticker.packs.map(String) : [];
+  const isAllPacks = configuredPacks.length === 0;
+  const stickerAllCheckbox = $("#aiagentStickerPacksAll");
+  const stickerPacksSelect = $("#aiagentStickerPacks");
+  if (stickerAllCheckbox) stickerAllCheckbox.checked = isAllPacks;
+  if (stickerPacksSelect) {
+    stickerPacksSelect.disabled = isAllPacks;
+    stickerPacksSelect.replaceChildren();
+    for (const pack of state.aiagentStickerPacks || []) {
+      const opt = option(pack, pack);
+      opt.selected = configuredPacks.includes(pack);
+      stickerPacksSelect.append(opt);
+    }
+  }
+
   renderAiAgentTools(false);
   renderAiAgentProfiles();
   renderAiAgentBindings();

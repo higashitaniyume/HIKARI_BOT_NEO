@@ -886,7 +886,8 @@ multipart/form-data
   "bindings": {
     "group": { "123456": "default" },
     "private": {}
-  }
+  },
+  "sticker_packs": ["default_pack", "meme_pack"]
 }
 ```
 
@@ -921,17 +922,28 @@ multipart/form-data
 | `persona.reference_max_total_chars` | number | 1000-160000 |
 | `persona.fallback_prompt` | string | 默认人格提示词 |
 | `chat.max_user_chars` | number | 1-20000 |
-| `chat.max_reply_chars` | number | 100-12000 |
+| `chat.max_reply_chars` | number | 100-30000（长回复上限） |
+| `chat.single_message_chars` | number | 0-12000，单条消息字数阈值，超过转为单个合并转发消息发出 |
+| `chat.forward_node_chars` | number | 100-5000，合并转发每段字数（默认 1500，优先自然语义切分） |
+| `chat.forward_max_nodes` | number | 1-100，合并转发最大节点数（默认 30） |
+| `chat.history_reply_chars` | number | 100-12000，存入短期对话记忆时的单条截断长度（默认 1200） |
 | `chat.quote_reply` | boolean | 回复时是否引用触发消息，默认 true |
 | `chat.max_history_messages` | number | 0-40 |
 | `chat.cooldown_seconds` | number | 0-3600 |
 | `chat.system_prompt_extra` | string | 附加系统提示词 |
+| `chat.sticker.enabled` | boolean | 是否启用回复跟随表情包（默认 false） |
+| `chat.sticker.packs` | string[] | 限定贴纸包列表，留空为全部贴纸包 |
+| `chat.sticker.probability` | number | 跟随概率（0.0-1.0，默认 1.0） |
+| `chat.sticker.max_per_reply` | number | 单条回复最多贴纸数（默认 1） |
+| `chat.sticker.allow_auto_reply` | boolean | 自动回复时是否跟发贴纸（默认 true） |
 | `memory.enabled` | boolean | 是否启用记忆 |
 | `memory.root` | string | 记忆根目录，默认 `UserData/aiagent_memory` |
 | `memory.max_read_chars_per_file` | number | 1000-80000 |
 | `memory.max_file_chars` | number | 5000-500000 |
-| `tools.search` | object | 搜索工具配置 |
-| `tools.files` | object | 文件工具配置 |
+| `tools.search` | object | 搜索配置，`mode` 支持 `builtin` / `searxng` / `hybrid`（双引擎并发去重） |
+| `tools.images` | object | 网络搜图与发图配置，含 `enabled`、`allow_send`、`max_results`、`max_images_per_send`、`safesearch`、`max_download_mb`、`download_timeout_seconds` |
+| `tools.workspace` | object | 会话隔离文件工作区配置，含 `enabled`、`allow_writes`、`allow_delete`、`allow_send`、`allow_in_auto_reply`、`ingest_incoming`、`include_quoted_files`、`incoming_max_mb` 等 |
+| `tools.files` | object | 人格资源文件工具配置（`enabled`、`max_read_chars`） |
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
 | `tools.max_tool_rounds` | number | 0-5 |
 | `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |
