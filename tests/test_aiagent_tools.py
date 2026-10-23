@@ -451,7 +451,15 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reply, "普通回复")
         self.assertEqual(len(PlainAsyncClient.post_payloads), 1)
-        self.assertNotIn("tools", PlainAsyncClient.post_payloads[0])
+        # 工具集合保持稳定下发（寒暄也带 tools，避免前缀缓存失效）；
+        # 这里只断言被禁用的 search 工具不在其中。
+        payload = PlainAsyncClient.post_payloads[0]
+        sent_names = {
+            tool.get("function", {}).get("name")
+            for tool in payload.get("tools", []) or []
+            if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+        }
+        self.assertNotIn("web_search", sent_names)
 
     async def test_tool_unsupported_response_falls_back_to_plain_chat(self) -> None:
         ToolUnsupportedAsyncClient.post_payloads = []
@@ -478,6 +486,11 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
             tool_names,
             {"bot_help", "read_persona_resource", "read_user_file"},
         )
+
+    def test_tools_are_sorted_for_cache_stability(self) -> None:
+        tools = aiagent._available_tools(base_cfg(files_enabled=True))
+        names = [tool["function"]["name"] for tool in tools]
+        self.assertEqual(names, sorted(names))
 
     def test_write_tool_declared_only_when_allow_writes(self) -> None:
         tools = aiagent._available_tools(

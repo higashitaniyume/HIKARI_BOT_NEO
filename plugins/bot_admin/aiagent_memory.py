@@ -234,7 +234,7 @@ async def trigger_summarize(file_path: str) -> dict[str, Any]:
             {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
         ]
         # 走协议分发（Responses / Chat Completions），与聊天内总结保持一致
-        summary = (await request_chat_completion(cfg, messages)).strip()
+        summary = (await request_chat_completion(cfg, messages, caller="summarize")).strip()
         if summary and "无重要信息" not in summary:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             _write_summary(target, ts, summary)

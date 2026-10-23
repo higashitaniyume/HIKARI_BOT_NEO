@@ -377,7 +377,7 @@ class Context:
                 messages.append({"role": "user", "content": prompt})
 
         try:
-            reply = await request_chat_completion(cfg, messages)
+            reply = await request_chat_completion(cfg, messages, caller="astrbot")
         except Exception as e:
             logger.warning(
                 "llm_generate failed (plugin=%s): %s",
@@ -452,7 +452,7 @@ class Context:
             cfg["tools"]["extra"] = all_tools
 
         try:
-            reply = await request_chat_completion(cfg, messages, tool_context)
+            reply = await request_chat_completion(cfg, messages, tool_context, caller="astrbot")
         except Exception as e:
             logger.warning(
                 "tool_loop_agent failed (plugin=%s): %s",

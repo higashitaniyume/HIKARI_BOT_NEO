@@ -49,6 +49,7 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **AI 缓存命中率优化**：请求前缀改为「人格 → 长期记忆摘要 → 短期历史 → 群公共上下文 → 当前时间 + 用户消息」，时间戳从 system 挪到当前 user 消息并按原样写入历史；记忆只注入会话标记之前的稳定摘要区（当前会话原文不再重复，群聊只注入群记忆）；历史改为「涨到 2 倍窗口才整段裁」；工具集合固定下发并按名字排序。活跃会话的 DeepSeek 前缀命中率预计可到 80% 以上；每次请求会打一行 `[AIAgent] usage caller=... hit=... miss=...` 日志，可按 `chat` / `review` / `summarize` / `ai_news` / `astrbot` 归因
 - **AI 引用回复**：AI 的回复现在会以引用回复的形式挂在触发它的消息下（群聊/私聊都生效），多话题并发时更容易看清在回哪条；`chat.quote_reply` 默认开，后台「AI Agent」页可关闭；超长回复改用合并转发时无法携带引用
 - **AI 群聊自动回复**：新增全局 `auto_reply` 白名单（只有名单里的群会“没 @ 也回”，名单不设数量上限）；普通群消息逐条触发，同群冷却默认 5 秒，冷却内消息直接跳过、不排队；复用 AI Agent 的人格/记忆/工具，自动回复不占对话配额，失败静默；后台「AI Agent」页可开关与配置
 - **AI 搜索升级**：`web_search` 改用 DeepSeek 官方 Search API（`/v1/tools/search`）——此前服务端内置 `web_search` 只在 `deepseek-v4-pro` 生效、flash 下会被忽略；现在 flash 也能搜，并支持 `site:` / `lang:` / `after:` / `before:` / 精确短语等语法、按用户原话补 `ori_question`、可选带回网页正文，408/429/5xx 自动重试；非 DeepSeek 端点自动回退 SearXNG，后台可调搜索条数与是否带回正文
@@ -61,7 +62,7 @@ uv run python bot.py
 - **bot_help 工具**：AI Agent 新增帮助文档工具，被问到"你会干什么"时自动读取 `docs/` 功能文档作答
 - **AI 聊天上下文与安全加固**：群聊短期上下文改为按「群 + 用户」隔离（同一群不同用户不再串线），同一会话的消息串行处理避免乱序；可选开启群聊公共上下文（默认关闭）；图片下载增加 SSRF 防护（拒绝内网/回环地址并逐跳校验重定向）；AI 写 `UserData` 文件默认关闭（`tools.files.allow_writes`）；记忆总结按当前 `api.protocol` 正确分发（Responses / Chat Completions）
 - **AI 配额与工具稳定性**：配额改为「先原子预留、失败退回」，并发请求不会一起挤过限额；单个工具调用受 `tools.tool_timeout_seconds` 限制（默认 30 秒，超时只让该工具报错）；失败原因区分提示（超时 / 网络 / 限流 / 上游故障 / Key 无效）
-- **上下文预算与记忆提示注入防护**：短期上下文受 `chat.max_context_chars` 字符预算约束（默认 12000，超出从最旧丢起）；持久化记忆按「参考数据而非指令」注入，并转义记忆文本中的 `system:`/`assistant:`/`user:` 角色标记
+- **上下文预算与记忆提示注入防护**：短期上下文受 `chat.max_context_chars` 字符预算约束（默认 12000，超出时裁到一半，避免每轮滑窗破坏前缀缓存）；持久化记忆按「参考数据而非指令」注入，并转义记忆文本中的 `system:`/`assistant:`/`user:` 角色标记
 - **AI 群聊工具与本地聊天记录**：新增三个只读群聊工具——枚举本群成员（`group_members`）、查成员名片资料（`group_member_profile`）、查成员历史发言（`group_user_messages`），一律只作用于当前群（schema 里没有 `group_id`，私聊不下发），命中多人时返回候选让模型反问；配合本地聊天记录（`UserData/aiagent_chatlog/`，只记纯文本、默认保留 7 天 / 200MB 自动清理，全局段 `chatlog.*`，后台可开关与设群白名单）解决 NapCat 不存历史的问题
 - 文档拆分为 `docs/` 多文件，按类别维护
 

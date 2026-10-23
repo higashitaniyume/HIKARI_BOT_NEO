@@ -113,7 +113,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # 超长回复会以合并转发发送，转发本身无法携带引用。
         "quote_reply": True,
         "max_history_messages": 10,
-        # 短期上下文总字符预算：超出时从最旧的对话开始丢弃（防止长消息撑爆上下文与费用）
+        # 短期上下文总字符预算：超出时裁到一半，避免每轮都触发裁剪（前缀缓存友好）
         "max_context_chars": 12000,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",

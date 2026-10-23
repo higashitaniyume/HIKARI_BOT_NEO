@@ -60,6 +60,7 @@ async def request_verdict(text: str, review_cfg: dict[str, Any], *, label: str =
             {"role": "user", "content": text[:max_chars]},
         ],
         tools=[],
+        caller="review",
     )
     content = str(message.get("content") or "").strip()
     if not content:

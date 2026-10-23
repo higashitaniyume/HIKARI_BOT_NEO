@@ -73,6 +73,19 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
     return 0
 
 
+_WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
+
+
+def _time_notice(now: datetime | None = None) -> str:
+    """当前时间提示。
+
+    放在最后一条用户消息里，而不是 system prompt 里：system 和短期历史保持
+    逐字节不变，每轮变化只影响尾部，前面的大段前缀才能命中 DeepSeek 缓存。
+    """
+    now = now or datetime.now()
+    return f"【当前时间】{now.strftime('%Y-%m-%d %H:%M')} 星期{_WEEKDAYS[now.weekday()]}"
+
+
 def _build_messages(
     cfg: dict[str, Any],
     event: MessageEvent,
@@ -97,31 +110,22 @@ def _build_messages(
         "不要使用列表、表格、代码块等复杂格式——一句话说清楚。\n\n"
         "【能力说明】\n"
         "当用户询问你会干什么、有什么功能、某个功能怎么使用时，"
-        "调用 bot_help 工具查询帮助文档后再回答，不要凭记忆编造。"
+        "调用 bot_help 工具查询帮助文档后再回答，不要凭记忆编造。\n\n"
+        "【工具使用】\n"
+        "寒暄、道谢、情绪回应、简短确认不需要调用工具，直接自然回复；"
+        "只有确实需要外部信息或群资料时才调用工具。\n\n"
+        "【时间说明】\n"
+        "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；"
+        "回答与日期、时间有关的问题时以它为准，不要复述这个标记。"
     )
-
-    # Part 2: 当前时间 + 按会话变化的 memory 上下文（单独放一条 system message，
-    # 不影响 Part 1 的缓存前缀）
-    now = datetime.now()
-    time_notice = (
-        f"【当前时间】{now.strftime('%Y年%m月%d日 %A %H:%M')}\n"
-        f"（今天日期：{now.strftime('%Y-%m-%d')}，"
-        f"星期{('一','二','三','四','五','六','日')[now.weekday()]}）"
-    )
-    memory_context = read_memory_context(event, cfg)
-    if memory_context:
-        memory_context = f"{time_notice}\n\n{memory_context}"
-    else:
-        memory_context = time_notice
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
+
+    # Part 2: 长期记忆（只取稳定摘要区），放在历史之前。
+    # 这部分只在写摘要时变化，和后面追加的历史一起构成稳定的请求前缀。
+    memory_context = read_memory_context(event, cfg)
     if memory_context:
         messages.append({"role": "system", "content": memory_context})
-
-    # Part 3: 可选的群聊公共上下文（默认关闭，见 chat.group_shared_context）
-    shared_context = read_shared_context(event, cfg)
-    if shared_context:
-        messages.append({"role": "system", "content": shared_context})
 
     history = get_history(
         session,
@@ -129,7 +133,15 @@ def _build_messages(
         chat_cfg.get("max_context_chars"),
     )
     messages.extend(history)
+
+    # Part 3: 群聊公共上下文（默认关闭）。它每轮都可能变，放到历史之后，
+    # 避免顶掉前面已经稳定的前缀。
+    shared_context = read_shared_context(event, cfg)
+    if shared_context:
+        messages.append({"role": "system", "content": shared_context})
+
     # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
+    # 当前时间由调用方拼进 user_text，保证「发送内容 = 写入历史的内容」。
     if image_blocks:
         messages.append({"role": "user", "content": [text_block(user_text), *image_blocks]})
     else:
@@ -295,7 +307,10 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
                 text = msg("aiagent.vision_image_only")
         elif not text:
             return
-        messages = _build_messages(cfg, event, session, text, image_blocks)
+        # 时间只拼进这一条 user 消息，并原样写入短期历史，保证下一轮的
+        # 历史前缀和本轮实际发送的内容逐字节一致。
+        prompt_text = f"{_time_notice()}\n{text}"
+        messages = _build_messages(cfg, event, session, prompt_text, image_blocks)
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")
@@ -307,7 +322,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
-        remember(session, text, reply, cfg)
+        remember(session, prompt_text, reply, cfg)
         remember_shared(event, text, reply, cfg)
         append_memory(event, cfg, text, reply)
         # 额度已在 reserve_quota 时预留，成功回复无需再记账
