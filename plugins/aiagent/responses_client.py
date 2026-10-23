@@ -20,11 +20,12 @@ import httpx
 from core.ai_tool_registry import AIToolContext
 from core.bot_messages import get_message as msg
 
-from .client import AIAgentRequestError, _tool_wanted, _tools_cfg
+from .client import AIAgentRequestError, _tools_cfg
 from .tools import available_tools, execute_tool_call
+from .usage import log_responses_usage
 from .utils import safe_float, safe_int
 from .vision import has_images, request_model, strip_images
-from .wiki import _latest_user_text, _prefetch_wiki_priority_items
+from .wiki import _prefetch_wiki_priority_items
 
 logger = logging.getLogger("HikariBot.AIAgent.Responses")
 
@@ -177,11 +178,14 @@ async def post_response(
     instructions: str,
     input_items: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    *,
+    caller: str = "chat",
 ) -> dict[str, Any]:
     """发送一次 Responses API 请求，返回完整 response 对象。"""
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "").strip()
     payload = _build_payload(cfg, instructions, input_items, tools)
+    model = str(payload.get("model") or "")
 
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -194,6 +198,8 @@ async def post_response(
         raise AIAgentRequestError(response.status_code, response.text[:400])
 
     data = response.json()
+    if isinstance(data, dict):
+        log_responses_usage(caller, model, data.get("usage"))
     if not isinstance(data, dict) or not isinstance(data.get("output"), list):
         raise RuntimeError("AI Agent 返回格式无效。")
     return data
@@ -265,6 +271,8 @@ async def request_response_completion(
     cfg: dict[str, Any],
     messages: list[dict[str, Any]],
     tool_context: AIToolContext | None = None,
+    *,
+    caller: str = "chat",
 ) -> str:
     """Responses API 工具循环入口。
 
@@ -275,26 +283,27 @@ async def request_response_completion(
     input_items: list[dict[str, Any]] = list(base_items)
 
     all_tools = available_tools(cfg, tool_context)
-    user_text = _latest_user_text(messages)
-    tools = all_tools if _tool_wanted(user_text) else []
     max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=10)
-    if tools and max_rounds > 0:
+    # 工具集合必须逐请求稳定：寒暄不下发 tools、普通消息下发，会让同一会话的
+    # 请求前缀在「有工具 / 无工具」之间来回切换，整段缓存都失效。
+    tools = all_tools if max_rounds > 0 else []
+    if tools:
         await _prefetch_wiki_priority_items(cfg, input_items, tools, tool_context)
 
     for round_index in range(max_rounds + 1):
         try:
-            response = await post_response(cfg, instructions, input_items, tools)
+            response = await post_response(cfg, instructions, input_items, tools, caller=caller)
         except AIAgentRequestError as e:
             if e.status_code in {400, 422} and has_images(input_items):
                 logger.warning("[AIAgent] 当前模型可能不支持图片输入，已去掉图片重试: %s", e)
                 base_items = strip_images(base_items)
                 input_items = strip_images(input_items)
-                response = await post_response(cfg, instructions, input_items, tools)
+                response = await post_response(cfg, instructions, input_items, tools, caller=caller)
             elif tools and e.status_code in {400, 422}:
                 logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
                 tools = []
                 input_items = list(base_items)
-                response = await post_response(cfg, instructions, input_items, tools)
+                response = await post_response(cfg, instructions, input_items, tools, caller=caller)
             else:
                 raise
 
@@ -319,7 +328,7 @@ async def request_response_completion(
                 ", ".join(str(item.get("name") or "?") for item in calls) or "?",
             )
             tools = []
-            response = await post_response(cfg, instructions, input_items, tools)
+            response = await post_response(cfg, instructions, input_items, tools, caller=caller)
             return _output_text(response) or msg("aiagent.tool_limit_reached")
 
     raise RuntimeError("AI Agent 回复为空。")

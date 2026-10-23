@@ -191,6 +191,18 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
         self.assertTrue(kept["chat"]["group_shared_context"]["enabled"])
 
+    def test_update_aiagent_config_round_trips_quote_reply(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {"chat": {}})
+        self.assertTrue(default["chat"]["quote_reply"])
+
+        saved = self._save_with(current, {"chat": {"quote_reply": False}})
+        self.assertFalse(saved["chat"]["quote_reply"])
+
+        # 未携带时保留关闭状态，不会静默改回开启
+        kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
+        self.assertFalse(kept["chat"]["quote_reply"])
+
     def test_update_aiagent_config_round_trips_group_tools(self) -> None:
         current = self._base_config()
         default = self._save_with(current, {"tools": {}})

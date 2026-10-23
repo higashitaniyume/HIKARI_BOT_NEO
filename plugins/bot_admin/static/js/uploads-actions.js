@@ -280,6 +280,7 @@ function buildAiAgentPayload() {
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
       max_context_chars: Number($("#aiagentMaxContextChars").value || 12000),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
+      quote_reply: $("#aiagentQuoteReply").checked,
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
       group_shared_context: {
         enabled: $("#aiagentGroupSharedContext").checked,
@@ -323,15 +324,38 @@ function buildAiAgentPayload() {
       max_total_mb: Number($("#aiagentChatlogMaxMb").value || 200),
       record_bot: $("#aiagentChatlogRecordBot").checked,
     },
+    auto_reply: {
+      enabled: $("#aiagentAutoReplyEnabled").checked,
+      groups: parseAiAgentGroupIds($("#aiagentAutoReplyGroups").value),
+      cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
+    },
   };
 }
 
-// 「只记录这些群号」输入框：逗号/空格/换行分隔，只保留数字群号
+// 群号输入框：逗号/空格/换行分隔，只保留数字群号并去重
 function parseAiAgentGroupIds(value) {
-  return String(value || "")
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[\s,，]+/)
+        .map((item) => item.trim())
+        .filter((item) => /^\d+$/.test(item))
+    )
+  );
+}
+
+// 自动回复白名单是多行输入：显示当前识别到多少个群号，并提示被忽略的非数字项。
+function updateAiAgentAutoReplyGroupCount() {
+  const textarea = $("#aiagentAutoReplyGroups");
+  const label = $("#aiagentAutoReplyGroupCount");
+  if (!textarea || !label) return;
+  const tokens = String(textarea.value || "")
     .split(/[\s,，]+/)
     .map((item) => item.trim())
-    .filter((item) => /^\d+$/.test(item));
+    .filter(Boolean);
+  const groups = parseAiAgentGroupIds(textarea.value);
+  const invalid = tokens.filter((item) => !/^\d+$/.test(item)).length;
+  label.textContent = `当前 ${groups.length} 个群号` + (invalid ? `（忽略 ${invalid} 个非数字项）` : "");
 }
 
 async function saveAiAgentConfig(event) {

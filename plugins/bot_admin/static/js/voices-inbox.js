@@ -672,6 +672,7 @@ function renderAiAgentConfig() {
   const sharedChat = chat.group_shared_context || {};
   $("#aiagentGroupSharedContext").checked = sharedChat.enabled === true;
   $("#aiagentGroupSharedMax").value = sharedChat.max_messages ?? 10;
+  $("#aiagentQuoteReply").checked = chat.quote_reply !== false;
 
   const select = $("#aiagentPersonaSelect");
   select.replaceChildren(option("", "手动填写路径"));
@@ -715,6 +716,11 @@ function renderAiAgentConfig() {
   $("#aiagentChatlogMaxMb").value = chatlog.max_total_mb ?? 200;
   $("#aiagentChatlogGroups").value = (Array.isArray(chatlog.groups) ? chatlog.groups : []).join(", ");
   $("#aiagentChatlogRecordBot").checked = chatlog.record_bot === true;
+  const autoReply = cfg.auto_reply || {};
+  $("#aiagentAutoReplyEnabled").checked = autoReply.enabled === true;
+  $("#aiagentAutoReplyGroups").value = (Array.isArray(autoReply.groups) ? autoReply.groups : []).join("\n");
+  $("#aiagentAutoReplyCooldown").value = autoReply.cooldown_seconds ?? 5;
+  updateAiAgentAutoReplyGroupCount();
   const wikiPrefetch = tools.wiki_prefetch || {};
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
   $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;

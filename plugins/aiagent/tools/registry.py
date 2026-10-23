@@ -38,6 +38,11 @@ async def _run_tool(coro: Any, name: str, timeout: float) -> str:
         )
 
 
+def _tool_name(tool: dict[str, Any]) -> str:
+    function = tool.get("function") if isinstance(tool, dict) else None
+    return str(function.get("name") or "") if isinstance(function, dict) else ""
+
+
 def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     if search.enabled(cfg):
@@ -53,6 +58,9 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
         tools.append(help.definition())
     if _plugin_tools_enabled(cfg):
         tools.extend(spec.definition() for spec in _iter_enabled_plugin_tools(cfg, context))
+    # 工具定义排在请求最前面，顺序一变整段前缀缓存就作废；按名字排序保证
+    # 重启、插件加载顺序变化都不会改变工具块的字节。
+    tools.sort(key=_tool_name)
     return tools
 
 

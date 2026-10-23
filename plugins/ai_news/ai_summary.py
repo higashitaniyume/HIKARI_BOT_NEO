@@ -86,6 +86,7 @@ async def _request_summary(items: list[NewsItem], ai_cfg: dict[str, Any]) -> dic
             {"role": "user", "content": user_prompt},
         ],
         tools=[],
+        caller="ai_news",
     )
     content = str(message.get("content") or "").strip()
     return _parse_json_response(content)

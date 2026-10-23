@@ -249,7 +249,8 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
     async def test_plain_chat_sends_instructions_and_input_items(self) -> None:
         PlainResponsesAsyncClient.post_payloads = []
 
-        # 首条 system → instructions；其余消息 → input items；问候语不触发工具
+        # 首条 system → instructions；其余消息 → input items；
+        # 工具集合逐请求稳定（问候语也照常下发），避免前缀在有无工具之间切换
         messages = [
             {"role": "system", "content": "你是测试助手。"},
             {"role": "system", "content": "【当前时间】2026年8月5日"},
@@ -269,7 +270,8 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         assert isinstance(input_items, list)
         self.assertEqual(input_items[0], {"role": "system", "content": "【当前时间】2026年8月5日"})
         self.assertEqual(input_items[-1], {"role": "user", "content": "你好"})
-        self.assertNotIn("tools", payload)
+        # 工具定义保持稳定下发，不随消息内容切换
+        self.assertIn("tools", payload)
 
     async def test_plain_chat_with_reasoning_disabled_omits_reasoning(self) -> None:
         PlainResponsesAsyncClient.post_payloads = []

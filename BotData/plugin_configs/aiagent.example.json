@@ -45,6 +45,7 @@
         "max_user_chars": 2000,
         "max_reply_chars": 3500,
         "short_reply_chars": 200,
+        "quote_reply": true,
         "max_history_messages": 10,
         "max_context_chars": 12000,
         "cooldown_seconds": 3,
@@ -81,13 +82,6 @@
         "root": "UserData/aiagent_memory",
         "max_read_chars_per_file": 8000,
         "max_file_chars": 60000
-      },
-      "chatlog": {
-        "enabled": true,
-        "groups": [],
-        "retention_days": 7,
-        "max_total_mb": 200,
-        "record_bot": false
       },
       "tools": {
         "help": {
@@ -141,6 +135,18 @@
   "bindings": {
     "group": {},
     "private": {}
+  },
+  "chatlog": {
+    "enabled": true,
+    "groups": [],
+    "retention_days": 7,
+    "max_total_mb": 200,
+    "record_bot": false
+  },
+  "auto_reply": {
+    "enabled": false,
+    "groups": [],
+    "cooldown_seconds": 5
   },
   "quota": {
     "enabled": false,

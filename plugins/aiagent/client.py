@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Any
 
 import httpx
@@ -12,38 +11,12 @@ from core.bot_messages import get_message as msg
 
 from .config import api_protocol
 from .tools import available_tools, execute_tool_call
+from .usage import log_chat_usage
 from .utils import parse_dsml_tool_calls, safe_float, safe_int, strip_dsml_tags
 from .vision import has_images, request_model, strip_images
-from .wiki import _latest_user_text, _prefetch_wiki_priority_tools
+from .wiki import _prefetch_wiki_priority_tools
 
 logger = logging.getLogger("HikariBot.AIAgent.Client")
-
-_simple_chat_re = re.compile(
-    r"^(?:\
-        (?:你好|您好|你好呀|你好啊|嗨|hi|hello|hey|哈[喽罗]|在[吗嘛]|在不在)\
-        |(?:谢谢|感谢|多谢|辛苦了|好的|好哒|好嘞|OK|ok|嗯|嗯嗯|行|可以)\
-        |(?:再见|拜拜|白白|晚安|早安|早上好|下午好|晚上好|再见啦)\
-        |(?:是[的哒]|不是|对|不对|没[事关系]|算[了吧]|好吧|就这样吧)\
-        |(?:哈哈|哈哈哈|笑死|笑了|😊|😄|😂|🤣|👍|👌|❤️|💕)\
-        |(?:明白|懂了|理解|知道了|收到|了解)\
-        |(?:不知道|不会|不懂|不太清楚|没明白)\
-    )$\
-", re.IGNORECASE)
-
-
-def _tool_wanted(text: str) -> bool:
-    """Return True if the message plausibly needs external tools.
-
-    Greetings, thanks, short affirmations, and emotional responses skip
-    tool injection so the model replies naturally without hallucinating
-    tool calls on simple chat.
-    """
-    stripped = text.strip()
-    if not stripped or len(stripped) <= 2:
-        return False
-    if _simple_chat_re.match(stripped):
-        return False
-    return True
 
 
 class AIAgentRequestError(RuntimeError):
@@ -102,6 +75,8 @@ async def post_chat_completion(
     cfg: dict[str, Any],
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
+    *,
+    caller: str = "chat",
 ) -> dict[str, Any]:
     model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
     api_key = str(model_cfg.get("api_key") or "").strip()
@@ -154,6 +129,8 @@ async def post_chat_completion(
         raise AIAgentRequestError(response.status_code, response.text[:400])
 
     data = response.json()
+    if isinstance(data, dict):
+        log_chat_usage(caller, model, data.get("usage"))
     choices = data.get("choices") if isinstance(data, dict) else None
     if not choices:
         raise RuntimeError("AI Agent 返回结果为空。")
@@ -167,6 +144,8 @@ async def request_chat_completion(
     cfg: dict[str, Any],
     messages: list[dict[str, str]],
     tool_context: AIToolContext | None = None,
+    *,
+    caller: str = "chat",
 ) -> str:
     """AI Agent 对话入口。
 
@@ -177,32 +156,34 @@ async def request_chat_completion(
     if api_protocol(cfg) == "responses":
         from .responses_client import request_response_completion
 
-        return await request_response_completion(cfg, messages, tool_context)
+        return await request_response_completion(cfg, messages, tool_context, caller=caller)
 
     plain_request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     all_tools = available_tools(cfg, tool_context)
-    user_text = _latest_user_text(request_messages)
-    tools = all_tools if _tool_wanted(user_text) else []
     max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=10)
-    if tools and max_rounds > 0:
+    # 工具集合必须逐请求稳定：寒暄不下发 tools、普通消息下发，会让同一会话的
+    # 请求前缀在「有工具 / 无工具」之间来回切换，整段缓存都失效。
+    # 是否真的调用工具交给 system prompt 约束和模型判断。
+    tools = all_tools if max_rounds > 0 else []
+    if tools:
         await _prefetch_wiki_priority_tools(cfg, request_messages, tools, tool_context)
 
     for round_index in range(max_rounds + 1):
         try:
-            message = await post_chat_completion(cfg, request_messages, tools)
+            message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
         except AIAgentRequestError as e:
             if e.status_code in {400, 422} and has_images(request_messages):
                 # 非视觉模型会明确拒绝图片输入，去掉图片再试一次。
                 logger.warning("[AIAgent] 当前模型可能不支持图片输入，已去掉图片重试: %s", e)
                 plain_request_messages = strip_images(plain_request_messages)
                 request_messages = strip_images(request_messages)
-                message = await post_chat_completion(cfg, request_messages, tools)
+                message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
             elif tools and e.status_code in {400, 422}:
                 logger.warning("[AIAgent] 当前模型接口可能不支持 tools，已降级为普通聊天: %s", e)
                 tools = []
                 request_messages = [dict(message) for message in plain_request_messages]
-                message = await post_chat_completion(cfg, request_messages, tools)
+                message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
             else:
                 raise
         tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
@@ -242,7 +223,7 @@ async def request_chat_completion(
             for tool_call in tool_calls:
                 if isinstance(tool_call, dict):
                     request_messages.append(await execute_tool_call(cfg, tool_call, tool_context))
-            message = await post_chat_completion(cfg, request_messages, tools)
+            message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
             content = str(message.get("content") or "").strip()
             return content or msg("aiagent.tool_limit_reached")
 
