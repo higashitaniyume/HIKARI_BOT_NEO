@@ -25,6 +25,30 @@ _SENTENCE_ENDINGS = ("。", "！", "？", "；", "…", "!", "?", ";")
 _PAUSE_PUNCTUATION = ("，", ",", "、", "：", ":")
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 
+# NapCat / QQ 偶发不回应 send_msg 时，bot.send 会一直挂住；AI 处理器持有
+# 会话锁，挂住一次就会让该会话后续所有消息永远排队。给发送加统一超时，
+# 超时只放弃当次发送并记录 warning，不阻塞会话锁。
+SEND_TIMEOUT_SECONDS = 30.0
+
+
+async def send_with_timeout(
+    bot: Any,
+    event: MessageEvent,
+    message: Message,
+    timeout_seconds: float | None = None,
+) -> bool:
+    """发送消息并施加超时；返回是否成功，不向上抛发送异常。"""
+    timeout = SEND_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    try:
+        await asyncio.wait_for(bot.send(event, message), timeout=timeout)
+        return True
+    except asyncio.TimeoutError:
+        logger.warning("[AIAgent] 发送消息超时 %.1fs，放弃本次发送", timeout)
+        return False
+    except Exception as e:
+        logger.warning("[AIAgent] 发送消息失败: %s", e)
+        return False
+
 
 def _quote_reply_enabled(chat_cfg: dict[str, Any]) -> bool:
     return safe_bool(chat_cfg.get("quote_reply"), True)
@@ -182,7 +206,7 @@ async def send_reply(
 
     # 1. 短回复：普通消息（支持引用）
     if single_message_chars > 0 and len(reply) <= single_message_chars:
-        await bot.send(event, build_reply_message(event, reply, cfg))
+        await send_with_timeout(bot, event, build_reply_message(event, reply, cfg))
         return
 
     # 2. 长回复：智能分段合并转发
@@ -208,18 +232,26 @@ async def send_reply(
     group_id = getattr(event, "group_id", None)
     try:
         if group_id is not None or isinstance(event, GroupMessageEvent):
-            await bot.call_api("send_group_forward_msg", group_id=int(group_id), messages=nodes)
+            await asyncio.wait_for(
+                bot.call_api("send_group_forward_msg", group_id=int(group_id), messages=nodes),
+                timeout=SEND_TIMEOUT_SECONDS,
+            )
         else:
             user_id = getattr(event, "user_id", None)
             if user_id is None:
                 user_id = event.get_user_id()
-            await bot.call_api("send_private_forward_msg", user_id=int(user_id), messages=nodes)
+            await asyncio.wait_for(
+                bot.call_api("send_private_forward_msg", user_id=int(user_id), messages=nodes),
+                timeout=SEND_TIMEOUT_SECONDS,
+            )
+    except asyncio.TimeoutError:
+        # 合并转发挂住时不要继续逐条重试：每一条都可能再挂 30 秒，
+        # 会话锁会被占得更久，直接放弃本次发送。
+        logger.warning("[AIAgent] 合并转发发送超时 %.1fs，放弃本次发送", SEND_TIMEOUT_SECONDS)
+        return
     except Exception as e:
         logger.warning("[AIAgent] 合并转发发送失败，降级为逐条普通消息发送: %s", e)
         for seg_text in nodes_text:
-            try:
-                await bot.send(event, Message(seg_text))
-                await asyncio.sleep(0.3)
-            except Exception as send_err:
-                logger.warning("[AIAgent] 逐条降级发送失败: %s", send_err)
+            if not await send_with_timeout(bot, event, Message(seg_text)):
                 break
+            await asyncio.sleep(0.3)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,11 @@ except ValueError:
 from core.ai_tool_registry import AIToolContext, get_ai_tool
 
 import plugins.tts_speaker.ai_tool as tts_ai_tool
+
+
+class HangingBot:
+    async def send(self, event: object, message: object) -> None:
+        await asyncio.sleep(30)
 
 
 def _fake_event(user_id: str = "42") -> SimpleNamespace:
@@ -187,6 +193,23 @@ class TTSToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cooling down", second["error"])
         self.assertEqual(render.await_count, 1)
         self._bot.send.assert_awaited_once()
+
+    async def test_send_timeout_returns_error_without_hanging(self) -> None:
+        render = AsyncMock(return_value=self._audio)
+        with (
+            patch.object(tts_ai_tool, "get_config", Mock(return_value=self._config)),
+            patch.object(tts_ai_tool, "_render_fish_tts", render),
+            patch.object(tts_ai_tool, "SEND_TIMEOUT_SECONDS", 0.01),
+        ):
+            result = await asyncio.wait_for(
+                tts_ai_tool.ai_send_voice(
+                    AIToolContext(bot=HangingBot(), event=_fake_event()),
+                    {"text": "你好"},
+                ),
+                timeout=1.0,
+            )
+
+        self.assertIn("timed out", result["error"])
 
 
 if __name__ == "__main__":

@@ -12,11 +12,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+from plugins.aiagent import reply as reply_mod
 from plugins.aiagent.sticker import _recent_sent, maybe_send_sticker
 
 
@@ -39,6 +41,11 @@ class FakeBot:
         if self.send_error is not None:
             raise self.send_error
         self.sent_messages.append({"event": event, "message": message})
+
+
+class HangingBot(FakeBot):
+    async def send(self, event: Any, message: Any) -> None:
+        await asyncio.sleep(30)
 
 
 def _cfg(**sticker_overrides: Any) -> dict[str, Any]:
@@ -151,6 +158,20 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
         cfg = _cfg()
 
         res = await maybe_send_sticker(bot, event, cfg)
+        self.assertFalse(res)
+
+    @patch("plugins.sticker_library.get_all_files")
+    async def test_send_timeout_fails_silently(self, mock_get_all: Any) -> None:
+        fake_file = Path("/tmp/hanging_sticker.gif")
+        mock_get_all.return_value = [fake_file]
+
+        bot = HangingBot()
+        event = FakeEvent(group_id=123)
+        cfg = _cfg()
+
+        with patch.object(reply_mod, "SEND_TIMEOUT_SECONDS", 0.01):
+            res = await asyncio.wait_for(maybe_send_sticker(bot, event, cfg), timeout=1.0)
+
         self.assertFalse(res)
 
 

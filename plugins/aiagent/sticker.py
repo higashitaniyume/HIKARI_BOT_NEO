@@ -17,6 +17,7 @@ from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
+from .reply import send_with_timeout
 from .utils import safe_bool, safe_float, safe_int
 
 logger = logging.getLogger("HikariBot.AIAgent.Sticker")
@@ -112,8 +113,8 @@ async def maybe_send_sticker(
 
     try:
         uri = chosen.resolve().as_uri()
-        await bot.send(event, Message(MessageSegment.image(uri)))
-        return True
+        # 跟随贴纸是“锦上添花”，发送失败/超时绝不能拖住会话锁。
+        return await send_with_timeout(bot, event, Message(MessageSegment.image(uri)))
     except Exception as e:
         logger.warning("[AIAgent] 发送跟随贴纸失败: %s", e)
         return False

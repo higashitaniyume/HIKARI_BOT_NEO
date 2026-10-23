@@ -49,6 +49,7 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **修复 AI 语音后会话卡死**：AI 文字回复、合并转发、跟随贴纸与语音发送统一加 30 秒超时，NapCat/QQ 不回 `send_msg` 时只放弃当次发送并记 warning，不再永久占住会话锁；已重启清掉卡住状态
 - **AI 主动发语音（TTS）**：`tts_speaker` 新增 `send_voice` 工具，AI Agent 判断需要语音时可直接用 Fish Audio 合成并发送语音消息，支持指定音色；默认关闭，需在后台「AI Agent → Tools 管理」放行副作用工具并勾选，按会话冷却，群聊自动回复默认不语音，单条语音长度可在 TTS 设置页单独限制
 - **AI 双引擎混合搜索与网络搜图**：新增 `web_image_search` 与 `send_images` 工具，模型可根据聊天语境主动搜索网络图片并直接发送（支持 WebP/GIF 转码）；搜索模式新增 `hybrid`（DeepSeek 官方 Search API + 自建 SearXNG 并发检索、URL 规范化去重与摘要合并），兼顾时效与广度；搜图链接经过 SSRF 校验与会话隔离缓存保护
 - **AI 会话隔离文件工作区与聊天文件接收**：废除旧版全局 `UserData` 文件读写，改为按 QQ 用户 / 群组严格隔离的沙箱工作区（`UserData/aiagent_files/...`），支持文件读写、删除、移动、zip/unzip 压缩解压（带 Zip-Slip 防护）以及 `send_file` 发送文件；自动接收用户发来的聊天文件（硬上限 100MB）存入工作区供 AI 阅读与处理

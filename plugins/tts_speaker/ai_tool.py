@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -38,6 +39,8 @@ logger = logging.getLogger("HikariBot.TTSSpeaker.AITool")
 TOOL_NAME = "send_voice"
 DEFAULT_MAX_CHARS = 80
 DEFAULT_COOLDOWN_SECONDS = 10
+# 语音发送本身也加超时：NapCat 不回应时不要一直占着 AI 工具的调用。
+SEND_TIMEOUT_SECONDS = 30.0
 
 # 与命令的冷却分开记账：AI 调用和用户手动 `说话` 互不影响。
 _last_used_at: dict[str, float] = {}
@@ -193,7 +196,13 @@ async def ai_send_voice(context: AIToolContext, arguments: dict[str, Any]) -> di
         cache_dir.mkdir(parents=True, exist_ok=True)
         _cleanup_cache(cache_dir, cfg.get("cache_ttl_minutes", 60))
         output_path = await _render_fish_tts(text, cfg, cache_dir, voice_name)
-        await bot.send(event, Message(MessageSegment.record(output_path.resolve().as_uri())))
+        await asyncio.wait_for(
+            bot.send(event, Message(MessageSegment.record(output_path.resolve().as_uri()))),
+            timeout=SEND_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[TTS] 发送 AI 语音超时 %.1fs", SEND_TIMEOUT_SECONDS)
+        return {"error": "sending the voice message timed out"}
     except FishAudioRequestError as e:
         logger.warning("[TTS] AI 语音请求失败: %s", e)
         return {"error": "Fish Audio request failed", "status": e.status_code}

@@ -749,6 +749,7 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 - 配额采用**先预留、失败退回**：请求发出前原子检查并扣费（同一 scope 并发请求不会一起挤过限额），只有成功回复才真正消耗；API 报错、网络异常或消息为空都会退回。
 - 失败原因会区分提示：超时 / 网络不通 / 上游限流（429）/ 上游故障（5xx）/ Key 无效（401、403）/ 其他失败，对应 `bot_messages.json` 里的 `aiagent.timeout`、`aiagent.network_error`、`aiagent.rate_limited`、`aiagent.upstream_error`、`aiagent.auth_failed`、`aiagent.failed`。
 - 单个工具调用受 `tools.tool_timeout_seconds` 限制（默认 30 秒），超时只让该工具返回错误，不会让整轮回复失败，也不会卡住该会话的锁。
+- AI 文字回复、合并转发、跟随贴纸和 `send_voice` 语音发送都带 30 秒发送超时。NapCat/QQ 偶发不回应 `send_msg` 时只放弃当次发送并记录 warning，不会永久占住会话锁、让该会话后续消息一直排队。
 
 **文件工具边界：**
 - 读取：`read_persona_resource`（仅 `BotData/agent_personas` 下的 `.md`/`.txt`/`.json`）、`read_user_file`（仅 `UserData`）

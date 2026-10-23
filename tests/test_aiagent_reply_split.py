@@ -12,12 +12,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
-from plugins.aiagent.reply import build_reply_message, send_reply, split_reply
+from plugins.aiagent import reply as reply_mod
+from plugins.aiagent.reply import build_reply_message, send_reply, send_with_timeout, split_reply
 
 
 class FakeMessageSegment:
@@ -56,6 +58,16 @@ class FakeBot:
         if self.api_error is not None:
             raise self.api_error
         return {"status": "ok"}
+
+
+class HangingBot(FakeBot):
+    """模拟 NapCat 不回应 send_msg 的情况。"""
+
+    async def send(self, event: Any, message: Any) -> None:
+        await asyncio.sleep(30)
+
+    async def call_api(self, api: str, **kwargs: Any) -> Any:
+        await asyncio.sleep(30)
 
 
 def _cfg(**overrides: Any) -> dict[str, Any]:
@@ -137,6 +149,43 @@ class ReplySplitTests(unittest.IsolatedAsyncioTestCase):
 
         # 降级为逐条普通消息发送
         self.assertGreaterEqual(len(bot.sent_messages), 2)
+
+    async def test_send_with_timeout_returns_true_on_success(self) -> None:
+        bot = FakeBot()
+        event = FakeEvent()
+
+        ok = await send_with_timeout(bot, event, "hello", timeout_seconds=0.1)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(bot.sent_messages), 1)
+
+    async def test_send_reply_short_message_times_out_without_hanging(self) -> None:
+        bot = HangingBot()
+        event = FakeEvent(user_id=123)
+        cfg = _cfg(single_message_chars=200)
+
+        with patch.object(reply_mod, "SEND_TIMEOUT_SECONDS", 0.01):
+            await asyncio.wait_for(
+                send_reply(bot, event, "这是一条会卡住的回复。", cfg),
+                timeout=1.0,
+            )
+
+        self.assertEqual(bot.sent_messages, [])
+
+    async def test_send_reply_forward_timeout_does_not_fallback(self) -> None:
+        bot = HangingBot()
+        event = FakeGroupEvent(user_id=123, group_id=456)
+        cfg = _cfg(single_message_chars=50, forward_node_chars=50)
+        long_text = "\n\n".join(f"这是一条超过单条阈值的长回复段落{i}。" for i in range(4))
+
+        with patch.object(reply_mod, "SEND_TIMEOUT_SECONDS", 0.01):
+            await asyncio.wait_for(
+                send_reply(bot, event, long_text, cfg),
+                timeout=1.0,
+            )
+
+        self.assertEqual(bot.sent_messages, [])
+        self.assertEqual(bot.api_calls, [])
 
 
 if __name__ == "__main__":
