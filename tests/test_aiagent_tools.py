@@ -173,6 +173,7 @@ class ToolUnsupportedAsyncClient:
 def base_cfg(
     *,
     search_enabled: bool = True,
+    images_enabled: bool = False,
     files_enabled: bool = False,
     files_allow_writes: bool = False,
 ) -> dict[str, object]:
@@ -199,6 +200,10 @@ def base_cfg(
                 "safesearch": 1,
                 "language": "auto",
                 "categories": "general",
+            },
+            "images": {
+                "enabled": images_enabled,
+                "allow_send": False,
             },
             "files": {
                 "enabled": files_enabled,

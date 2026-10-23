@@ -180,6 +180,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             #            计费，5 元/1000 次）；Responses / Chat Completions 都可用，
             #            flash 也能搜。非 api.deepseek.com 端点没有该接口，自动回退 SearXNG。
             # "searxng": 只用自建 SearXNG（兼容任意 OpenAI 兼容端点）。
+            # "hybrid": 并发 DeepSeek Search API + SearXNG，合并去重。
             "mode": "builtin",
             # 是否让搜索结果带回网页正文（need_content）；更完整但更耗上下文。
             "need_content": False,
@@ -189,6 +190,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "safesearch": 1,
             "language": "auto",
             "categories": "general",
+        },
+        "images": {
+            "enabled": True,
+            "allow_send": False,
+            "max_results": 5,
+            "max_per_send": 3,
+            "safesearch": 1,
+            "max_bytes": 10485760,
+            "download_timeout_seconds": 20,
         },
         "files": {
             "enabled": True,
