@@ -107,8 +107,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "chat": {
         "max_user_chars": 2000,
-        "max_reply_chars": 3500,
-        "short_reply_chars": 200,
+        "max_reply_chars": 8000,
+        "single_message_chars": 1200,
+        "forward_node_chars": 1500,
+        "forward_max_nodes": 30,
+        "history_reply_chars": 1200,
+
         # 回复时是否引用触发回复的那条消息（群聊 / 私聊都生效）。
         # 超长回复会以合并转发发送，转发本身无法携带引用。
         "quote_reply": True,
@@ -122,6 +126,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "group_shared_context": {
             "enabled": False,
             "max_messages": 10,
+        },
+        "sticker": {
+            "enabled": False,
+            "packs": [],
+            "probability": 1.0,
+            "max_per_reply": 1,
+            "allow_auto_reply": True,
         },
         "blocked_url_domains": [
             "douyin.com",
@@ -362,6 +373,9 @@ def _normalize_profile(raw: Any) -> dict[str, Any]:
     src = raw if isinstance(raw, dict) else {}
     patch = {key: src[key] for key in PROFILE_KEYS if isinstance(src.get(key), dict)}
     profile = _deep_merge({key: DEFAULT_PROFILE[key] for key in PROFILE_KEYS}, patch)
+    chat_src = src.get("chat") if isinstance(src.get("chat"), dict) else {}
+    if "single_message_chars" not in chat_src and "short_reply_chars" in chat_src:
+        profile.setdefault("chat", {})["single_message_chars"] = chat_src["short_reply_chars"]
     return {
         "name": _safe_profile_name(src.get("name")),
         **{key: profile[key] for key in PROFILE_KEYS},

@@ -101,22 +101,33 @@ def _build_messages(
     extra = str(chat_cfg.get("system_prompt_extra") or "").strip()
     if extra:
         stable_prompt = f"{stable_prompt}\n\n额外要求：\n{extra}"
+    tools_cfg = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    has_workspace = safe_bool(tools_cfg.get("workspace", {}).get("enabled"), True)
+    has_images = safe_bool(tools_cfg.get("images", {}).get("enabled"), True)
+    file_image_prompt = ""
+    if has_workspace or has_images:
+        file_image_prompt = (
+            "\n\n【文件与图片】\n"
+            "你可以使用工作区读写文件；生成或处理好的文件用 send_file 发出。\n"
+            "需要图片时先用 web_image_search 搜图，再用 send_images 发送，不要凭空编造图片链接。\n"
+            "工作区只属于当前会话，路径一律使用相对路径。"
+        )
+
     stable_prompt = (
         f"{stable_prompt}\n\n"
-        "【回复长度要求】\n"
-        "每次回复控制在 50 字以内，尽量简短明了。\n"
-        "如果需要详细说明（如代码、配置、长解释），只给一句简短结论即可，"
-        "完整内容会自动转成合并消息让用户点开查看。\n"
-        "不要使用列表、表格、代码块等复杂格式——一句话说清楚。\n\n"
+        "【回复长度】\n"
+        "日常闲聊保持简洁；用户要教程、代码、长文分析时可以完整回答，不要自行截断。\n"
+        "超过单条消息上限会自动拆成合并聊天记录，请用自然段组织内容，方便按段落拆分。\n\n"
         "【能力说明】\n"
-        "当用户询问你会干什么、有什么功能、某个功能怎么使用时，"
+        "当用户询问你会干什么、有什么功能、某个功能怎么使用时，\n"
         "调用 bot_help 工具查询帮助文档后再回答，不要凭记忆编造。\n\n"
         "【工具使用】\n"
-        "寒暄、道谢、情绪回应、简短确认不需要调用工具，直接自然回复；"
+        "寒暄、道谢、情绪回应、简短确认不需要调用工具，直接自然回复；\n"
         "只有确实需要外部信息或群资料时才调用工具。\n\n"
         "【时间说明】\n"
-        "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；"
+        "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；\n"
         "回答与日期、时间有关的问题时以它为准，不要复述这个标记。"
+        f"{file_image_prompt}"
     )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
@@ -337,10 +348,11 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         if should_summarize(session):
             asyncio.create_task(summarize_session_memory(cfg, event))
         mark_activity(session)
-        if short_reply_chars > 0 and len(reply) > short_reply_chars:
-            await _send_long_as_forward(bot, event, reply, min(len(reply), max_reply_chars))
-        else:
-            await bot.send(event, _build_reply_message(event, reply, cfg))
+        from .reply import send_reply
+        from .sticker import maybe_send_sticker
+
+        await send_reply(bot, event, reply, cfg)
+        await maybe_send_sticker(bot, event, cfg, is_auto_reply=auto)
         if isinstance(event, GroupMessageEvent):
             auto_reply.note_bot_spoke(cfg, event.group_id)
         delivered = True

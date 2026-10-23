@@ -61,11 +61,16 @@ def remember_shared(event: MessageEvent, user_text: str, assistant_text: str, cf
     limit = shared_limit(cfg)
     if limit <= 0:
         return
+    chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    history_chars = safe_int(chat_cfg.get("history_reply_chars"), 1200, minimum=100, maximum=12000)
+    stored_reply = assistant_text
+    if len(stored_reply) > history_chars:
+        stored_reply = f"{stored_reply[:history_chars]}…（以下长内容已省略）"
     history = _shared_histories.setdefault(key, [])
     history.extend(
         [
             {"role": "user", "content": f"[{event.get_user_id()}] {user_text}"},
-            {"role": "assistant", "content": assistant_text},
+            {"role": "assistant", "content": stored_reply},
         ]
     )
     _shared_histories[key] = history[-limit:]
@@ -143,10 +148,14 @@ def get_history(session: str, max_messages: Any, max_chars: Any = None) -> list[
 
 def remember(session: str, user_text: str, assistant_text: str, cfg: dict[str, Any]) -> None:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    history_chars = safe_int(chat_cfg.get("history_reply_chars"), 1200, minimum=100, maximum=12000)
+    stored_reply = assistant_text
+    if len(stored_reply) > history_chars:
+        stored_reply = f"{stored_reply[:history_chars]}…（以下长内容已省略）"
     history = _histories.setdefault(session, [])
     history.extend([
         {"role": "user", "content": user_text},
-        {"role": "assistant", "content": assistant_text},
+        {"role": "assistant", "content": stored_reply},
     ])
     # 按配置的窗口整段裁剪（MAX_STORED_MESSAGES 是绝对上限），
     # 不再每轮滑窗，避免破坏请求前缀。
