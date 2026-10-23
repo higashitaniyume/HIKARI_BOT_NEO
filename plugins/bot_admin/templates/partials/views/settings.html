@@ -3,7 +3,7 @@
         <div class="panel-heading">
           <div>
             <h2>Fish Audio TTS</h2>
-            <p>保存后下一次“说话”命令生效。</p>
+            <p>保存后下一次“说话”命令或 AI 语音工具生效。AI 发语音还需在「AI Agent」页的 Tools 管理里勾选 send_voice 并放行副作用工具。</p>
           </div>
         </div>
 
@@ -41,6 +41,23 @@
           <label>
             <span>用户冷却（秒）</span>
             <input id="ttsCooldown" type="number" min="0" max="3600" step="1">
+          </label>
+
+          <label>
+            <span>AI 语音字数上限</span>
+            <input id="ttsAiMaxChars" type="number" min="1" max="1000" step="1">
+            <small>AI Agent 调用 send_voice 时单条语音的最大字符数（默认 80）</small>
+          </label>
+
+          <label>
+            <span>AI 语音冷却（秒）</span>
+            <input id="ttsAiCooldown" type="number" min="0" max="3600" step="1">
+            <small>同一会话两次 AI 语音之间的最小间隔（默认 10）</small>
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="ttsAiAllowAutoReply" type="checkbox">
+            <span>允许群聊自动回复使用语音</span>
           </label>
 
           <label>

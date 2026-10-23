@@ -770,7 +770,12 @@ multipart/form-data
     "max_chars": 120,
     "cooldown_seconds": 5,
     "cache_dir": "/tmp/hikari_bot/tts",
-    "cache_ttl_minutes": 60
+    "cache_ttl_minutes": 60,
+    "ai_tool": {
+      "max_chars": 80,
+      "cooldown_seconds": 10,
+      "allow_auto_reply": false
+    }
   }
 }
 ```
@@ -783,7 +788,7 @@ multipart/form-data
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `enabled` | boolean | 是否启用 TTS 命令 |
+| `enabled` | boolean | 是否启用 TTS 命令与 AI 语音工具 |
 | `selected_voice` | string | 当前使用的音色名，必须存在于 `voices` |
 | `voices` | array | 音色数组，元素为 `{ "name": "...", "reference_id": "..." }` |
 | `fish_audio` | object | Fish Audio 参数 |
@@ -794,6 +799,7 @@ multipart/form-data
 | `cooldown_seconds` | number | 用户冷却，0-3600 秒 |
 | `cache_dir` | string | TTS 缓存目录 |
 | `cache_ttl_minutes` | number | 缓存保留分钟数，1-10080 |
+| `ai_tool` | object | AI Agent `send_voice` 工具参数：`max_chars`（1-1000）、`cooldown_seconds`（0-3600）、`allow_auto_reply`（boolean） |
 
 `fish_audio.api_key` 留空时保留现有 Key。
 

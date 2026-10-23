@@ -419,6 +419,19 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `fish_audio.temperature`、`top_p` | 表现力参数 |
 | `max_chars` | 单次合成文本长度上限 |
 | `cooldown_seconds` | 同一用户冷却时间 |
+| `ai_tool.max_chars` | AI 调用 `send_voice` 时单条语音的长度上限（默认 80） |
+| `ai_tool.cooldown_seconds` | 同一会话两次 AI 语音的最小间隔（默认 10 秒） |
+| `ai_tool.allow_auto_reply` | 群聊自动回复是否允许发语音（默认 **false**） |
+
+### AI 语音（`send_voice`）
+
+`tts_speaker` 通过 `core.ai_tool_registry` 向 AI Agent 注册了 `send_voice` 工具，模型可以在想发语音时自己调用，不需要用户手动发 `说话`：
+
+- **默认不启用**：它是副作用工具（`readonly=False`）且默认关闭（`enabled_by_default=False`）。在后台「AI Agent」页的 Tools 管理里，先勾选「允许副作用 Tools」，再勾选 `send_voice`，保存后下一次对话生效。
+- **参数**：`text`（要说的内容，必填）和 `voice`（音色库名称，可选；省略时用当前会话音色/全局默认音色）。
+- **发送方式**：生成后以 QQ 语音消息（`record`）直接发到当前会话；随后模型仍会给一条简短的文字回复，提示词要求它不要重复语音内容。
+- **边界**：沿用 `说话` 命令的 Fish Audio 配置、音色、缓存与 `enabled` 开关；每次调用按会话冷却；群聊自动回复默认禁止发语音（`ai_tool.allow_auto_reply=true` 可放开）；TTS 失败只把错误返回给模型，不影响文字回复。
+- **超时**：语音生成受 `tools.tool_timeout_seconds`（默认 30 秒）约束；网络慢或文本较长时可在后台调大该值。
 
 ---
 
@@ -509,6 +522,9 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chat.sticker.enabled`、`packs`、`probability` | 回复跟随表情包开关（默认 false）、限定贴纸包列表（留空=全部）、跟随概率（0.0~1.0） |
 | `tools.files.enabled` | 是否启用人格资源只读工具（`read_persona_resource`） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
+| `tools.plugin_tools.allow_side_effects` | 是否放行副作用插件工具（默认 false；`send_voice` 等需要它） |
+| `tools.plugin_tools.enabled_names` | 启用名单；留空时按各工具的 `enabled_by_default` 决定，填了则只启用名单内的工具 |
+| `tools.plugin_tools.disabled_names` | 禁用名单，优先级高于启用 |
 | `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
 | `tools.wiki_prefetch.enabled` | 是否启用 wiki 优先预取（默认开，命中 wiki 别名时先跑一次 wiki） |
 | `tools.wiki_prefetch.web_search` | 预取 wiki 时是否顺带强制一次 `web_search`（默认开，关闭可省一次外部搜索） |
@@ -606,6 +622,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `ai_news_list` | ai_news | AI 资讯列表 |
 | `rss_latest` | rss_subscriber | RSS 订阅最新 |
 | `osu_user_lookup`、`osu_scores_lookup` 等 | osu_info | osu! 查询 |
+| `send_voice` | tts_speaker | 用 Fish Audio 生成并发送语音消息（副作用工具，默认关闭，需在 Tools 管理里放行并勾选） |
 
 #### 群聊工具与本地聊天记录
 

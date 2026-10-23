@@ -404,6 +404,10 @@ function renderTtsConfig() {
   $("#ttsReceiveTimeout").value = cfg.receive_timeout ?? 60;
   $("#ttsMaxChars").value = cfg.max_chars ?? 120;
   $("#ttsCooldown").value = cfg.cooldown_seconds ?? 5;
+  const aiTool = cfg.ai_tool || {};
+  $("#ttsAiMaxChars").value = aiTool.max_chars ?? 80;
+  $("#ttsAiCooldown").value = aiTool.cooldown_seconds ?? 10;
+  $("#ttsAiAllowAutoReply").checked = aiTool.allow_auto_reply === true;
   $("#ttsCacheDir").value = cfg.cache_dir || "/tmp/hikari_bot/tts";
   $("#ttsCacheTtl").value = cfg.cache_ttl_minutes ?? 60;
   $("#fishApiKey").value = "";

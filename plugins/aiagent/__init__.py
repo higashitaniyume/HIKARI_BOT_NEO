@@ -123,7 +123,9 @@ def _build_messages(
         "调用 bot_help 工具查询帮助文档后再回答，不要凭记忆编造。\n\n"
         "【工具使用】\n"
         "寒暄、道谢、情绪回应、简短确认不需要调用工具，直接自然回复；\n"
-        "只有确实需要外部信息或群资料时才调用工具。\n\n"
+        "只有确实需要外部信息或群资料时才调用工具。\n"
+        "如果工具列表里有 send_voice，用户想听语音、或一句话用语音说更自然时可以调用；"
+        "语音内容要短、口语化，不要念 Markdown、代码、链接或长段落，调用后文字回复不要再重复语音内容。\n\n"
         "【时间说明】\n"
         "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；\n"
         "回答与日期、时间有关的问题时以它为准，不要复述这个标记。"
@@ -336,7 +338,11 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         with ActivityScope(
             "aiagent", "replying", "回复用户", description=user_preview, profile=profile_name
         ):
-            reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
+            reply = await request_chat_completion(
+                cfg,
+                messages,
+                AIToolContext(bot=bot, event=event, agent_config=cfg, auto=auto),
+            )
         reply = strip_markdown(reply)
         max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
         short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)

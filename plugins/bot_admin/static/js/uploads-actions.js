@@ -233,6 +233,11 @@ function buildTtsPayload() {
     receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
     max_chars: Number($("#ttsMaxChars").value || 120),
     cooldown_seconds: Number($("#ttsCooldown").value || 5),
+    ai_tool: {
+      max_chars: Number($("#ttsAiMaxChars").value || 80),
+      cooldown_seconds: Number($("#ttsAiCooldown").value || 10),
+      allow_auto_reply: $("#ttsAiAllowAutoReply").checked,
+    },
     cache_dir: $("#ttsCacheDir").value.trim(),
     cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
   };

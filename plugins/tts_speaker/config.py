@@ -47,6 +47,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cooldown_seconds": 5,
     "cache_dir": "/tmp/hikari_bot/tts",
     "cache_ttl_minutes": 60,
+    # AI Agent 的 send_voice 工具（默认注册但不启用；启用方式见 ai_tool 模块）。
+    # 单条语音比手打命令更短，避免模型念长段落；冷却按会话计算。
+    "ai_tool": {
+        "max_chars": 80,
+        "cooldown_seconds": 10,
+        "allow_auto_reply": False,
+    },
 }
 
 

@@ -222,6 +222,8 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
     current = get_tts_config()
     current_fish = current.get("fish_audio") if isinstance(current.get("fish_audio"), dict) else {}
     input_fish = data.get("fish_audio") if isinstance(data.get("fish_audio"), dict) else {}
+    current_ai_tool = current.get("ai_tool") if isinstance(current.get("ai_tool"), dict) else {}
+    input_ai_tool = data.get("ai_tool") if isinstance(data.get("ai_tool"), dict) else {}
     current_voices = current.get("voices") if isinstance(current.get("voices"), list) else DEFAULT_VOICES
     voices = _parse_tts_voices(data.get("voices", current_voices), current_voices)
     selected_voice = str(data.get("selected_voice", current.get("selected_voice", ""))).strip()
@@ -289,6 +291,25 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
             minimum=1,
             maximum=10080,
         ),
+        "ai_tool": {
+            "max_chars": _parse_int(
+                input_ai_tool.get("max_chars", current_ai_tool.get("max_chars", 80)),
+                80,
+                minimum=1,
+                maximum=1000,
+            ),
+            "cooldown_seconds": _parse_int(
+                input_ai_tool.get("cooldown_seconds", current_ai_tool.get("cooldown_seconds", 10)),
+                10,
+                minimum=0,
+                maximum=3600,
+            ),
+            "allow_auto_reply": _parse_bool(
+                input_ai_tool.get(
+                    "allow_auto_reply", current_ai_tool.get("allow_auto_reply", False)
+                )
+            ),
+        },
     }
     return save_tts_config(next_config)
 
