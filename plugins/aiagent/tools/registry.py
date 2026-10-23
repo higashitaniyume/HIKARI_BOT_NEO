@@ -10,7 +10,7 @@ from core.config_loader import load_main_config
 
 from ..utils import safe_bool, safe_float
 
-from . import files, group, help, images, search
+from . import files, group, help, images, search, workspace
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
 
@@ -51,6 +51,8 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
         tools.append(search.definition(cfg))
     if images.enabled(cfg):
         tools.extend(images.definitions(cfg))
+    if workspace.enabled(cfg):
+        tools.extend(workspace.definitions(cfg))
     if files.enabled(cfg):
         tools.extend(files.definitions(cfg))
     if group.is_group_event(context):
@@ -96,6 +98,12 @@ async def execute_tool_call(
         except Exception as e:
             logger.warning("[AIAgent] 图片工具调用失败: %s", e)
             content = json.dumps({"error": f"images tool failed: {e}"}, ensure_ascii=False)
+    elif workspace.can_handle(name) and workspace.enabled(cfg):
+        try:
+            content = await _run_tool(workspace.execute(name, cfg, arguments, context), name, timeout)
+        except Exception as e:
+            logger.warning("[AIAgent] 工作区工具调用失败: %s", e)
+            content = json.dumps({"error": f"workspace tool failed: {e}"}, ensure_ascii=False)
     elif files.can_handle(name) and files.enabled(cfg):
         try:
             content = files.execute(name, cfg, arguments)

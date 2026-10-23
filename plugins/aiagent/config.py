@@ -200,11 +200,27 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "max_bytes": 10485760,
             "download_timeout_seconds": 20,
         },
-        "files": {
+        "workspace": {
             "enabled": True,
             "allow_writes": False,
+            "allow_delete": False,
+            "allow_send": False,
+            "allow_in_auto_reply": False,
+            "ingest_incoming": True,
+            "include_quoted_files": True,
+            "incoming_max_mb": 100,
+            "incoming_max_files": 3,
+            "incoming_retention_days": 7,
+            "max_file_mb": 20,
+            "max_total_mb": 300,
+            "max_files": 500,
+            "max_send_mb": 100,
+        },
+        "files": {
+            "enabled": True,
+
             "max_read_chars": 20000,
-            "max_write_chars": 20000,
+
         },
         # 群聊工具（只读，且只在当前群生效）：枚举本群成员、查成员名片资料、查成员发言
         "group_members": {

@@ -242,6 +242,13 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
             text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
             logger.debug("[AIAgent] 注入引用内容: %.80s", quoted_text)
 
+    from .attachments import collect_and_save_attachments
+
+    attachment_prompts = await collect_and_save_attachments(bot, event, cfg, is_auto_reply=auto)
+    if attachment_prompts:
+        att_prefix = "\n".join(attachment_prompts)
+        text = f"{att_prefix}\n{text}".strip() if text else att_prefix
+
     image_urls = collect_image_urls(event, cfg)
     if not text and not image_urls:
         return
