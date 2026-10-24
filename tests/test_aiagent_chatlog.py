@@ -260,6 +260,46 @@ class ReadTests(ChatLogTestCase):
         self.assertEqual(messages[0]["time"], format_timestamp(1700000000))
         self.assertTrue(messages[0]["time"])
 
+    def test_recent_messages_keep_chronological_order(self) -> None:
+        chatlog.record_message(_event(user_id=1, text="第一条"), _cfg())
+        chatlog.record_message(_event(user_id=2, text="第二条"), _cfg())
+        chatlog.record_message(_event(user_id=1, text="第三条"), _cfg())
+
+        messages = chatlog.read_recent_messages(_cfg(), GROUP_ID, limit=10)
+
+        self.assertEqual([m["text"] for m in messages], ["第一条", "第二条", "第三条"])
+        self.assertEqual(messages[0]["name"], "昵称")
+
+    def test_recent_messages_exclude_current_message(self) -> None:
+        chatlog.record_message(_event(user_id=1, text="上一条"), _cfg())
+        chatlog.record_message(_event(user_id=2, text="当前这条"), _cfg())
+
+        messages = chatlog.read_recent_messages(
+            _cfg(),
+            GROUP_ID,
+            limit=10,
+            exclude_text="当前这条",
+            exclude_user="2",
+        )
+
+        self.assertEqual([m["text"] for m in messages], ["上一条"])
+
+    def test_recent_messages_respects_char_budget(self) -> None:
+        for index in range(5):
+            chatlog.record_message(_event(user_id=index, text=f"第{index}条" + "x" * 20), _cfg())
+
+        messages = chatlog.read_recent_messages(_cfg(), GROUP_ID, limit=10, max_chars=30)
+
+        self.assertLessEqual(sum(len(m["text"]) for m in messages), 30)
+        self.assertEqual(messages[-1]["text"].startswith("第4条"), True)
+
+    def test_recent_messages_disabled_returns_empty(self) -> None:
+        chatlog.record_message(_event(text="你好"), _cfg())
+        self.assertEqual(
+            chatlog.read_recent_messages(_cfg(enabled=False), GROUP_ID, limit=10),
+            [],
+        )
+
 
 class PruneTests(ChatLogTestCase):
     def test_removes_expired_days(self) -> None:

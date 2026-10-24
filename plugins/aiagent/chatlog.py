@@ -320,6 +320,80 @@ def read_user_messages(
     return collected
 
 
+def read_recent_messages(
+    cfg: dict[str, Any],
+    group_id: Any,
+    *,
+    limit: int,
+    max_chars: int = 4000,
+    exclude_text: str = "",
+    exclude_user: Any = "",
+) -> list[dict[str, Any]]:
+    """返回本群最近的消息（按时间正序），用于主动接话时的上下文。
+
+    `exclude_text` / `exclude_user` 用于跳过触发本次接话的当前消息，
+    避免同一条消息在 system 上下文和 user 消息里出现两次。
+    """
+    if limit <= 0 or max_chars <= 0 or not enabled(cfg):
+        return []
+
+    group_dir = _group_dir(group_id)
+    if not group_dir.is_dir():
+        return []
+
+    target_text = str(exclude_text or "").strip()
+    target_user = str(exclude_user or "").strip()
+    excluded = False
+    collected: list[dict[str, Any]] = []
+
+    for path in sorted(group_dir.glob("*.jsonl"), reverse=True):
+        for line in reversed(_read_lines(path)):
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            text = str(entry.get("c") or "").strip()
+            if not text:
+                continue
+            user = str(entry.get("u") or "")
+            if (
+                not excluded
+                and target_text
+                and text == target_text
+                and (not target_user or user == target_user)
+            ):
+                excluded = True
+                continue
+            if len(text) > MAX_READ_TEXT_CHARS:
+                text = text[:MAX_READ_TEXT_CHARS]
+            timestamp = entry.get("t")
+            collected.append(
+                {
+                    "ts": int(timestamp) if isinstance(timestamp, int) else 0,
+                    "time": format_timestamp(timestamp),
+                    "user": user,
+                    "name": str(entry.get("n") or user),
+                    "text": text,
+                }
+            )
+            if len(collected) >= limit:
+                break
+        if len(collected) >= limit:
+            break
+
+    collected.reverse()
+    # 从最旧的消息开始丢弃，保证最新几条一定在上下文里
+    total = sum(len(item["text"]) for item in collected)
+    while len(collected) > 1 and total > max_chars:
+        total -= len(collected.pop(0)["text"])
+    return collected
+
+
 # ── 被动记录入口 ──────────────────────────────────────────────────────────
 
 

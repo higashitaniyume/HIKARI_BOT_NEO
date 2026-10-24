@@ -496,6 +496,18 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 minimum=0,
                 maximum=3600,
             ),
+            "context_messages": _parse_int(
+                input_auto_reply.get("context_messages", current_auto_reply.get("context_messages", 10)),
+                10,
+                minimum=0,
+                maximum=30,
+            ),
+            "context_max_chars": _parse_int(
+                input_auto_reply.get("context_max_chars", current_auto_reply.get("context_max_chars", 1200)),
+                1200,
+                minimum=0,
+                maximum=6000,
+            ),
         },
         "tools": {
             "search": {

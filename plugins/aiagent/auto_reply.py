@@ -59,6 +59,16 @@ def cooldown_seconds(cfg: dict[str, Any]) -> int:
     )
 
 
+def context_messages(cfg: dict[str, Any]) -> int:
+    """主动接话时附带多少条本群近期消息。"""
+    return safe_int(section(cfg).get("context_messages"), 10, minimum=0, maximum=30)
+
+
+def context_max_chars(cfg: dict[str, Any]) -> int:
+    """主动接话上下文的字符预算。"""
+    return safe_int(section(cfg).get("context_max_chars"), 1200, minimum=0, maximum=6000)
+
+
 def claim(cfg: dict[str, Any], group_id: Any, *, now: float | None = None) -> bool:
     """尝试占用一次自动回复机会；不在白名单、冷却中或上一次仍在生成时返回 False。"""
     if not allowed(cfg, group_id):

@@ -185,6 +185,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": False,
         "groups": [],
         "cooldown_seconds": 5,
+        # 主动接话时附带的本群近期消息，避免把每条群聊都当成对机器人说的。
+        "context_messages": 10,
+        "context_max_chars": 1200,
     },
     "tools": {
         "help": {

@@ -370,6 +370,8 @@ function buildAiAgentPayload() {
       enabled: $("#aiagentAutoReplyEnabled").checked,
       groups: parseAiAgentGroupIds($("#aiagentAutoReplyGroups").value),
       cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
+      context_messages: Number($("#aiagentAutoReplyContextMessages").value || 10),
+      context_max_chars: Number($("#aiagentAutoReplyContextChars").value || 1200),
     },
   };
 }

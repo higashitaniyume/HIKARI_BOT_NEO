@@ -730,6 +730,8 @@ function renderAiAgentConfig() {
   $("#aiagentAutoReplyEnabled").checked = autoReply.enabled === true;
   $("#aiagentAutoReplyGroups").value = (Array.isArray(autoReply.groups) ? autoReply.groups : []).join("\n");
   $("#aiagentAutoReplyCooldown").value = autoReply.cooldown_seconds ?? 5;
+  $("#aiagentAutoReplyContextMessages").value = autoReply.context_messages ?? 10;
+  $("#aiagentAutoReplyContextChars").value = autoReply.context_max_chars ?? 1200;
   updateAiAgentAutoReplyGroupCount();
   const wikiPrefetch = tools.wiki_prefetch || {};
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;

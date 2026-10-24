@@ -181,7 +181,9 @@
   "auto_reply": {
     "enabled": false,
     "groups": [],
-    "cooldown_seconds": 5
+    "cooldown_seconds": 5,
+    "context_messages": 10,
+    "context_max_chars": 1200
   },
   "quota": {
     "enabled": false,

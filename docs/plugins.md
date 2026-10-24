@@ -546,6 +546,8 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `auto_reply.enabled` | 是否启用群聊自动回复（全局段，默认 **false**） |
 | `auto_reply.groups` | 自动回复群白名单；**留空 = 不自动回复任何群**，不设数量上限 |
 | `auto_reply.cooldown_seconds` | 同一个群两次自动回复的最小间隔（默认 5 秒；0 = 不冷却，仍防并发） |
+| `auto_reply.context_messages` | 主动接话时附带的本群近期消息条数（默认 10，0 = 不带上下文） |
+| `auto_reply.context_max_chars` | 主动接话上下文字符预算（默认 1200，超出从最旧的消息丢弃） |
 | `quota.enabled` | 是否启用对话次数配额（默认关） |
 | `quota.default_user` / `default_group` | 默认额度：每日/每小时对话次数（0 = 不限额） |
 | `quota.user_overrides` / `group_overrides` | 指定用户/群的独立额度 |
@@ -698,7 +700,9 @@ UserData/aiagent_chatlog/<群号>/<YYYY-MM-DD>.jsonl
 "auto_reply": {
   "enabled": true,
   "groups": ["123456789", "987654321"],   // 可写多个；后台一行一个，也支持逗号/空格分隔
-  "cooldown_seconds": 5                   // 同一个群两次回复的最小间隔
+  "cooldown_seconds": 5,                  // 同一个群两次回复的最小间隔
+  "context_messages": 10,                 // 接话前读多少条本群近期消息
+  "context_max_chars": 1200               // 接话上下文字符预算
 }
 ```
 
@@ -706,11 +710,13 @@ UserData/aiagent_chatlog/<群号>/<YYYY-MM-DD>.jsonl
 - 普通消息按到达顺序逐条判断：冷却已过就回复；冷却内到达的消息**直接跳过，不会排队补发**。同一个群同时只允许一笔自动回复在生成，避免一次回复耗时较长时并发触发第二条。
 - 白名单不设数量上限；`auto_reply.groups` 留空表示不自动回复任何群。没有黑名单。自动回复仍受顶层 `permissions` 黑白名单约束（不在 AI 允许范围内的群不会回复）。
 - 后台的白名单是多行输入框：一行一个群号，也支持逗号/空格分隔；保存时会自动去重并忽略非数字项，输入框下方会显示当前识别到的群号数量。
+- **主动接话会带本群近期上下文**：读取最近 `context_messages` 条群消息（字符预算 `context_max_chars`）作为背景，并明确告诉模型这些消息不一定是在对它说。模型判断不需要插话时只输出 `<NO_REPLY>`，机器人不发送任何内容。
+- 自动回复**不使用引用回复**，避免看起来像在针对某个人回答；只有 @ / 引用 / 昵称 / 私聊的直接回复才引用原消息。
 - 自动回复复用原有 AI Agent 的全套行为：人格 skill、短期上下文、持久化记忆、图片输入、工具、`strip_markdown`、长回复合并转发。
 - 自动回复**不消耗**用户/群对话次数配额（`quota.*`）；成本由白名单群数量与冷却控制。直接回复（@ / 引用 / 昵称 / 私聊）仍按原规则扣配额。
 - 自动回复失败时静默处理（只写日志），不会在群里发「请求失败」之类的提示；直接回复仍会按失败原因提示。
 - 隐私提醒：开启自动回复后，白名单群里未被 @ 的普通消息也会进入模型请求；请只在接受这一点的群里开启。
-- 后台「AI Agent」页的「群聊自动回复」板块可开关、填群白名单、改冷却秒数。
+- 后台「AI Agent」页的「群聊自动回复」板块可开关、填群白名单、改冷却秒数与接话上下文参数。
 
 **人格 skill 路径：** `BotData/agent_personas/`，支持目录结构（优先读取 `SKILL.md`、`skill.md`、`PERSONA.md` 等）或直接指向 `.md`、`.txt`、`.json` 文件。支持引用补充资源文件。
 

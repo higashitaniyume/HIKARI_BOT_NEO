@@ -22,6 +22,7 @@ from core.stats_tracker import increment as stats_increment
 
 from . import auto_reply
 from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
+from .chatlog import read_recent_messages
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
@@ -75,6 +76,19 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
 
 _WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 
+# 主动接话时模型判断「不需要插话」的约定输出。
+AUTO_NO_REPLY = "<NO_REPLY>"
+
+
+def _is_auto_no_reply(reply: str) -> bool:
+    normalized = reply.strip().strip("。.!！?？~～`\"'").strip()
+    upper = normalized.upper()
+    return upper in {
+        AUTO_NO_REPLY,
+        "NO_REPLY",
+        "[NO_REPLY]",
+    } or upper.startswith(AUTO_NO_REPLY)
+
 
 def _time_notice(now: datetime | None = None) -> str:
     """当前时间提示。
@@ -86,12 +100,31 @@ def _time_notice(now: datetime | None = None) -> str:
     return f"【当前时间】{now.strftime('%Y-%m-%d %H:%M')} 星期{_WEEKDAYS[now.weekday()]}"
 
 
+def _format_auto_context(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return ""
+    lines = [
+        f"[{row.get('time') or ''}] {row.get('name') or row.get('user') or '群成员'}: {row.get('text') or ''}"
+        for row in rows
+        if str(row.get("text") or "").strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        "【本群最近聊天】以下只是群聊背景，不一定是发给你的，也不要逐条回答。\n"
+        + "\n".join(lines)
+    )
+
+
 def _build_messages(
     cfg: dict[str, Any],
     event: MessageEvent,
     session: str,
     user_text: str,
     image_blocks: list[dict[str, Any]] | None = None,
+    *,
+    auto: bool = False,
+    auto_context: str = "",
 ) -> list[dict[str, Any]]:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
 
@@ -132,6 +165,19 @@ def _build_messages(
         f"{file_image_prompt}"
     )
 
+    if auto:
+        stable_prompt += (
+            "\n\n【主动接话模式】\n"
+            "这是群聊里的一条普通消息，不一定是在对你说话；你是在群里主动接话，不是在回答私聊提问。\n"
+            "先结合本群最近的聊天判断：如果对方是在和别人对话、只是情绪表达/打卡/玩梗，"
+            "或者你插话没有实际信息量，就不要接话，只输出 "
+            f"{AUTO_NO_REPLY}，不要解释。\n"
+            "只有确实能补充有用信息、接住话头或自然参与话题时才回复；"
+            "回复要像群成员自然接话，不要用「你问我」「你的问题」这类表述，"
+            "也不要逐条回答上下文中别人的话。\n"
+            "不要使用引用回复，避免看起来像在针对某个人。"
+        )
+
     messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
 
     # Part 2: 长期记忆（只取稳定摘要区），放在历史之前。
@@ -152,6 +198,8 @@ def _build_messages(
     shared_context = read_shared_context(event, cfg)
     if shared_context:
         messages.append({"role": "system", "content": shared_context})
+    if auto and auto_context:
+        messages.append({"role": "system", "content": auto_context})
 
     # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
     # 当前时间由调用方拼进 user_text，保证「发送内容 = 写入历史的内容」。
@@ -247,9 +295,11 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
     text = normalize_text(text)
     cfg = get_config_for_event(event)
 
-    # 如果当前消息是引用回复，把被引用的消息内容附加到输入中
+    # 如果当前消息是引用回复，把被引用的消息内容附加到输入中。
+    # 主动接话模式下不这样做：那会让模型把「别人之间的引用对话」当成对自己说的，
+    # 群聊背景已经由 auto_context 提供。
     reply = getattr(event, "reply", None)
-    if reply is not None and reply.message:
+    if not auto and reply is not None and reply.message:
         quoted_text = reply.message.extract_plain_text().strip()
         if quoted_text:
             text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
@@ -331,7 +381,30 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         # 时间只拼进这一条 user 消息，并原样写入短期历史，保证下一轮的
         # 历史前缀和本轮实际发送的内容逐字节一致。
         prompt_text = f"{_time_notice()}\n{text}"
-        messages = _build_messages(cfg, event, session, prompt_text, image_blocks)
+        auto_context = ""
+        if auto and isinstance(event, GroupMessageEvent):
+            try:
+                rows = await asyncio.to_thread(
+                    read_recent_messages,
+                    cfg,
+                    event.group_id,
+                    limit=auto_reply.context_messages(cfg),
+                    max_chars=auto_reply.context_max_chars(cfg),
+                    exclude_text=text,
+                    exclude_user=event.get_user_id(),
+                )
+                auto_context = _format_auto_context(rows)
+            except Exception as e:  # 上下文读取失败不能影响接话本身
+                logger.debug("[AIAgent] 读取主动接话上下文失败: %s", e)
+        messages = _build_messages(
+            cfg,
+            event,
+            session,
+            prompt_text,
+            image_blocks,
+            auto=auto,
+            auto_context=auto_context,
+        )
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")
@@ -356,10 +429,19 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
                 timeout=request_timeout,
             )
         reply = strip_markdown(reply)
+        if auto and _is_auto_no_reply(reply):
+            logger.info("[AIAgent] 主动接话判断为不需要插话，跳过 -> %s", session)
+            return
         from .reply import send_reply
         from .sticker import maybe_send_sticker
 
-        sent = await send_reply(bot, event, reply, cfg)
+        sent = await send_reply(
+            bot,
+            event,
+            reply,
+            cfg,
+            quote=False if auto else None,
+        )
         if sent:
             # 只有真正送到聊天里才写入短期/持久记忆，否则下一轮会凭空
             # 多出一条用户从未看到的 assistant 回复。

@@ -79,11 +79,20 @@ def _quote_reply_enabled(chat_cfg: dict[str, Any]) -> bool:
     return safe_bool(chat_cfg.get("quote_reply"), True)
 
 
-def build_reply_message(event: MessageEvent, text: str, cfg: dict[str, Any]) -> Message:
-    """构建单条普通回复消息，按需添加引用。"""
+def build_reply_message(
+    event: MessageEvent,
+    text: str,
+    cfg: dict[str, Any],
+    quote: bool | None = None,
+) -> Message:
+    """构建单条普通回复消息，按需添加引用。
+
+    `quote` 显式传入时覆盖配置；主动接话传 False，避免看起来像在针对某个人。
+    """
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
     msg = Message(text)
-    if not _quote_reply_enabled(chat_cfg):
+    enabled = _quote_reply_enabled(chat_cfg) if quote is None else bool(quote)
+    if not enabled:
         return msg
     message_id = getattr(event, "message_id", None)
     if message_id is None or not str(message_id).strip():
@@ -216,11 +225,14 @@ async def send_reply(
     event: MessageEvent,
     reply: str,
     cfg: dict[str, Any],
+    *,
+    quote: bool | None = None,
 ) -> bool:
     """根据长度决定发送普通消息还是合并转发。
 
     返回是否至少成功送出一部分内容。调用方据此决定是否标记 delivered /
     退回配额 / 继续发送跟随贴纸，避免发送失败被静默吞掉。
+    `quote` 为 None 时使用配置；主动接话显式传 False。
     """
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
     single_message_chars = safe_int(
@@ -235,7 +247,11 @@ async def send_reply(
 
     # 1. 短回复：普通消息（支持引用）
     if single_message_chars > 0 and len(reply) <= single_message_chars:
-        return await send_with_timeout(bot, event, build_reply_message(event, reply, cfg))
+        return await send_with_timeout(
+            bot,
+            event,
+            build_reply_message(event, reply, cfg, quote),
+        )
 
     # 2. 长回复：智能分段合并转发
     trimmed_reply = reply

@@ -544,6 +544,16 @@
                   <input id="aiagentAutoReplyCooldown" type="number" min="0" max="3600" step="1">
                   <small>冷却内到达的消息不会回复，也不会排队补发</small>
                 </label>
+                <label>
+                  <span>接话上下文条数</span>
+                  <input id="aiagentAutoReplyContextMessages" type="number" min="0" max="30" step="1">
+                  <small>主动接话前读取本群最近多少条消息作为背景；0 = 不带上下文</small>
+                </label>
+                <label>
+                  <span>接话上下文字符上限</span>
+                  <input id="aiagentAutoReplyContextChars" type="number" min="0" max="6000" step="100">
+                  <small>超过预算时从最旧的消息开始丢弃</small>
+                </label>
               </div>
             </div>
           </section>
