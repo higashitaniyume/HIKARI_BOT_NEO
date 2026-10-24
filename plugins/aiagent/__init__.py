@@ -314,6 +314,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         return
 
     delivered = False
+    request_timeout = 120
     try:
         image_blocks = await build_image_blocks(image_urls, cfg)
         if image_blocks:
@@ -334,35 +335,57 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")
+        # 单条消息的总预算：模型调用 + 工具轮次都在这段时间内完成。
+        # 没有总预算时，工具循环可能把同一个用户的会话锁占住十几分钟。
+        request_timeout = safe_int(
+            chat_cfg.get("request_timeout_seconds"),
+            120,
+            minimum=15,
+            maximum=600,
+        )
         logger.info("[AIAgent] 使用配置「%s」回复 -> %s", profile_name, session)
         with ActivityScope(
             "aiagent", "replying", "回复用户", description=user_preview, profile=profile_name
         ):
-            reply = await request_chat_completion(
-                cfg,
-                messages,
-                AIToolContext(bot=bot, event=event, agent_config=cfg, auto=auto),
+            reply = await asyncio.wait_for(
+                request_chat_completion(
+                    cfg,
+                    messages,
+                    AIToolContext(bot=bot, event=event, agent_config=cfg, auto=auto),
+                ),
+                timeout=request_timeout,
             )
         reply = strip_markdown(reply)
-        max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
-        short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
-        remember(session, prompt_text, reply, cfg)
-        remember_shared(event, text, reply, cfg)
-        append_memory(event, cfg, text, reply)
-        # 额度已在 reserve_quota 时预留，成功回复无需再记账
-        # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
-        if should_summarize(session):
-            asyncio.create_task(summarize_session_memory(cfg, event))
-        mark_activity(session)
         from .reply import send_reply
         from .sticker import maybe_send_sticker
 
-        await send_reply(bot, event, reply, cfg)
-        await maybe_send_sticker(bot, event, cfg, is_auto_reply=auto)
-        if isinstance(event, GroupMessageEvent):
-            auto_reply.note_bot_spoke(cfg, event.group_id)
-        delivered = True
-        stats_increment(event, "ai_chat_sessions", 1)
+        sent = await send_reply(bot, event, reply, cfg)
+        if sent:
+            # 只有真正送到聊天里才写入短期/持久记忆，否则下一轮会凭空
+            # 多出一条用户从未看到的 assistant 回复。
+            remember(session, prompt_text, reply, cfg)
+            remember_shared(event, text, reply, cfg)
+            append_memory(event, cfg, text, reply)
+            mark_activity(session)
+            # 贴纸是锦上添花：文字都没发出去时不要再发一张空气贴纸。
+            await maybe_send_sticker(bot, event, cfg, is_auto_reply=auto)
+            if isinstance(event, GroupMessageEvent):
+                auto_reply.note_bot_spoke(cfg, event.group_id)
+            delivered = True
+            stats_increment(event, "ai_chat_sessions", 1)
+            # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
+            if should_summarize(session):
+                asyncio.create_task(summarize_session_memory(cfg, event))
+        else:
+            logger.warning(
+                "[AIAgent] 回复发送失败，不标记 delivered、退回预留额度 -> %s", session
+            )
+        mark_event_handled(event)
+    except asyncio.TimeoutError:
+        logger.warning("[AIAgent] 单次请求超过总预算 %.1fs，已取消 -> %s", request_timeout, session)
+        if auto:
+            return
+        await bot.send(event, Message(msg("aiagent.timeout")))
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)

@@ -840,7 +840,7 @@ multipart/form-data
       "model": "deepseek-flash",
       "temperature": 0.7,
       "top_p": 1.0,
-      "max_tokens": 1024,
+      "max_tokens": 8192,
       "timeout_seconds": 60,
       "proxy": ""
     },
@@ -916,7 +916,7 @@ multipart/form-data
 | `model.model` | string | 模型名称，不能为空 |
 | `model.temperature` | number | 0-2 |
 | `model.top_p` | number | 0-1 |
-| `model.max_tokens` | number | 1-32000 |
+| `model.max_tokens` | number | 1-131072；思考模式也占输出预算，建议 ≥16384 |
 | `model.timeout_seconds` | number | 5-600 |
 | `model.proxy` | string | 请求代理 |
 | `persona.skill_path` | string | 必须位于 `BotData/agent_personas` |
@@ -935,6 +935,8 @@ multipart/form-data
 | `chat.history_reply_chars` | number | 100-12000，存入短期对话记忆时的单条截断长度（默认 1200） |
 | `chat.quote_reply` | boolean | 回复时是否引用触发消息，默认 true |
 | `chat.max_history_messages` | number | 0-40 |
+| `chat.request_timeout_seconds` | number | 15-600，单次请求总预算（模型 + 所有工具轮次） |
+| `chat.max_concurrent_requests` | number | 1-64，全局同时进行的模型请求上限（默认 8） |
 | `chat.cooldown_seconds` | number | 0-3600 |
 | `chat.system_prompt_extra` | string | 附加系统提示词 |
 | `chat.sticker.enabled` | boolean | 是否启用回复跟随表情包（默认 false） |
@@ -951,7 +953,7 @@ multipart/form-data
 | `tools.workspace` | object | 会话隔离文件工作区配置，含 `enabled`、`allow_writes`、`allow_delete`、`allow_send`、`allow_in_auto_reply`、`ingest_incoming`、`include_quoted_files`、`incoming_max_mb` 等 |
 | `tools.files` | object | 人格资源文件工具配置（`enabled`、`max_read_chars`） |
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
-| `tools.max_tool_rounds` | number | 0-5 |
+| `tools.max_tool_rounds` | number | 0-10（运行时上限 10；建议 3-4） |
 | `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |
 | `auto_reply.groups` | string[] | 自动回复群白名单；留空 = 不自动回复任何群，不设数量上限（后台按行/逗号/空格输入，保存时去重） |
 | `auto_reply.cooldown_seconds` | number | 0-3600，同一个群两次自动回复的最小间隔 |

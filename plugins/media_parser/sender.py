@@ -13,7 +13,22 @@ from core.bot_identity import get_bot_name
 from core.bot_messages import get_message as msg
 from third_party.astrbot_plugin_media_parser.core.downloader.utils import strip_media_prefixes
 
+from .config import effective_max_send, effective_send_concurrency
+
 logger = logging.getLogger("HikariBot.MediaParserSender")
+
+# 全局媒体发送信号量：不同群同时解析大视频时，NapCat 的上传通道仍然可能被
+# 打满。限制同时在传的媒体批次，文字回复不必等待这个信号量。
+_send_semaphores: dict[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]] = {}
+
+
+def _send_semaphore(size: int) -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    entry = _send_semaphores.get(loop)
+    if entry is None or entry[0] != size:
+        entry = (size, asyncio.Semaphore(size))
+        _send_semaphores[loop] = entry
+    return entry[1]
 
 
 def _as_file_uri(path: str) -> str:
@@ -171,11 +186,22 @@ async def send_metadata_result(
     metadata: dict[str, Any],
     config: dict[str, Any],
 ) -> int:
+    """发送一条解析结果；全局并发受 send_strategy.max_concurrent_sends 限制。"""
+    async with _send_semaphore(effective_send_concurrency(config)):
+        return await _send_metadata_result_unlocked(bot, event, metadata, config)
+
+
+async def _send_metadata_result_unlocked(
+    bot: Bot,
+    event: Event,
+    metadata: dict[str, Any],
+    config: dict[str, Any],
+) -> int:
     """Send one processed metadata item. Returns the number of media nodes sent."""
     message_cfg = config.get("message") or {}
     text_cfg = message_cfg.get("text_metadata") or {}
     send_strategy = config.get("send_strategy") or {}
-    max_send = max(1, int(config.get("max_send", 8)))
+    max_send = effective_max_send(config)
     max_desc_chars = max(0, int(text_cfg.get("max_desc_chars", 600)))
     show_url = bool(text_cfg.get("show_url", True))
     simplified_platforms = message_cfg.get("simplified_output") or []

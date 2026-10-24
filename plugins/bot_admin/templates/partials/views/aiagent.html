@@ -78,7 +78,8 @@
 
           <label>
             <span>最大输出 Tokens</span>
-            <input id="aiagentMaxTokens" type="number" min="1" max="32000" step="1">
+            <input id="aiagentMaxTokens" type="number" min="1" max="131072" step="1">
+            <small>DeepSeek Flash 上限 393216；建议日常 32768，不要低于 16384（思考也占输出预算）。</small>
           </label>
 
           <label>
@@ -140,6 +141,18 @@
             <span>上下文字符预算</span>
             <input id="aiagentMaxContextChars" type="number" min="0" max="200000" step="1000">
             <small>短期上下文总字符上限，超出时从最旧的对话开始丢弃（0=不留上下文）</small>
+          </label>
+
+          <label>
+            <span>单次请求总预算（秒）</span>
+            <input id="aiagentRequestTimeout" type="number" min="15" max="600" step="5">
+            <small>模型调用 + 所有工具轮次的总时限；超时会取消并释放会话锁，避免一个用户卡住十几分钟。</small>
+          </label>
+
+          <label>
+            <span>全局并发请求数</span>
+            <input id="aiagentMaxConcurrent" type="number" min="1" max="64" step="1">
+            <small>同时打模型的请求上限，默认 8；高峰期超出的请求会排队而不是把上游打成 429。</small>
           </label>
 
           <label>
@@ -287,7 +300,7 @@
                 </label>
                 <label>
                   <span>最大 Tool 轮次</span>
-                  <input id="aiagentMaxToolRounds" type="number" min="0" max="50" step="1">
+                  <input id="aiagentMaxToolRounds" type="number" min="0" max="10" step="1">
                   <small>单次对话中 AI 调用工具的最大轮次（0=禁用工具调用）</small>
                 </label>
                 <label>

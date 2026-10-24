@@ -21,6 +21,7 @@ import io
 import ipaddress
 import json
 import logging
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -367,6 +368,29 @@ def _process_and_save_image(raw_bytes: bytes, fmt: str) -> Path:
         return out_path
 
 
+def _stage_image_for_napcat(path: Path) -> Path | None:
+    """把工作区图片复制到共享目录；NapCat 容器看不到 /app/UserData。"""
+    try:
+        source = path.resolve()
+        if not source.is_file():
+            return None
+        if _TEMP_IMAGE_DIR in source.parents:
+            return source
+        _TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.md5(str(source).encode("utf-8")).hexdigest()[:16]
+        target = _TEMP_IMAGE_DIR / f"{digest}{source.suffix.lower() or '.png'}"
+        if (
+            not target.is_file()
+            or target.stat().st_size != source.stat().st_size
+            or target.stat().st_mtime < source.stat().st_mtime
+        ):
+            shutil.copy2(source, target)
+        return target
+    except OSError as e:
+        logger.warning("[AIAgent] 图片复制到共享目录失败: %s -> %s", path, e)
+        return None
+
+
 # ── 执行工具 ──────────────────────────────────────────────────────────────
 
 
@@ -563,6 +587,21 @@ async def _execute_send(
     if not saved_image_paths:
         return json.dumps(
             {"ok": False, "sent": 0, "failed": failed, "error": "no images were successfully prepared"},
+            ensure_ascii=False,
+        )
+
+    # 工作区图片位于 /app/UserData，NapCat 看不到；统一转到共享目录再发。
+    staged_paths: list[Path] = []
+    for path in saved_image_paths:
+        staged = await asyncio.to_thread(_stage_image_for_napcat, path)
+        if staged is None:
+            failed.append({"target": str(path), "error": "file is not readable by NapCat"})
+        else:
+            staged_paths.append(staged)
+    saved_image_paths = staged_paths
+    if not saved_image_paths:
+        return json.dumps(
+            {"ok": False, "sent": 0, "failed": failed, "error": "no images are readable by NapCat"},
             ensure_ascii=False,
         )
 

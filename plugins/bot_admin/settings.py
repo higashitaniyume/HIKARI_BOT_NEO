@@ -380,6 +380,12 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "auto")), max_length=16).strip().lower()
     if vision_detail not in VISION_DETAILS:
         vision_detail = "auto"
+    reasoning_effort = _parse_str(
+        input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")),
+        max_length=16,
+    ).strip().lower()
+    if reasoning_effort not in {"low", "medium", "high", "max"}:
+        reasoning_effort = "high"
 
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
@@ -390,14 +396,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "model": model_name,
             "temperature": _parse_float(input_model.get("temperature", current_model.get("temperature", 0.7)), 0.7, minimum=0.0, maximum=2.0),
             "top_p": _parse_float(input_model.get("top_p", current_model.get("top_p", 1.0)), 1.0, minimum=0.0, maximum=1.0),
-            "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 1024)), 1024, minimum=1, maximum=32000),
+            "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 8192)), 8192, minimum=1, maximum=131072),
             "timeout_seconds": _parse_int(input_model.get("timeout_seconds", current_model.get("timeout_seconds", 60)), 60, minimum=5, maximum=600),
             "proxy": _parse_str(input_model.get("proxy", current_model.get("proxy", "")), max_length=512),
             "tool_choice": _validate_tool_choice(input_model.get("tool_choice", current_model.get("tool_choice", None))),
         },
         "thinking": {
             "enabled": _parse_bool(input_thinking.get("enabled", current_thinking.get("enabled", True))),
-            "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
+            "reasoning_effort": reasoning_effort,
         },
         "vision": {
             "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", True))),
@@ -432,6 +438,18 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "history_reply_chars": _parse_int(input_chat.get("history_reply_chars", current_chat.get("history_reply_chars", 1200)), 1200, minimum=100, maximum=12000),
             "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
             "max_context_chars": _parse_int(input_chat.get("max_context_chars", current_chat.get("max_context_chars", 12000)), 12000, minimum=0, maximum=200000),
+            "request_timeout_seconds": _parse_int(
+                input_chat.get("request_timeout_seconds", current_chat.get("request_timeout_seconds", 120)),
+                120,
+                minimum=15,
+                maximum=600,
+            ),
+            "max_concurrent_requests": _parse_int(
+                input_chat.get("max_concurrent_requests", current_chat.get("max_concurrent_requests", 8)),
+                8,
+                minimum=1,
+                maximum=64,
+            ),
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
             "short_reply_chars": _parse_int(
                 input_chat.get("single_message_chars", input_chat.get("short_reply_chars", current_chat.get("single_message_chars", current_chat.get("short_reply_chars", 1200)))),
@@ -540,7 +558,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "max_chars": _parse_int(input_user_messages.get("max_chars", current_user_messages.get("max_chars", 4000)), 4000, minimum=500, maximum=20000),
                 "allow_live_history": _parse_bool(input_user_messages.get("allow_live_history", current_user_messages.get("allow_live_history", True))),
             },
-            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
+            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=10),
             "wiki_prefetch": {
                 "enabled": _parse_bool(input_wiki_prefetch.get("enabled", current_wiki_prefetch.get("enabled", True))),
                 "web_search": _parse_bool(input_wiki_prefetch.get("web_search", current_wiki_prefetch.get("web_search", True))),

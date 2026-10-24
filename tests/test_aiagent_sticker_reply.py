@@ -13,12 +13,14 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from plugins.aiagent import reply as reply_mod
+from plugins.aiagent import sticker as sticker_mod
 from plugins.aiagent.sticker import _recent_sent, maybe_send_sticker
 
 
@@ -62,6 +64,21 @@ def _cfg(**sticker_overrides: Any) -> dict[str, Any]:
 class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         _recent_sent.clear()
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self._shared_patch = patch.object(
+            sticker_mod,
+            "SHARED_STICKER_DIR",
+            Path(self._tmpdir.name) / "shared",
+        )
+        self._shared_patch.start()
+        self.addCleanup(self._shared_patch.stop)
+
+    def _sticker(self, name: str) -> Path:
+        path = Path(self._tmpdir.name) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"GIF89a\x01\x00\x01\x00")
+        return path
 
     async def test_disabled_skips(self) -> None:
         bot = FakeBot()
@@ -103,7 +120,7 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("plugins.sticker_library.get_all_files")
     async def test_send_success_with_all_packs(self, mock_get_all: Any) -> None:
-        fake_file = Path("/tmp/fake_sticker.gif")
+        fake_file = self._sticker("fake_sticker.gif")
         mock_get_all.return_value = [fake_file]
 
         bot = FakeBot()
@@ -116,7 +133,7 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("plugins.sticker_library.get_packs_files")
     async def test_pack_filter_invokes_get_packs_files(self, mock_get_packs: Any) -> None:
-        fake_file = Path("/tmp/pack_a/stk.gif")
+        fake_file = self._sticker("pack_a/stk.gif")
         mock_get_packs.return_value = [fake_file]
 
         bot = FakeBot()
@@ -131,7 +148,7 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
     @patch("plugins.sticker_library.get_all_files")
     async def test_recent_dedup_and_recycle(self, mock_get_all: Any) -> None:
         # 6 张候选表情
-        candidates = [Path(f"/tmp/stk_{i}.gif") for i in range(6)]
+        candidates = [self._sticker(f"stk_{i}.gif") for i in range(6)]
         mock_get_all.return_value = candidates
 
         bot = FakeBot()
@@ -149,7 +166,7 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
 
     @patch("plugins.sticker_library.get_all_files")
     async def test_send_error_fails_silently(self, mock_get_all: Any) -> None:
-        fake_file = Path("/tmp/error_sticker.gif")
+        fake_file = self._sticker("error_sticker.gif")
         mock_get_all.return_value = [fake_file]
 
         bot = FakeBot()
@@ -157,12 +174,25 @@ class StickerReplyTests(unittest.IsolatedAsyncioTestCase):
         event = FakeEvent(group_id=123)
         cfg = _cfg()
 
-        res = await maybe_send_sticker(bot, event, cfg)
+        with patch.object(reply_mod, "SEND_RETRY_DELAY_SECONDS", 0):
+            res = await maybe_send_sticker(bot, event, cfg)
         self.assertFalse(res)
 
     @patch("plugins.sticker_library.get_all_files")
+    async def test_missing_sticker_file_is_skipped(self, mock_get_all: Any) -> None:
+        mock_get_all.return_value = [Path(self._tmpdir.name) / "missing.gif"]
+
+        bot = FakeBot()
+        event = FakeEvent(group_id=123)
+
+        res = await maybe_send_sticker(bot, event, _cfg())
+
+        self.assertFalse(res)
+        self.assertEqual([], bot.sent_messages)
+
+    @patch("plugins.sticker_library.get_all_files")
     async def test_send_timeout_fails_silently(self, mock_get_all: Any) -> None:
-        fake_file = Path("/tmp/hanging_sticker.gif")
+        fake_file = self._sticker("hanging_sticker.gif")
         mock_get_all.return_value = [fake_file]
 
         bot = HangingBot()

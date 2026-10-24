@@ -661,7 +661,7 @@ function renderAiAgentConfig() {
   $("#aiagentTimeout").value = model.timeout_seconds ?? 60;
   $("#aiagentTemperature").value = model.temperature ?? 0.7;
   $("#aiagentTopP").value = model.top_p ?? 1.0;
-  $("#aiagentMaxTokens").value = model.max_tokens ?? 1024;
+  $("#aiagentMaxTokens").value = model.max_tokens ?? 8192;
 
   const personaPath = persona.skill_path || "BotData/agent_personas/default";
   $("#aiagentPersonaPath").value = personaPath;
@@ -675,6 +675,8 @@ function renderAiAgentConfig() {
   $("#aiagentHistoryReplyChars").value = chat.history_reply_chars ?? 1200;
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
   $("#aiagentMaxContextChars").value = chat.max_context_chars ?? 12000;
+  $("#aiagentRequestTimeout").value = chat.request_timeout_seconds ?? 120;
+  $("#aiagentMaxConcurrent").value = chat.max_concurrent_requests ?? 8;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
   $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
   const sharedChat = chat.group_shared_context || {};

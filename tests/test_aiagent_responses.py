@@ -101,6 +101,42 @@ class ToolLoopResponsesAsyncClient:
         )
 
 
+class EmptyThenTextResponsesAsyncClient:
+    """第一次返回只有 reasoning 的 incomplete 响应，第二次返回正常文本。"""
+
+    post_payloads: list[dict[str, object]] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    async def post(self, url: str, *, headers: dict[str, str], json: dict[str, object]):
+        EmptyThenTextResponsesAsyncClient.post_payloads.append(json)
+        if len(EmptyThenTextResponsesAsyncClient.post_payloads) == 1:
+            return FakeResponse(
+                200,
+                {
+                    "status": "incomplete",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output": [{"type": "reasoning", "id": "rs_1", "content": []}],
+                    "output_text": "",
+                },
+            )
+        return FakeResponse(
+            200,
+            {
+                "status": "completed",
+                "output": [_message_item("msg_retry", "重试后的回复")],
+                "output_text": "重试后的回复",
+            },
+        )
+
+
 class DegradeResponsesAsyncClient:
     post_payloads: list[dict[str, object]] = []
 
@@ -273,7 +309,7 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
         # 工具定义保持稳定下发，不随消息内容切换
         self.assertIn("tools", payload)
 
-    async def test_plain_chat_with_reasoning_disabled_omits_reasoning(self) -> None:
+    async def test_plain_chat_with_reasoning_disabled_sends_none_effort(self) -> None:
         PlainResponsesAsyncClient.post_payloads = []
 
         with patch.object(responses_client.httpx, "AsyncClient", PlainResponsesAsyncClient):
@@ -283,9 +319,25 @@ class ResponsesClientTests(unittest.IsolatedAsyncioTestCase):
             )
 
         payload = PlainResponsesAsyncClient.post_payloads[0]
-        self.assertNotIn("reasoning", payload)
+        # DeepSeek Responses 关闭思考必须显式传 none；省略 reasoning 会回到默认开启
+        self.assertEqual(payload["reasoning"], {"effort": "none"})
         # 非思考模式仍发送温度参数
         self.assertIn("temperature", payload)
+
+    async def test_empty_incomplete_response_retries_with_bigger_budget(self) -> None:
+        EmptyThenTextResponsesAsyncClient.post_payloads = []
+
+        with patch.object(responses_client.httpx, "AsyncClient", EmptyThenTextResponsesAsyncClient):
+            reply = await responses_client.request_response_completion(
+                base_cfg(),
+                [{"role": "system", "content": "你是测试助手。"}, {"role": "user", "content": "想一个很难的问题"}],
+            )
+
+        self.assertEqual(reply, "重试后的回复")
+        self.assertEqual(2, len(EmptyThenTextResponsesAsyncClient.post_payloads))
+        retry_payload = EmptyThenTextResponsesAsyncClient.post_payloads[1]
+        self.assertEqual(retry_payload["reasoning"], {"effort": "none"})
+        self.assertEqual(retry_payload["max_output_tokens"], 16384)
 
     async def test_builtin_search_tool_is_declared_as_function(self) -> None:
         tools = tool_registry.available_tools(base_cfg())

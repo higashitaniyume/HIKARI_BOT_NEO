@@ -119,6 +119,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_history_messages": 10,
         # 短期上下文总字符预算：超出时裁到一半，避免每轮都触发裁剪（前缀缓存友好）
         "max_context_chars": 12000,
+        # 单条消息的总预算（秒）：模型调用 + 所有工具轮次都受它约束。
+        # 超过后取消本次请求并释放会话锁，不再无限期占用。
+        "request_timeout_seconds": 120,
+        # 全局同时进行中的模型请求数；高峰期用来保护上游，避免 429。
+        "max_concurrent_requests": 8,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
         # 群聊公共上下文（默认关闭）：开启后把本群最近几轮「成员 ↔ 机器人」的对话

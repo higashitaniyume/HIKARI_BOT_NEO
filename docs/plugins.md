@@ -497,6 +497,8 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chat.cooldown_seconds` | 冷却秒数，默认 3 |
 | `chat.max_history_messages` | 上下文保留消息数目标值（实际最多留 2 倍，超过才一次性裁回，减少前缀变化） |
 | `chat.max_context_chars` | 短期上下文总字符预算（默认 12000，超出时裁到一半；0 = 不留上下文） |
+| `chat.request_timeout_seconds` | 单次请求总预算（默认 120 秒，模型调用 + 所有工具轮次；超时取消并释放会话锁） |
+| `chat.max_concurrent_requests` | 全局同时进行的模型请求上限（默认 8，超出的请求排队） |
 | `chat.group_shared_context.enabled` | 是否注入群聊公共上下文（默认 **false**） |
 | `chat.group_shared_context.max_messages` | 公共上下文保留的消息条数（默认 10） |
 | `chat.system_prompt_extra` | 额外系统提示词 |
@@ -525,7 +527,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `tools.plugin_tools.allow_side_effects` | 是否放行副作用插件工具（默认 false；`send_voice` 等需要它） |
 | `tools.plugin_tools.enabled_names` | 启用名单；留空时按各工具的 `enabled_by_default` 决定，填了则只启用名单内的工具 |
 | `tools.plugin_tools.disabled_names` | 禁用名单，优先级高于启用 |
-| `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
+| `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4，运行时上限 10 |
 | `tools.wiki_prefetch.enabled` | 是否启用 wiki 优先预取（默认开，命中 wiki 别名时先跑一次 wiki） |
 | `tools.wiki_prefetch.web_search` | 预取 wiki 时是否顺带强制一次 `web_search`（默认开，关闭可省一次外部搜索） |
 | `tools.tool_timeout_seconds` | 单个工具调用超时（默认 30 秒；超时按工具报错返回，不拖住整轮回复） |
