@@ -64,6 +64,24 @@ DEFAULT_QZONE_CONFIG: dict[str, Any] = {
             },
         ],
     },
+    # 自动回复自己说说下的评论（默认关闭；首次开启只做基线，不补回历史评论）
+    "comment_reply": {
+        "enabled": False,
+        "interval_minutes": 60,
+        "posts": 3,
+        "per_run_limit": 2,
+        "daily_limit": 20,
+        "mode": "ai",
+        "template": "谢谢{name}的评论喵～",
+        "baseline_on_first_run": True,
+        "state_path": "UserData/qzone_comment_state.json",
+        "ai": {
+            "max_chars": 60,
+            "max_tokens": 300,
+            "timeout_seconds": 60,
+            "extra_prompt": "",
+        },
+    },
     "permissions": copy.deepcopy(DEFAULT_ACCESS_RULES),
 }
 
@@ -80,6 +98,36 @@ def get_config() -> dict[str, Any]:
         "timeout": _clamp_int(cfg.get("timeout"), default=20, minimum=5, maximum=120),
         "permissions": cfg.get("permissions") if isinstance(cfg.get("permissions"), dict) else {},
         "schedule": normalize_schedule(cfg.get("schedule")),
+        "comment_reply": normalize_comment_reply(cfg.get("comment_reply")),
+    }
+
+
+def normalize_comment_reply(raw: Any) -> dict[str, Any]:
+    source = raw if isinstance(raw, dict) else {}
+    ai_raw = source.get("ai") if isinstance(source.get("ai"), dict) else {}
+    mode = str(source.get("mode") or "ai").strip().casefold()
+    if mode not in {"ai", "template"}:
+        mode = "ai"
+    template = str(source.get("template") or "谢谢{name}的评论喵～").strip()
+    return {
+        "enabled": _as_bool(source.get("enabled"), False),
+        "interval_minutes": _clamp_int(source.get("interval_minutes"), default=60, minimum=5, maximum=1440),
+        "posts": _clamp_int(source.get("posts"), default=3, minimum=1, maximum=10),
+        "per_run_limit": _clamp_int(source.get("per_run_limit"), default=2, minimum=1, maximum=10),
+        "daily_limit": _clamp_int(source.get("daily_limit"), default=20, minimum=0, maximum=200),
+        "mode": mode,
+        "template": template or "谢谢{name}的评论喵～",
+        "baseline_on_first_run": _as_bool(source.get("baseline_on_first_run"), True),
+        "state_path": str(source.get("state_path") or "UserData/qzone_comment_state.json").strip()
+        or "UserData/qzone_comment_state.json",
+        "ai": {
+            "max_chars": _clamp_int(ai_raw.get("max_chars"), default=60, minimum=10, maximum=300),
+            "max_tokens": _clamp_int(ai_raw.get("max_tokens"), default=300, minimum=64, maximum=2048),
+            "timeout_seconds": _clamp_int(
+                ai_raw.get("timeout_seconds"), default=60, minimum=5, maximum=600
+            ),
+            "extra_prompt": str(ai_raw.get("extra_prompt") or "").strip(),
+        },
     }
 
 

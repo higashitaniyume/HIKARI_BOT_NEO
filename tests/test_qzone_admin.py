@@ -105,6 +105,39 @@ class SaveConfigTests(_TempWorkspace, unittest.TestCase):
         self.assertIn("permissions", raw)
         self.assertIn("whitelist", raw["permissions"])
 
+    def test_comment_reply_section_is_saved(self) -> None:
+        state = qzone_admin.save_qzone_config(
+            {
+                "comment_reply": {
+                    "enabled": True,
+                    "interval_minutes": 30,
+                    "mode": "template",
+                    "template": "谢谢{name}喵",
+                    "ai": {"max_chars": 40},
+                }
+            }
+        )
+
+        raw = json.loads(self._config_path().read_text(encoding="utf-8"))
+        self.assertTrue(raw["comment_reply"]["enabled"])
+        self.assertEqual(raw["comment_reply"]["interval_minutes"], 30)
+        self.assertEqual(raw["comment_reply"]["mode"], "template")
+        self.assertEqual(raw["comment_reply"]["template"], "谢谢{name}喵")
+        self.assertEqual(raw["comment_reply"]["ai"]["max_chars"], 40)
+        self.assertTrue(state["config"]["comment_reply"]["enabled"])
+        self.assertIn("comment_reply_status", state)
+
+
+class CheckCommentsTests(_TempWorkspace, unittest.TestCase):
+    def test_check_comments_now_wraps_result(self) -> None:
+        with patch.object(qzone_admin, "_submit", _fake_submit({"replied": 1})), patch(
+            "plugins.qzone.comment_reply.status_snapshot", return_value={"enabled": True}
+        ):
+            result = qzone_admin.check_comments_now()
+
+        self.assertEqual(result["result"], {"replied": 1})
+        self.assertEqual(result["status"], {"enabled": True})
+
 
 class PublishValidationTests(_TempWorkspace, unittest.TestCase):
     def test_empty_text_is_rejected(self) -> None:

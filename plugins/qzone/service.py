@@ -106,6 +106,17 @@ class CommentItem:
     depth: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class CommentThread:
+    """一条一级评论及其下面的回复。"""
+
+    comment: CommentItem
+    replies: tuple[CommentItem, ...] = ()
+
+    def replied_by(self, uin: str) -> bool:
+        return any(reply.uin == str(uin) for reply in self.replies)
+
+
 # ── 登录态 ────────────────────────────────────────────────
 
 
@@ -347,7 +358,24 @@ async def fetch_comments(
     num: int = 20,
     timeout: int = 20,
 ) -> list[CommentItem]:
-    """读取某条说说（自己的或好友的）下的评论。"""
+    """读取某条说说（自己的或好友的）下的评论，回复会展开成 depth=1。"""
+    threads = await fetch_comment_threads(bot, post_uin, tid, num=num, timeout=timeout)
+    items: list[CommentItem] = []
+    for thread in threads:
+        items.append(thread.comment)
+        items.extend(thread.replies)
+    return items
+
+
+async def fetch_comment_threads(
+    bot: Any,
+    post_uin: str,
+    tid: str,
+    *,
+    num: int = 20,
+    timeout: int = 20,
+) -> list[CommentThread]:
+    """读取评论并按「一级评论 + 其下回复」分组。"""
     auth = await fetch_auth(bot)
     params = {
         "uin": str(post_uin),
@@ -372,14 +400,13 @@ async def fetch_comments(
         raise QzoneActionError(message or f"读取评论失败（code={code}）")
 
     raw_items = payload.get("commentlist")
-    items: list[CommentItem] = []
+    threads: list[CommentThread] = []
     for raw in raw_items if isinstance(raw_items, list) else []:
-        item = _comment_item_from_raw(raw)
-        if item is None:
+        comment = _comment_item_from_raw(raw)
+        if comment is None:
             continue
-        items.append(item)
-        items.extend(_comment_replies_from_raw(raw, item))
-    return items
+        threads.append(CommentThread(comment=comment, replies=tuple(_comment_replies_from_raw(raw, comment))))
+    return threads
 
 
 def _comment_item_from_raw(raw: Any) -> CommentItem | None:

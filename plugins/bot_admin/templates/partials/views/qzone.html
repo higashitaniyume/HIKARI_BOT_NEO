@@ -121,4 +121,70 @@
           </div>
         </div>
       </section>
+
+      <section class="panel qzone-comment-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>自动回复评论</h2>
+            <p id="qzoneCommentSummary">加载中...</p>
+          </div>
+          <div class="panel-actions">
+            <button type="button" id="qzoneCheckCommentsBtn" class="ghost">立即检查</button>
+          </div>
+        </div>
+
+        <div class="settings-form qzone-comment-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="qzoneCommentEnabled" type="checkbox">
+            <span>启用评论自动回复</span>
+          </label>
+
+          <label>
+            <span>检查间隔（分钟）</span>
+            <input id="qzoneCommentInterval" type="number" min="5" max="1440" step="5">
+          </label>
+
+          <label>
+            <span>检查最近几条说说</span>
+            <input id="qzoneCommentPosts" type="number" min="1" max="10" step="1">
+          </label>
+
+          <label>
+            <span>每次最多回复</span>
+            <input id="qzoneCommentPerRun" type="number" min="1" max="10" step="1">
+          </label>
+
+          <label>
+            <span>每天最多回复</span>
+            <input id="qzoneCommentDaily" type="number" min="0" max="200" step="1">
+          </label>
+
+          <label>
+            <span>回复方式</span>
+            <select id="qzoneCommentMode">
+              <option value="ai">AI 按人格生成</option>
+              <option value="template">固定模板</option>
+            </select>
+          </label>
+
+          <label>
+            <span>回复字数上限</span>
+            <input id="qzoneCommentMaxChars" type="number" min="10" max="300" step="5">
+          </label>
+
+          <label class="wide-field">
+            <span>模板文案（可用 {name}、{content}）</span>
+            <input id="qzoneCommentTemplate" maxlength="200" placeholder="谢谢{name}的评论喵～">
+          </label>
+
+          <label class="wide-field">
+            <span>额外写作要求（可选，人格仍取 AI 配置）</span>
+            <textarea id="qzoneCommentExtraPrompt" rows="2" placeholder="例如：只回一句、别问问题"></textarea>
+          </label>
+
+          <div class="wide-field qzone-actions-row">
+            <p id="qzoneCommentStatus" class="qzone-status"></p>
+          </div>
+        </div>
+      </section>
     </section>

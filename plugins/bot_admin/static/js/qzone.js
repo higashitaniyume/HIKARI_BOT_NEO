@@ -34,6 +34,75 @@ function renderQzonePage() {
   renderQzoneJobs(schedule.jobs || []);
   renderQzoneScheduleSummary(data);
   renderQzonePersona(data.persona || {});
+  renderQzoneCommentReply(cfg.comment_reply || {}, data.comment_reply_status || {});
+}
+
+function renderQzoneCommentReply(section, status) {
+  const enabled = section.enabled === true;
+  $("#qzoneCommentEnabled").checked = enabled;
+  $("#qzoneCommentInterval").value = section.interval_minutes ?? 60;
+  $("#qzoneCommentPosts").value = section.posts ?? 3;
+  $("#qzoneCommentPerRun").value = section.per_run_limit ?? 2;
+  $("#qzoneCommentDaily").value = section.daily_limit ?? 20;
+  $("#qzoneCommentMode").value = section.mode === "template" ? "template" : "ai";
+  $("#qzoneCommentMaxChars").value = (section.ai || {}).max_chars ?? 60;
+  $("#qzoneCommentTemplate").value = section.template || "";
+  $("#qzoneCommentExtraPrompt").value = (section.ai || {}).extra_prompt || "";
+
+  const interval = Number(section.interval_minutes || 60);
+  const summary = $("#qzoneCommentSummary");
+  if (summary) {
+    summary.textContent = `每 ${interval} 分钟检查最近 ${section.posts ?? 3} 条说说；` +
+      "自己没回过的评论会按「" + (section.mode === "template" ? "固定模板" : "AI 人格") + "」回一句，" +
+      "首次开启只做基线、不补回历史评论。";
+  }
+
+  const lines = [];
+  lines.push(enabled ? "已启用" : "已关闭");
+  if (status.baseline_done) {
+    lines.push(`基线已完成，已记录 ${status.seen ?? 0} 条评论`);
+  } else {
+    lines.push("还没做基线（下次检查会先记录现有评论，不回复）");
+  }
+  lines.push(`今天已回 ${status.replied_today ?? 0} / ${status.daily_limit ?? 20} 条`);
+  if (status.last_run) lines.push(`上次检查 ${status.last_run}`);
+  setQzoneStatus("#qzoneCommentStatus", lines.join(" · "));
+}
+
+async function checkQzoneComments() {
+  const button = $("#qzoneCheckCommentsBtn");
+  button.disabled = true;
+  setQzoneStatus("#qzoneCommentStatus", "⏳ 正在检查评论...");
+  try {
+    const res = await fetch("/api/qzone-check-comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const data = await readJsonResponse(res, "检查评论失败");
+    const result = data.result || {};
+    if (result.skipped) {
+      setQzoneStatus("#qzoneCommentStatus", "评论自动回复当前是关闭的。", true);
+    } else if (result.baseline !== undefined) {
+      setQzoneStatus("#qzoneCommentStatus", `✅ 基线完成：记录 ${result.baseline} 条历史评论，本次没有回复。`);
+    } else {
+      setQzoneStatus(
+        "#qzoneCommentStatus",
+        `✅ 检查完成：回复 ${result.replied ?? 0} 条，待回复 ${result.pending ?? 0} 条，失败 ${result.failed ?? 0} 条。`,
+      );
+    }
+    await fetchQzoneConfig(false);
+    renderQzoneCommentReply(
+      (state.qzoneState?.config || {}).comment_reply || {},
+      state.qzoneState?.comment_reply_status || {},
+    );
+    renderQzoneScheduleSummary(state.qzoneState || {});
+  } catch (err) {
+    setQzoneStatus("#qzoneCommentStatus", `❌ ${err.message}`, true);
+    showToast(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderQzoneScheduleSummary(data) {
@@ -187,6 +256,19 @@ async function saveQzoneConfig() {
           .map((item) => item.trim())
           .filter(Boolean),
         jobs: collectQzoneJobs(),
+      },
+      comment_reply: {
+        enabled: $("#qzoneCommentEnabled").checked,
+        interval_minutes: Number($("#qzoneCommentInterval").value) || 60,
+        posts: Number($("#qzoneCommentPosts").value) || 3,
+        per_run_limit: Number($("#qzoneCommentPerRun").value) || 2,
+        daily_limit: Number($("#qzoneCommentDaily").value) || 0,
+        mode: $("#qzoneCommentMode").value,
+        template: $("#qzoneCommentTemplate").value.trim(),
+        ai: {
+          max_chars: Number($("#qzoneCommentMaxChars").value) || 60,
+          extra_prompt: $("#qzoneCommentExtraPrompt").value.trim(),
+        },
       },
     };
     const res = await fetch("/api/qzone-config", {

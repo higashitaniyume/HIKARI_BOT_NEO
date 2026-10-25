@@ -99,6 +99,7 @@ ROUTE_DEFS: list[RouteEntry] = [
     RouteEntry({"POST"}, "/api/qzone-config", "api_qzone_config_save", "_handle_qzone_config_save"),
     RouteEntry({"POST"}, "/api/qzone-generate", "api_qzone_generate", "_handle_qzone_generate"),
     RouteEntry({"POST"}, "/api/qzone-publish", "api_qzone_publish", "_handle_qzone_publish"),
+    RouteEntry({"POST"}, "/api/qzone-check-comments", "api_qzone_check_comments", "_handle_qzone_check_comments"),
     RouteEntry({"POST"}, "/api/push-run", "api_push_run", "_handle_push_run"),
     RouteEntry({"POST"}, "/api/access-rules", "api_access_rules_save", "_handle_access_rules_save"),
     RouteEntry({"POST"}, "/api/guard-config", "api_guard_config_save", "_handle_guard_config_save"),

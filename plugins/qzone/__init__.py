@@ -10,7 +10,7 @@ from core.access_control import is_event_allowed
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 
-from . import ai_tools, schedule, service  # noqa: F401  (ai_tools/schedule 负责注册工具与定时循环)
+from . import ai_tools, comment_reply, schedule, service  # noqa: F401
 from .config import VISIBLE_LABELS, VISIBLE_VALUES, get_config
 from .service import CommentItem, FeedItem, MoodItem
 
@@ -443,6 +443,41 @@ async def handle_comment(ctx: CommandContext) -> None:
 
     logger.info("[QZone] 已评论 uin=%s tid=%s len=%d", ctx.bot.self_id, item.tid, len(content))
     await ctx.send(msg("qzone.comment_ok", nickname=item.nickname))
+
+
+@command(
+    "检查评论",
+    aliases=("回复空间评论",),
+    description="立即检查并自动回复空间评论",
+    usage="检查评论",
+    category="空间",
+    superuser_only=True,
+)
+async def handle_check_comments(ctx: CommandContext) -> None:
+    cfg = get_config()
+    if not cfg["enabled"] or not is_event_allowed(cfg, ctx.event):
+        return
+
+    try:
+        result = await comment_reply.check_once(force=True)
+    except (service.QzoneLoginError, service.QzoneActionError, RuntimeError) as exc:
+        await _reply_failure(ctx, exc, action="check_comments")
+        return
+
+    if result.get("skipped"):
+        await ctx.send(msg("qzone.comments_disabled"))
+        return
+    if "baseline" in result:
+        await ctx.send(msg("qzone.comments_baseline", count=int(result.get("baseline") or 0)))
+        return
+    await ctx.send(
+        msg(
+            "qzone.comments_checked",
+            replied=int(result.get("replied") or 0),
+            pending=int(result.get("pending") or 0),
+            failed=int(result.get("failed") or 0),
+        )
+    )
 
 
 @command(

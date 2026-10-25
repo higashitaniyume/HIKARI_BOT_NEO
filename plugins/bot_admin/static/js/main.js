@@ -13,6 +13,7 @@ $("#qzoneRefreshBtn").addEventListener("click", () => fetchQzoneConfig().then(()
 $("#qzoneAddJobBtn").addEventListener("click", addQzoneJob);
 $("#qzoneGenerateBtn").addEventListener("click", () => generateQzoneDraft());
 $("#qzonePublishBtn").addEventListener("click", () => publishQzoneDraft());
+$("#qzoneCheckCommentsBtn").addEventListener("click", () => checkQzoneComments());
 $("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);
 for (const form of document.querySelectorAll("[data-guard-plugin]")) {

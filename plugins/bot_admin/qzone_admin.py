@@ -94,13 +94,14 @@ def _file_meta() -> dict[str, Any] | None:
 
 
 def qzone_config_state() -> dict[str, Any]:
-    from plugins.qzone import schedule
+    from plugins.qzone import comment_reply, schedule
     from plugins.qzone.config import get_config
 
     cfg = get_config()
     return {
         "config": cfg,
         "status": schedule.status_snapshot(),
+        "comment_reply_status": comment_reply.status_snapshot(),
         "persona": _persona_info(),
         "file": _file_meta(),
         "loop_ready": bool(_main_loop is not None and _main_loop.is_running()),
@@ -176,6 +177,33 @@ def save_qzone_config(payload: dict[str, Any]) -> dict[str, Any]:
             merged["jobs"] = _normalize_jobs(jobs_payload)
 
         raw["schedule"] = merged
+
+    comment_payload = payload.get("comment_reply")
+    if isinstance(comment_payload, dict):
+        merged_comment = raw.get("comment_reply") if isinstance(raw.get("comment_reply"), dict) else {}
+        merged_comment = copy.deepcopy(merged_comment)
+        for key in (
+            "enabled",
+            "interval_minutes",
+            "posts",
+            "per_run_limit",
+            "daily_limit",
+            "mode",
+            "template",
+            "baseline_on_first_run",
+            "state_path",
+        ):
+            if key in comment_payload:
+                merged_comment[key] = comment_payload[key]
+        ai_payload = comment_payload.get("ai")
+        if isinstance(ai_payload, dict):
+            ai = merged_comment.get("ai") if isinstance(merged_comment.get("ai"), dict) else {}
+            ai = dict(ai)
+            for key in ("max_chars", "max_tokens", "timeout_seconds", "extra_prompt"):
+                if key in ai_payload:
+                    ai[key] = ai_payload[key]
+            merged_comment["ai"] = ai
+        raw["comment_reply"] = merged_comment
 
     raw.setdefault("permissions", copy.deepcopy(DEFAULT_ACCESS_RULES))
     _write_raw_config(raw)
@@ -274,6 +302,14 @@ def publish_text(payload: dict[str, Any]) -> dict[str, Any]:
         "visible_label": VISIBLE_LABELS.get(visible_value, "公开"),
         "length": len(text),
     }
+
+
+def check_comments_now() -> dict[str, Any]:
+    """后台「立即检查」：跑一轮评论检查（首次会做基线，不发回复）。"""
+    from plugins.qzone import comment_reply
+
+    result = _submit(comment_reply.check_once(force=True), timeout=240.0)
+    return {"result": result, "status": comment_reply.status_snapshot()}
 
 
 try:  # 记录机器人主循环，供后台线程把协程丢回去执行

@@ -1188,6 +1188,17 @@ ID 由名称自动生成 slug（`[A-Za-z0-9_-]{1,32}`），纯中文名回落 `p
       "ai": {"enabled": true, "max_chars": 120, "extra_prompt": ""},
       "fallback_texts": ["…"],
       "jobs": [{"id": "morning", "enabled": true, "time": "08:30", "days": [], "visible": "public", "prompt": "…"}]
+    },
+    "comment_reply": {
+      "enabled": false,
+      "interval_minutes": 60,
+      "posts": 3,
+      "per_run_limit": 2,
+      "daily_limit": 20,
+      "mode": "ai",
+      "template": "谢谢{name}的评论喵～",
+      "baseline_on_first_run": true,
+      "ai": {"max_chars": 60, "max_tokens": 300, "timeout_seconds": 60, "extra_prompt": ""}
     }
   },
   "status": {
@@ -1277,6 +1288,22 @@ ID 由名称自动生成 slug（`[A-Za-z0-9_-]{1,32}`），纯中文名回落 `p
 - `text` 不能为空，长度不得超过配置的 `max_length`，否则 `400`。
 - `visible` 只接受 `public` / `friends` / `private`，非法值回落到配置的 `default_visible`。
 - `409`：登录态失效、NapCat 不在线或空间接口拒绝；`504`：超时。
+
+#### `POST /api/qzone-check-comments`
+
+立刻跑一轮评论检查（后台「立即检查」按钮）。首次运行只做基线、不发送回复。
+
+响应：
+
+```json
+{
+  "result": {"replied": 1, "pending": 2, "failed": 0, "posts": 3},
+  "status": {"enabled": true, "interval_minutes": 60, "mode": "ai", "replied_today": 3, "seen": 12, "baseline_done": true, "last_run": "2026-10-25 18:00"}
+}
+```
+
+首次（未做基线）时 `result` 为 `{"baseline": 4, "posts": 3}`；总开关关闭且为手动触发时仍会执行。
+可能状态码：`409`（未登录 / 机器人未连接）、`504`（超时）。
 
 ### RSS 配置
 

@@ -43,6 +43,23 @@
       }
     ]
   },
+  "comment_reply": {
+    "enabled": false,
+    "interval_minutes": 60,
+    "posts": 3,
+    "per_run_limit": 2,
+    "daily_limit": 20,
+    "mode": "ai",
+    "template": "谢谢{name}的评论喵～",
+    "baseline_on_first_run": true,
+    "state_path": "UserData/qzone_comment_state.json",
+    "ai": {
+      "max_chars": 60,
+      "max_tokens": 300,
+      "timeout_seconds": 60,
+      "extra_prompt": ""
+    }
+  },
   "permissions": {
     "admin_id": "",
     "whitelist": {

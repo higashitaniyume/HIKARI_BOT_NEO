@@ -172,6 +172,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
             "我的说说 [数量]：查看自己最近发的说说与评论数。\n"
             "评论列表 [序号]：查看自己某条说说下的评论（序号来自「我的说说」）。\n"
             "回复评论 <评论序号> <内容>：回复自己说说下的评论（仅超管）。\n"
+            "检查评论：立刻检查并自动回复空间评论（仅超管）。\n"
             "说说赞 <序号>：给「空间动态」里的某条说说点赞（仅超管）。\n"
             "说说评论 <序号> <内容>：评论「空间动态」里的某条说说（仅超管）。\n"
             "空间定时：查看定时说说任务，空间定时 run <任务id> 立刻发一条（仅超管）。"
@@ -208,6 +209,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "comment_index_invalid": "评论序号超出范围，请先发送「评论列表」。",
         "reply_usage": "用法：回复评论 <评论序号> <内容>",
         "reply_ok": "已回复 {nickname}。",
+        "comments_disabled": "空间评论自动回复当前是关闭的（qzone.json 的 comment_reply.enabled）。",
+        "comments_baseline": "首次基线完成：记录 {count} 条历史评论，本次没有回复任何评论。",
+        "comments_checked": "检查完成：回复 {replied} 条，待回复 {pending} 条，失败 {failed} 条。",
         "like_ok": "已点赞：{nickname}",
         "comment_usage": "用法：说说评论 <序号> <内容>",
         "comment_ok": "已评论：{nickname}",
