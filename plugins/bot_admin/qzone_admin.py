@@ -38,14 +38,26 @@ def set_main_loop(loop: asyncio.AbstractEventLoop | None) -> None:
 
 def _submit(coro: Any, *, timeout: float = _DEFAULT_TIMEOUT) -> Any:
     loop = _main_loop
-    if loop is None or loop.is_closed():
-        raise RuntimeError("机器人主循环尚未就绪，请稍后重试。")
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    if loop is not None and loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        try:
+            return future.result(timeout=timeout)
+        except FuturesTimeoutError:
+            future.cancel()
+            raise TimeoutError("空间操作超时，请稍后重试。") from None
+
+    # 退路：复用 astrbot_compat 在启动时记录的主循环
     try:
-        return future.result(timeout=timeout)
-    except FuturesTimeoutError:
-        future.cancel()
-        raise TimeoutError("空间操作超时，请稍后重试。") from None
+        from plugins.astrbot_compat.runtime import submit_coroutine
+    except Exception:  # pragma: no cover - 理论上不会缺
+        coro.close()
+        raise RuntimeError("机器人主循环尚未就绪，请稍后重试。") from None
+
+    logger.info("[QZone] 自身未记录主循环，改用 astrbot_compat 的 submit_coroutine")
+    try:
+        return submit_coroutine(coro, timeout=timeout)
+    except RuntimeError as exc:
+        raise RuntimeError(f"机器人主循环尚未就绪：{exc}") from None
 
 
 # ── 配置文件 ──────────────────────────────────────────────
@@ -91,6 +103,7 @@ def qzone_config_state() -> dict[str, Any]:
         "status": schedule.status_snapshot(),
         "persona": _persona_info(),
         "file": _file_meta(),
+        "loop_ready": bool(_main_loop is not None and _main_loop.is_running()),
     }
 
 
@@ -275,3 +288,4 @@ if _driver is not None:
     @_driver.on_startup
     async def _capture_main_loop() -> None:
         set_main_loop(asyncio.get_running_loop())
+        logger.info("[QZone] 后台已记录机器人主循环")
