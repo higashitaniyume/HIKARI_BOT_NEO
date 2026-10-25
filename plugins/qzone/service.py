@@ -39,6 +39,8 @@ _ZERO_WIDTH = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"), None)
 
 _LIKE_URL = "https://user.qzone.qq.com/proxy/domain/w.qzone.qq.com/cgi-bin/likes/internal_dolike_app"
 _COMMENT_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qzone.qq.com/cgi-bin/emotion_cgi_re_feeds"
+_MOOD_DETAIL_URL = "https://user.qzone.qq.com/proxy/domain/taotao.qq.com/cgi-bin/emotion_cgi_msgdetail_v6"
+_MENTION_RE = re.compile(r"@\{uin:\d+,[^}]*\}")
 
 
 class QzoneLoginError(RuntimeError):
@@ -91,6 +93,16 @@ class MoodItem:
     content: str
     created_at: str
     comment_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CommentItem:
+    """一条说说下的评论。"""
+
+    comment_id: str
+    uin: str
+    nickname: str
+    content: str
 
 
 # ── 登录态 ────────────────────────────────────────────────
@@ -326,6 +338,99 @@ async def comment(bot: Any, item: FeedItem, content: str, *, timeout: int = 20) 
     _ensure_ok(payload, "评论失败")
 
 
+async def fetch_comments(
+    bot: Any,
+    post_uin: str,
+    tid: str,
+    *,
+    num: int = 20,
+    timeout: int = 20,
+) -> list[CommentItem]:
+    """读取某条说说（自己的或好友的）下的评论。"""
+    auth = await fetch_auth(bot)
+    params = {
+        "uin": str(post_uin),
+        "tid": str(tid),
+        "num": str(max(1, min(int(num), 50))),
+        "pos": "0",
+        "g_tk": str(auth.g_tk),
+        "format": "jsonp",
+        "not_trunc_con": "1",
+        "need_private_comment": "1",
+        "callback": "_preloadCallback",
+    }
+    headers = {
+        "Cookie": auth.cookies,
+        "User-Agent": UA,
+        "Referer": f"https://user.qzone.qq.com/{auth.uin}",
+    }
+    payload = await _get_payload(_MOOD_DETAIL_URL, params, headers, timeout=timeout)
+    code = payload.get("code")
+    if str(code).strip() != "0":
+        message = str(payload.get("message") or "").strip()
+        raise QzoneActionError(message or f"读取评论失败（code={code}）")
+
+    raw_items = payload.get("commentlist")
+    items: list[CommentItem] = []
+    for raw in raw_items if isinstance(raw_items, list) else []:
+        item = _comment_item_from_raw(raw)
+        if item is not None:
+            items.append(item)
+    return items
+
+
+def _comment_item_from_raw(raw: Any) -> CommentItem | None:
+    if not isinstance(raw, dict):
+        return None
+    comment_id = str(raw.get("tid") or raw.get("commentid") or "").strip()
+    uin = str(raw.get("uin") or "").strip()
+    if not comment_id or not uin.isdigit():
+        return None
+    return CommentItem(
+        comment_id=comment_id,
+        uin=uin,
+        nickname=_clean_text(raw.get("name")) or uin,
+        content=_comment_text(raw.get("content")),
+    )
+
+
+async def reply_comment(
+    bot: Any,
+    post_uin: str,
+    tid: str,
+    comment_item: CommentItem,
+    content: str,
+    *,
+    timeout: int = 20,
+) -> None:
+    """回复某条说说下的一条评论（带 @ 提及，与空间网页行为一致）。"""
+    auth = await fetch_auth(bot)
+    text = str(content or "").strip()
+    if not text:
+        raise QzoneActionError("回复内容不能为空。")
+
+    nickname = re.sub(r"[{},]", "", comment_item.nickname or comment_item.uin)[:40]
+    mention = f"@{{uin:{comment_item.uin},nick:{nickname},auto:1}} "
+    final_content = text if text.startswith("@{") else mention + text
+
+    payload = await _post_cgi(
+        _COMMENT_URL,
+        {
+            "hostUin": str(post_uin),
+            "topicId": f"{post_uin}_{tid}",
+            "content": final_content,
+            "format": "json",
+            "qzreferrer": f"https://user.qzone.qq.com/{auth.uin}",
+            "commentId": comment_item.comment_id,
+            "replyUin": comment_item.uin,
+            "commentUin": comment_item.uin,
+        },
+        auth,
+        timeout=timeout,
+    )
+    _ensure_ok(payload, "回复评论失败")
+
+
 async def _post_cgi(
     url: str,
     data: dict[str, str],
@@ -349,6 +454,25 @@ async def _post_cgi(
     payload = _parse_payload(response.text)
     if payload is None:
         raise QzoneActionError("空间接口返回了无法解析的内容", detail=response.text[:200])
+    return payload
+
+
+async def _get_payload(
+    url: str,
+    params: dict[str, str],
+    headers: dict[str, str],
+    *,
+    timeout: int,
+) -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(url, params=params, headers=headers)
+    except httpx.HTTPError as exc:
+        raise QzoneActionError(f"网络请求失败：{_short_reason(exc)}") from exc
+
+    payload = _parse_payload(response.text)
+    if payload is None:
+        raise QzoneActionError("空间返回了无法解析的数据", detail=response.text[:200])
     return payload
 
 
@@ -387,6 +511,11 @@ def _clean_text(value: Any) -> str:
     text = _ESCAPED_WHITESPACE_RE.sub(" ", text)
     text = _QZONE_EMOJI_RE.sub("[表情]", text)
     return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _comment_text(value: Any) -> str:
+    """评论正文：去掉回复里的 @{uin:...} 提及，再统一清洗。"""
+    return _clean_text(_MENTION_RE.sub("", str(value or "")))
 
 
 def _safe_int(value: Any) -> int:

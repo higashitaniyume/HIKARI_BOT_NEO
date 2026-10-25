@@ -12,11 +12,24 @@ from core.command_router import CommandContext, command
 
 from . import ai_tools, schedule, service  # noqa: F401  (ai_tools/schedule 负责注册工具与定时循环)
 from .config import VISIBLE_LABELS, VISIBLE_VALUES, get_config
-from .service import FeedItem
+from .service import CommentItem, FeedItem, MoodItem
 
 logger = logging.getLogger("HikariBot.QZone")
 
 _WEEKDAY_LABELS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+# 「空间动态」结果缓存：会话 -> (写入时间, 动态列表)，供后续按序号点赞/评论
+_FEED_TTL_SECONDS = 600.0
+_FEED_CACHE_LIMIT = 200
+_feed_cache: dict[str, tuple[float, list[FeedItem]]] = {}
+
+# 「我的说说」缓存：会话 -> (写入时间, 说说列表)，供评论列表/回复评论按序号选帖
+_MY_POSTS_TTL_SECONDS = 600.0
+_my_posts_cache: dict[str, tuple[float, list[MoodItem]]] = {}
+
+# 「评论列表」缓存：会话 -> (写入时间, 帖子, 评论列表)，供回复评论按序号选评论
+_COMMENTS_TTL_SECONDS = 600.0
+_comment_cache: dict[str, tuple[float, MoodItem, list[CommentItem]]] = {}
 
 # 「空间动态」结果缓存：会话 -> (写入时间, 动态列表)，供后续按序号点赞/评论
 _FEED_TTL_SECONDS = 600.0
@@ -204,6 +217,165 @@ async def handle_moods(ctx: CommandContext) -> None:
             ).rstrip()
         )
     await ctx.send("\n".join(lines))
+
+
+@command(
+    "我的说说",
+    aliases=("我的空间",),
+    description="查看自己最近发的说说与评论数",
+    usage="我的说说 [数量]",
+    category="空间",
+)
+async def handle_my_posts(ctx: CommandContext) -> None:
+    cfg = get_config()
+    if not cfg["enabled"] or not is_event_allowed(cfg, ctx.event):
+        return
+
+    count = _parse_count(ctx.args, default=cfg["moods_count"], maximum=20)
+    if count is None:
+        await ctx.send(msg("qzone.moods_usage"))
+        return
+
+    try:
+        items = await _load_my_posts(ctx, cfg, count=count)
+    except (service.QzoneLoginError, service.QzoneActionError) as exc:
+        await _reply_failure(ctx, exc, action="my_posts")
+        return
+
+    if not items:
+        await ctx.send(msg("qzone.my_posts_empty"))
+        return
+
+    lines = [msg("qzone.my_posts_header", count=len(items))]
+    for index, item in enumerate(items, 1):
+        lines.append(msg("qzone.moods_row", index=index, content=_truncate(item.content, 100)))
+        lines.append(
+            msg(
+                "qzone.moods_row_meta",
+                time=item.created_at or "-",
+                tid=item.tid,
+                comments=item.comment_count,
+            ).rstrip()
+        )
+    lines.append(msg("qzone.my_posts_footer"))
+    await ctx.send("\n".join(lines))
+
+
+@command(
+    "评论列表",
+    aliases=("说说评论列表",),
+    description="查看自己某条说说下的评论",
+    usage="评论列表 [序号]",
+    category="空间",
+)
+async def handle_comment_list(ctx: CommandContext) -> None:
+    cfg = get_config()
+    if not cfg["enabled"] or not is_event_allowed(cfg, ctx.event):
+        return
+
+    text = ctx.args.strip()
+    if text and not text.isdigit():
+        await ctx.send(msg("qzone.comments_usage"))
+        return
+
+    try:
+        posts = _get_cached_my_posts(ctx) or await _load_my_posts(ctx, cfg)
+    except (service.QzoneLoginError, service.QzoneActionError) as exc:
+        await _reply_failure(ctx, exc, action="comments")
+        return
+
+    if not posts:
+        await ctx.send(msg("qzone.my_posts_empty"))
+        return
+
+    index = int(text) if text else 1
+    if not 1 <= index <= len(posts):
+        await ctx.send(msg("qzone.my_posts_index_invalid"))
+        return
+    post = posts[index - 1]
+
+    try:
+        comments = await service.fetch_comments(
+            ctx.bot, str(ctx.bot.self_id), post.tid, num=20, timeout=cfg["timeout"]
+        )
+    except (service.QzoneLoginError, service.QzoneActionError) as exc:
+        await _reply_failure(ctx, exc, action="comment_list")
+        return
+
+    _store_comments(ctx, post, comments)
+    if not comments:
+        await ctx.send(msg("qzone.comments_empty"))
+        return
+
+    lines = [msg("qzone.comments_header", count=len(comments), tid=post.tid)]
+    for comment_index, comment in enumerate(comments, 1):
+        lines.append(
+            msg(
+                "qzone.comment_row",
+                index=comment_index,
+                nickname=comment.nickname,
+                content=_truncate(comment.content, 60),
+            )
+        )
+    lines.append(msg("qzone.comments_footer"))
+    await ctx.send("\n".join(lines))
+
+
+@command(
+    "回复评论",
+    aliases=("回复说说评论",),
+    description="回复自己说说下的某条评论",
+    usage="回复评论 <评论序号> <内容>",
+    category="空间",
+    superuser_only=True,
+)
+async def handle_reply_comment(ctx: CommandContext) -> None:
+    cfg = get_config()
+    if not cfg["enabled"] or not is_event_allowed(cfg, ctx.event):
+        return
+
+    index_text, _, content = ctx.args.strip().partition(" ")
+    content = content.strip()
+    cached = _get_cached_comments(ctx)
+    if cached is None:
+        await ctx.send(msg("qzone.comments_cache_miss"))
+        return
+    post, comments = cached
+
+    position = _parse_index(index_text.strip(), len(comments))
+    if position is None:
+        await ctx.send(msg("qzone.comment_index_invalid"))
+        return
+    if not content:
+        await ctx.send(msg("qzone.reply_usage"))
+        return
+    if len(content) > cfg["max_length"]:
+        await ctx.send(msg("qzone.text_too_long", limit=cfg["max_length"]))
+        return
+
+    target = comments[position - 1]
+    try:
+        await service.reply_comment(
+            ctx.bot,
+            str(ctx.bot.self_id),
+            post.tid,
+            target,
+            content,
+            timeout=cfg["timeout"],
+        )
+    except (service.QzoneLoginError, service.QzoneActionError) as exc:
+        await _reply_failure(ctx, exc, action="reply_comment")
+        return
+
+    logger.info(
+        "[QZone] 已回复评论 uin=%s tid=%s comment_id=%s reply_uin=%s len=%d",
+        ctx.bot.self_id,
+        post.tid,
+        target.comment_id,
+        target.uin,
+        len(content),
+    )
+    await ctx.send(msg("qzone.reply_ok", nickname=target.nickname))
 
 
 @command(
@@ -402,6 +574,67 @@ def _pick_cached_item(text: str, items: list[FeedItem] | None) -> FeedItem | Non
     if 1 <= index <= len(items):
         return items[index - 1]
     return None
+
+
+async def _load_my_posts(
+    ctx: CommandContext,
+    cfg: dict[str, object],
+    *,
+    count: int | None = None,
+) -> list[MoodItem]:
+    target = count if count is not None else int(cfg["moods_count"])  # type: ignore[arg-type]
+    items = await service.fetch_moods(
+        ctx.bot,
+        str(ctx.bot.self_id),
+        target,
+        timeout=int(cfg["timeout"]),  # type: ignore[arg-type]
+    )
+    _store_my_posts(ctx, items)
+    return items
+
+
+def _store_my_posts(ctx: CommandContext, items: list[MoodItem]) -> None:
+    if len(_my_posts_cache) >= _FEED_CACHE_LIMIT:
+        oldest = min(_my_posts_cache, key=lambda key: _my_posts_cache[key][0])
+        _my_posts_cache.pop(oldest, None)
+    _my_posts_cache[_cache_key(ctx)] = (time.monotonic(), list(items))
+
+
+def _get_cached_my_posts(ctx: CommandContext) -> list[MoodItem] | None:
+    entry = _my_posts_cache.get(_cache_key(ctx))
+    if entry is None:
+        return None
+    stored_at, items = entry
+    if time.monotonic() - stored_at > _MY_POSTS_TTL_SECONDS:
+        _my_posts_cache.pop(_cache_key(ctx), None)
+        return None
+    return items
+
+
+def _store_comments(ctx: CommandContext, post: MoodItem, comments: list[CommentItem]) -> None:
+    if len(_comment_cache) >= _FEED_CACHE_LIMIT:
+        oldest = min(_comment_cache, key=lambda key: _comment_cache[key][0])
+        _comment_cache.pop(oldest, None)
+    _comment_cache[_cache_key(ctx)] = (time.monotonic(), post, list(comments))
+
+
+def _get_cached_comments(ctx: CommandContext) -> tuple[MoodItem, list[CommentItem]] | None:
+    entry = _comment_cache.get(_cache_key(ctx))
+    if entry is None:
+        return None
+    stored_at, post, comments = entry
+    if time.monotonic() - stored_at > _COMMENTS_TTL_SECONDS:
+        _comment_cache.pop(_cache_key(ctx), None)
+        return None
+    return post, comments
+
+
+def _parse_index(text: str, upper: int) -> int | None:
+    value = str(text or "").strip()
+    if not value.isdigit():
+        return None
+    index = int(value)
+    return index if 1 <= index <= upper else None
 
 
 def _format_abstime(value: int) -> str:

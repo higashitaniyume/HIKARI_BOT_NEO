@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -354,6 +355,177 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(delete.await_args.args[1], "d41d39eb3bb0dc6a34260e00")
 
 
+class CommentParsingTests(unittest.TestCase):
+    def test_comment_item_is_cleaned(self) -> None:
+        item = service._comment_item_from_raw(
+            {
+                "tid": "3",
+                "uin": "123456",
+                "name": "小明",
+                "content": "@{uin:10001,nick:阿蓝,auto:1} 好看[em]e400867[/em]",
+            }
+        )
+        assert item is not None
+        self.assertEqual(item.comment_id, "3")
+        self.assertEqual(item.uin, "123456")
+        self.assertEqual(item.nickname, "小明")
+        self.assertEqual(item.content, "好看[表情]")
+
+    def test_comment_item_requires_id_and_uin(self) -> None:
+        self.assertIsNone(service._comment_item_from_raw({"uin": "123456", "content": "x"}))
+        self.assertIsNone(service._comment_item_from_raw({"tid": "1", "uin": "abc"}))
+
+
+class CommentFetchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fetch_comments_maps_payload(self) -> None:
+        payload = {
+            "code": 0,
+            "commentlist": [
+                {"tid": "1", "uin": "1637652353", "name": "CurryPeter0613", "content": "水里怎么煮饭"},
+                {"tid": "2", "uin": "10001", "name": "阿蓝", "content": "哈哈"},
+                {"tid": "2", "uin": "bad", "name": "x", "content": "y"},
+            ],
+        }
+        with patch.object(service, "_get_payload", AsyncMock(return_value=payload)):
+            comments = await service.fetch_comments(_FakeBot(), "3946388948", "tid1")
+
+        self.assertEqual([item.comment_id for item in comments], ["1", "2"])
+        self.assertEqual(comments[0].nickname, "CurryPeter0613")
+
+    async def test_fetch_comments_raises_on_error_code(self) -> None:
+        payload = {"code": -10000, "message": "操作太频繁"}
+        with patch.object(service, "_get_payload", AsyncMock(return_value=payload)):
+            with self.assertRaises(service.QzoneActionError) as ctx:
+                await service.fetch_comments(_FakeBot(), "3946388948", "tid1")
+        self.assertIn("操作太频繁", str(ctx.exception))
+
+
+class ReplyCommentTests(unittest.IsolatedAsyncioTestCase):
+    def _comment(self) -> service.CommentItem:
+        return service.CommentItem(comment_id="3", uin="123456", nickname="小明", content="好看")
+
+    async def test_reply_passes_thread_params(self) -> None:
+        post = AsyncMock(return_value={"code": 0})
+        with patch.object(service, "_post_cgi", post):
+            await service.reply_comment(_FakeBot(), "3946388948", "tid9", self._comment(), "谢谢喵")
+
+        _, data = post.await_args.args[0], post.await_args.args[1]
+        self.assertEqual(data["topicId"], "3946388948_tid9")
+        self.assertEqual(data["commentId"], "3")
+        self.assertEqual(data["replyUin"], "123456")
+        self.assertEqual(data["commentUin"], "123456")
+        self.assertTrue(data["content"].startswith("@{uin:123456,nick:小明,auto:1} "))
+        self.assertIn("谢谢喵", data["content"])
+
+    async def test_reply_rejects_empty_content(self) -> None:
+        with self.assertRaises(service.QzoneActionError):
+            await service.reply_comment(_FakeBot(), "3946388948", "tid9", self._comment(), "   ")
+
+    async def test_reply_error_payload_raises(self) -> None:
+        post = AsyncMock(return_value={"code": -3000, "message": "系统繁忙"})
+        with patch.object(service, "_post_cgi", post):
+            with self.assertRaises(service.QzoneActionError):
+                await service.reply_comment(_FakeBot(), "3946388948", "tid9", self._comment(), "谢谢")
+
+
+class CommentCommandTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        qzone._my_posts_cache.clear()
+        qzone._comment_cache.clear()
+        self._config = {
+            "enabled": True,
+            "default_visible": "public",
+            "max_length": 1000,
+            "feed_count": 8,
+            "moods_count": 5,
+            "timeout": 20,
+            "permissions": {},
+        }
+        self._post = service.MoodItem(
+            tid="tid1",
+            uin="3946388948",
+            name="HIKARI",
+            content="第一条说说",
+            created_at="今天 12:00",
+            comment_count=1,
+        )
+        self._comment = service.CommentItem(
+            comment_id="1", uin="123456", nickname="小明", content="水里怎么煮饭"
+        )
+
+    def tearDown(self) -> None:
+        qzone._my_posts_cache.clear()
+        qzone._comment_cache.clear()
+
+    async def test_comment_list_uses_cached_posts(self) -> None:
+        ctx = _FakeContext("1")
+        qzone._my_posts_cache[qzone._cache_key(ctx)] = (time.monotonic(), [self._post])
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "fetch_comments", AsyncMock(return_value=[self._comment])
+        ):
+            await qzone.handle_comment_list(ctx)
+
+        self.assertIn("水里怎么煮饭", ctx.sent[-1])
+        cached = qzone._get_cached_comments(ctx)
+        assert cached is not None
+        self.assertEqual(cached[0].tid, "tid1")
+
+    async def test_comment_list_without_posts_reports_empty(self) -> None:
+        ctx = _FakeContext("")
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "fetch_moods", AsyncMock(return_value=[])
+        ):
+            await qzone.handle_comment_list(ctx)
+
+        self.assertTrue(ctx.sent)
+
+    async def test_reply_comment_uses_cached_comments(self) -> None:
+        ctx = _FakeContext("1 谢谢喵")
+        qzone._comment_cache[qzone._cache_key(ctx)] = (
+            time.monotonic(),
+            self._post,
+            [self._comment],
+        )
+        reply = AsyncMock()
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "reply_comment", reply
+        ):
+            await qzone.handle_reply_comment(ctx)
+
+        reply.assert_awaited_once()
+        args = reply.await_args.args
+        self.assertEqual(args[0].self_id, "3946388948")
+        self.assertEqual(args[1], "3946388948")
+        self.assertEqual(args[2], "tid1")
+        self.assertEqual(args[3].comment_id, "1")
+        self.assertEqual(args[4], "谢谢喵")
+        self.assertIn("小明", ctx.sent[-1])
+
+    async def test_reply_comment_requires_comment_list(self) -> None:
+        ctx = _FakeContext("1 谢谢")
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "reply_comment", AsyncMock()
+        ) as reply:
+            await qzone.handle_reply_comment(ctx)
+
+        reply.assert_not_awaited()
+        self.assertTrue(ctx.sent)
+
+    async def test_reply_comment_index_out_of_range(self) -> None:
+        ctx = _FakeContext("9 谢谢")
+        qzone._comment_cache[qzone._cache_key(ctx)] = (
+            time.monotonic(),
+            self._post,
+            [self._comment],
+        )
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "reply_comment", AsyncMock()
+        ) as reply:
+            await qzone.handle_reply_comment(ctx)
+
+        reply.assert_not_awaited()
+
+
 class AIToolTests(unittest.TestCase):
     def test_read_tool_registered(self) -> None:
         spec = get_ai_tool("qzone_get_feed")
@@ -692,4 +864,5 @@ class ScheduleCommandTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
 

@@ -169,6 +169,9 @@ DEFAULT_MESSAGES: dict[str, Any] = {
             "删说说 <序号|tid>：删除自己发的说说（仅超管）。\n"
             "空间动态 [数量]：查看好友空间动态，默认 8 条。\n"
             "好友说说 <QQ号> [数量]：查看指定好友的说说。\n"
+            "我的说说 [数量]：查看自己最近发的说说与评论数。\n"
+            "评论列表 [序号]：查看自己某条说说下的评论（序号来自「我的说说」）。\n"
+            "回复评论 <评论序号> <内容>：回复自己说说下的评论（仅超管）。\n"
             "说说赞 <序号>：给「空间动态」里的某条说说点赞（仅超管）。\n"
             "说说评论 <序号> <内容>：评论「空间动态」里的某条说说（仅超管）。\n"
             "空间定时：查看定时说说任务，空间定时 run <任务id> 立刻发一条（仅超管）。"
@@ -191,6 +194,19 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "moods_row": "{index}. {content}",
         "moods_row_meta": "    {time} · tid={tid} · 评论 {comments}",
         "moods_empty": "没有拉到 {qq} 的说说。",
+        "my_posts_header": "我的说说（{count} 条）：",
+        "my_posts_footer": "发送「评论列表 序号」查看某条说说下的评论。",
+        "my_posts_empty": "没有拉到自己最近的说说。",
+        "my_posts_index_invalid": "序号超出范围，请先发送「我的说说」。",
+        "comments_usage": "用法：评论列表 [序号]（序号来自「我的说说」）",
+        "comments_header": "这条说说有 {count} 条评论（tid={tid}）：",
+        "comment_row": "{index}. {nickname}：{content}",
+        "comments_footer": "发送「回复评论 评论序号 内容」回复其中一条。",
+        "comments_empty": "这条说说还没有评论。",
+        "comments_cache_miss": "请先发送「评论列表」再回复。",
+        "comment_index_invalid": "评论序号超出范围，请先发送「评论列表」。",
+        "reply_usage": "用法：回复评论 <评论序号> <内容>",
+        "reply_ok": "已回复 {nickname}。",
         "like_ok": "已点赞：{nickname}",
         "comment_usage": "用法：说说评论 <序号> <内容>",
         "comment_ok": "已评论：{nickname}",
