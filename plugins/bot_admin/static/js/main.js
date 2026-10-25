@@ -87,9 +87,11 @@ $("#aiagentPluginToolsEnabled").addEventListener("change", () => renderAiAgentTo
 $("#aiagentAllowSideEffectTools").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentToolSelectionMode").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentStickerPacksAll")?.addEventListener("change", (event) => {
-  const select = $("#aiagentStickerPacks");
-  if (select) select.disabled = event.currentTarget.checked;
+  setAiAgentStickerPacksDisabled(event.currentTarget.checked);
 });
+$("#aiagentStickerPackSearch")?.addEventListener("input", filterAiAgentStickerPacks);
+$("#aiagentStickerPacksSelectAll")?.addEventListener("click", () => setAllAiAgentStickerPacks(true));
+$("#aiagentStickerPacksClear")?.addEventListener("click", () => setAllAiAgentStickerPacks(false));
 $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 

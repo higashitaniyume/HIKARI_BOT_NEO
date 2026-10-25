@@ -501,10 +501,24 @@
                   <span>使用全部贴纸包</span>
                   <small>勾选后将从所有本地贴纸包中随机抽取</small>
                 </label>
-                <label>
-                  <span>限定贴纸包（按住 Ctrl 多选）</span>
-                  <select id="aiagentStickerPacks" multiple size="4"></select>
-                </label>
+                <div class="wide-field pack-multi-field" id="aiagentStickerPackField">
+                  <div class="pack-multi-head">
+                    <span class="pack-multi-title" id="aiagentStickerPackTitle">限定贴纸包（点选可多选）</span>
+                    <div class="pack-multi-actions">
+                      <button type="button" id="aiagentStickerPacksSelectAll" class="ghost">全选</button>
+                      <button type="button" id="aiagentStickerPacksClear" class="ghost">清空</button>
+                    </div>
+                  </div>
+                  <input id="aiagentStickerPackSearch" type="search" autocomplete="off" placeholder="搜索贴纸包名称">
+                  <div
+                    id="aiagentStickerPacks"
+                    class="pack-multi-list"
+                    role="group"
+                    aria-labelledby="aiagentStickerPackTitle"
+                  ></div>
+                  <p id="aiagentStickerPacksEmpty" class="pack-multi-empty" hidden>暂无贴纸包。</p>
+                  <small id="aiagentStickerPacksSummary" class="pack-multi-summary">还没有选择贴纸包。</small>
+                </div>
                 <label>
                   <span>跟发概率</span>
                   <input id="aiagentStickerProbability" type="number" min="0" max="1" step="0.05">

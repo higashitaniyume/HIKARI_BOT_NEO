@@ -299,9 +299,7 @@ function buildAiAgentPayload() {
       },
       sticker: {
         enabled: $("#aiagentStickerEnabled").checked,
-        packs: $("#aiagentStickerPacksAll").checked
-          ? []
-          : Array.from($("#aiagentStickerPacks").selectedOptions || []).map((o) => o.value),
+        packs: $("#aiagentStickerPacksAll").checked ? [] : selectedAiAgentStickerPacks(),
         probability: Number($("#aiagentStickerProbability").value ?? 1.0),
         max_per_reply: Number($("#aiagentStickerMaxPerReply").value || 1),
         allow_auto_reply: $("#aiagentStickerAllowAutoReply").checked,
@@ -404,6 +402,14 @@ function updateAiAgentAutoReplyGroupCount() {
 
 async function saveAiAgentConfig(event) {
   event.preventDefault();
+  if (
+    $("#aiagentStickerEnabled").checked &&
+    !$("#aiagentStickerPacksAll").checked &&
+    !selectedAiAgentStickerPacks().length
+  ) {
+    showToast("请至少选择一个限定贴纸包，或勾选「使用全部贴纸包」。", true);
+    return;
+  }
   const button = event.currentTarget.querySelector("button[type='submit']");
   button.disabled = true;
   try {

@@ -772,21 +772,115 @@ function renderAiAgentConfig() {
   const configuredPacks = Array.isArray(sticker.packs) ? sticker.packs.map(String) : [];
   const isAllPacks = configuredPacks.length === 0;
   const stickerAllCheckbox = $("#aiagentStickerPacksAll");
-  const stickerPacksSelect = $("#aiagentStickerPacks");
   if (stickerAllCheckbox) stickerAllCheckbox.checked = isAllPacks;
-  if (stickerPacksSelect) {
-    stickerPacksSelect.disabled = isAllPacks;
-    stickerPacksSelect.replaceChildren();
-    for (const pack of state.aiagentStickerPacks || []) {
-      const opt = option(pack, pack);
-      opt.selected = configuredPacks.includes(pack);
-      stickerPacksSelect.append(opt);
-    }
-  }
+  renderAiAgentStickerPacks(configuredPacks);
+  setAiAgentStickerPacksDisabled(isAllPacks);
 
   renderAiAgentTools(false);
   renderAiAgentProfiles();
   renderAiAgentBindings();
+}
+
+/* ── 限定贴纸包多选（手机可点选，不依赖 Ctrl） ───────────────── */
+
+function aiAgentStickerPackInputs() {
+  const container = $("#aiagentStickerPacks");
+  return container ? Array.from(container.querySelectorAll("input[type='checkbox']")) : [];
+}
+
+function selectedAiAgentStickerPacks() {
+  return aiAgentStickerPackInputs()
+    .filter((input) => input.checked)
+    .map((input) => input.value);
+}
+
+function updateAiAgentStickerPacksSummary() {
+  const summary = $("#aiagentStickerPacksSummary");
+  if (!summary) return;
+  const allChecked = $("#aiagentStickerPacksAll")?.checked === true;
+  if (allChecked) {
+    summary.textContent = "当前使用全部贴纸包，新增的贴纸包也会自动包含。";
+    return;
+  }
+  const count = selectedAiAgentStickerPacks().length;
+  summary.textContent = count
+    ? `已选 ${count} 个贴纸包，只会从这些贴纸包中抽取。`
+    : "还没有选择贴纸包：可勾选上面的「使用全部贴纸包」，或在这里至少选一个。";
+}
+
+function filterAiAgentStickerPacks() {
+  const container = $("#aiagentStickerPacks");
+  const empty = $("#aiagentStickerPacksEmpty");
+  if (!container) return;
+  const query = ($("#aiagentStickerPackSearch")?.value || "").trim().toLowerCase();
+  const items = Array.from(container.querySelectorAll(".pack-multi-item"));
+  let visible = 0;
+  for (const item of items) {
+    const match = !query || (item.dataset.pack || "").includes(query);
+    item.hidden = !match;
+    if (match) visible += 1;
+  }
+  if (!empty) return;
+  if (!items.length) {
+    empty.textContent = "暂无贴纸包，请先在「贴纸」页创建。";
+    empty.hidden = false;
+  } else if (!visible) {
+    empty.textContent = "没有匹配的贴纸包。";
+    empty.hidden = false;
+  } else {
+    empty.hidden = true;
+  }
+}
+
+function renderAiAgentStickerPacks(selectedPacks = []) {
+  const container = $("#aiagentStickerPacks");
+  if (!container) return;
+  const selected = new Set((selectedPacks || []).map(String));
+  const packs = Array.isArray(state.aiagentStickerPacks) ? state.aiagentStickerPacks.map(String) : [];
+  container.replaceChildren();
+
+  for (const pack of packs) {
+    const item = document.createElement("label");
+    item.className = "pack-multi-item";
+    item.dataset.pack = pack.toLowerCase();
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = pack;
+    input.checked = selected.has(pack);
+    item.classList.toggle("is-selected", input.checked);
+    input.addEventListener("change", () => {
+      item.classList.toggle("is-selected", input.checked);
+      updateAiAgentStickerPacksSummary();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = pack;
+
+    item.append(input, text);
+    container.append(item);
+  }
+
+  filterAiAgentStickerPacks();
+  updateAiAgentStickerPacksSummary();
+}
+
+function setAllAiAgentStickerPacks(checked) {
+  for (const input of aiAgentStickerPackInputs()) {
+    input.checked = checked;
+    input.closest(".pack-multi-item")?.classList.toggle("is-selected", checked);
+  }
+  updateAiAgentStickerPacksSummary();
+}
+
+function setAiAgentStickerPacksDisabled(disabled) {
+  const field = $("#aiagentStickerPackField");
+  if (!field) return;
+  field.classList.toggle("is-disabled", disabled);
+  for (const el of field.querySelectorAll("input, button")) {
+    el.disabled = disabled;
+  }
+  updateAiAgentStickerPacksSummary();
 }
 
 /* ── 配置文件栏 ─────────────────────────────────────────────── */
