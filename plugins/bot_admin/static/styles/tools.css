@@ -774,6 +774,10 @@
 
 .aiagent-group-remove {
   flex: 0 0 auto;
+  width: auto;
+  min-width: 72px;
+  min-height: 36px;
+  padding: 0 12px;
 }
 
 .aiagent-group-add {
@@ -800,6 +804,12 @@
   margin-top: 12px;
 }
 
+.aiagent-group-picker-foot .primary {
+  width: auto;
+  min-width: 120px;
+  flex: 0 0 auto;
+}
+
 .aiagent-group-picker-status {
   margin: 0;
   color: var(--muted);
@@ -813,9 +823,34 @@
 .aiagent-group-picker-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiagent-group-picker-item input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  min-height: 17px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.aiagent-group-picker-item .pack-picker-item-title {
+  flex: 1 1 auto;
+  text-align: left;
+  font-size: 14px;
 }
 
 .aiagent-group-picker-item.is-disabled {
   opacity: 0.55;
+  cursor: default;
 }

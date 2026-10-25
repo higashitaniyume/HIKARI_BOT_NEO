@@ -539,13 +539,13 @@
 <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentAutoReplyTitle">
             <div class="aiagent-tools-head">
               <div>
-                <h3 id="aiagentAutoReplyTitle">群聊自动回复</h3>
-                <p>全局设置，所有配置文件共用。只有白名单内的群会在没有 @ 机器人时也自动回复，白名单不设数量上限。同一群两次回复之间至少间隔冷却秒数，连发消息时只回第一条。</p>
+                <h3 id="aiagentAutoReplyTitle">群聊主动接话</h3>
+                <p>全局设置，所有配置文件共用。群列表里的群只有单独开启后，才会在没有 @ 机器人时主动接话；不设数量上限。同一群两次接话之间至少间隔冷却秒数，冷却内到达的消息直接跳过、不排队。</p>
               </div>
               <div class="aiagent-tools-controls">
                 <label class="checkbox-field">
                   <input id="aiagentAutoReplyEnabled" type="checkbox">
-                  <span>启用群聊自动回复</span>
+                  <span>启用群聊主动接话</span>
                 </label>
                 <div class="wide-field aiagent-group-block">
                   <span>主动接话的群（每个群可单独开关）</span>

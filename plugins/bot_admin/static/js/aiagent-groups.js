@@ -82,11 +82,18 @@ function renderAiAgentAutoReplyGroups() {
 
       const name = document.createElement("span");
       name.className = "aiagent-group-name";
-      name.textContent = entry.name || entry.id;
+      const displayName = entry.name && entry.name !== entry.id ? entry.name : entry.id;
+      name.textContent = displayName;
+      name.title = displayName;
 
-      const idText = document.createElement("code");
-      idText.className = "aiagent-group-id";
-      idText.textContent = entry.id;
+      row.append(toggle, name);
+
+      if (entry.name && entry.name !== entry.id) {
+        const idText = document.createElement("code");
+        idText.className = "aiagent-group-id";
+        idText.textContent = entry.id;
+        row.append(idText);
+      }
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -99,7 +106,7 @@ function renderAiAgentAutoReplyGroups() {
         renderAiAgentAutoReplyGroups();
       });
 
-      row.append(toggle, name, idText, remove);
+      row.append(remove);
       list.append(row);
     });
   }
