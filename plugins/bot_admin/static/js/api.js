@@ -123,6 +123,15 @@ async function fetchPushConfig(shouldRender = true) {
   }
 }
 
+async function fetchQzoneConfig(shouldRender = true) {
+  const res = await fetch("/api/qzone-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取空间设置失败");
+  state.qzoneState = data;
+  if (shouldRender) {
+    renderQzonePage();
+  }
+}
+
 async function fetchRssConfig(shouldRender = true) {
   const res = await fetch("/api/rss-config", { cache: "no-store" });
   const data = await readJsonResponse(res, "读取 RSS 订阅设置失败");

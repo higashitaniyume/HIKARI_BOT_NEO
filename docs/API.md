@@ -1151,6 +1151,117 @@ ID 由名称自动生成 slug（`[A-Za-z0-9_-]{1,32}`），纯中文名回落 `p
 - `409`：任务当前状态不允许执行。
 - `504`：执行超时。
 
+### QQ 空间配置
+
+#### `GET /api/qzone-config`
+
+读取空间插件配置、定时任务状态与当前 AI 人格信息。
+
+响应（节选）：
+
+```json
+{
+  "config": {
+    "enabled": true,
+    "default_visible": "public",
+    "max_length": 1000,
+    "feed_count": 8,
+    "schedule": {
+      "enabled": true,
+      "grace_seconds": 1800,
+      "ai": {"enabled": true, "max_chars": 120, "extra_prompt": ""},
+      "fallback_texts": ["…"],
+      "jobs": [{"id": "morning", "enabled": true, "time": "08:30", "days": [], "visible": "public", "prompt": "…"}]
+    }
+  },
+  "status": {
+    "enabled": true,
+    "ai_enabled": true,
+    "jobs": [{"id": "morning", "time": "08:30", "days": [], "visible_label": "公开", "next_run": "10-26 08:30", "last_date": "2026-10-25", "last_tid": "…", "error": ""}]
+  },
+  "persona": {"skill_path": "BotData/agent_personas/ds", "chars": 3200, "preview": "…", "model": "deepseek-flash"},
+  "file": {"name": "qzone.json", "size": 1234, "mtime": 1761000000.0}
+}
+```
+
+`persona` 来自 `aiagent.json` 的人格 skill，空间生成始终使用它，不在空间配置里单独设置。
+
+#### `POST /api/qzone-config`
+
+保存空间配置。请求体只需带要修改的段，未出现的字段保持原样：
+
+```json
+{
+  "enabled": true,
+  "default_visible": "friends",
+  "max_length": 1000,
+  "schedule": {
+    "enabled": true,
+    "grace_seconds": 1800,
+    "ai": {"enabled": true, "max_chars": 120, "extra_prompt": "短一点"},
+    "fallback_texts": ["第一条备用文案"],
+    "jobs": [{"id": "morning", "enabled": true, "time": "08:30", "days": [0, 2], "visible": "public", "prompt": "早安"}]
+  }
+}
+```
+
+约束：
+
+- `jobs[].id` 不能为空且不能重复，`jobs[].time` 必须是 `HH:MM`（`25:00` 之类会返回 `400`）。
+- `jobs[].days` 支持数字（0=周一）或 `mon`/`wed`/`周一` 等别名，空数组表示每天。
+- `fallback_texts` 也接受换行分隔的字符串。
+- 保存成功后返回同 `GET /api/qzone-config` 的结构，并附带 `message`。
+
+#### `POST /api/qzone-generate`
+
+用 AI 人格生成一条说说草稿（不发布）。
+
+请求：
+
+```json
+{"prompt": "今天下雨，写一句带点撒娇的碎碎念", "max_chars": 120}
+```
+
+响应：
+
+```json
+{
+  "result": {
+    "text": "……",
+    "source": "ai",
+    "persona": {"skill_path": "BotData/agent_personas/ds", "chars": 3200, "preview": "…", "model": "deepseek-flash"},
+    "max_chars": 120
+  }
+}
+```
+
+`source` 为 `fallback` 表示 AI 调用失败、用了 `fallback_texts` 里的备用文案。可能状态码：`409`（未登录空间 / NapCat 不在线）、`504`（超时）。
+
+#### `POST /api/qzone-publish`
+
+发布已经在页面上改好的内容。
+
+请求：
+
+```json
+{"text": "改好之后的内容", "visible": "private"}
+```
+
+响应：
+
+```json
+{
+  "result": {"tid": "d41d39eb…", "visible": "private", "visible_label": "仅自己", "length": 12},
+  "message": "已发布到 QQ 空间。"
+}
+```
+
+约束与状态码：
+
+- `text` 不能为空，长度不得超过配置的 `max_length`，否则 `400`。
+- `visible` 只接受 `public` / `friends` / `private`，非法值回落到配置的 `default_visible`。
+- `409`：登录态失效、NapCat 不在线或空间接口拒绝；`504`：超时。
+
 ### RSS 配置
 
 #### `GET /api/rss-config`

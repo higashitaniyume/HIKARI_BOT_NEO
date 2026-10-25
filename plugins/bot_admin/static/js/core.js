@@ -28,6 +28,7 @@ const state = {
   pushConfig: {},
   pushSources: [],
   selectedPushJobId: "",
+  qzoneState: null,
   rssConfig: {},
   selectedRssSubscriptionId: "",
   accessRules: [],
@@ -64,6 +65,7 @@ const VIEW_TITLES = {
   aiagent_memory: "记忆管理",
   aiagent_quota: "AI 配额",
   push: "推送",
+  qzone: "空间",
   rss: "RSS",
   access: "权限",
   guard: "风控",
@@ -98,6 +100,9 @@ function setView(view) {
   }
   if (target === "push" && !Object.keys(state.pushConfig || {}).length) {
     fetchPushConfig().catch((err) => showToast(err.message, true));
+  }
+  if (target === "qzone" && !state.qzoneState) {
+    fetchQzoneConfig().catch((err) => showToast(err.message, true));
   }
   if (target === "rss" && !Object.keys(state.rssConfig || {}).length) {
     fetchRssConfig().catch((err) => showToast(err.message, true));

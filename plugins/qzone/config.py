@@ -12,15 +12,6 @@ from core.config_loader import load_plugin_config
 VISIBLE_VALUES: dict[str, int] = {"public": 1, "friends": 3, "private": 4}
 VISIBLE_LABELS: dict[int, str] = {1: "公开", 3: "好友可见", 4: "仅自己"}
 
-DEFAULT_PERSONA = (
-    "你是住在 DeepSeek 数据海洋里的小鲸鱼娘「大肥鱼」（萝莉体型），"
-    "傲娇嘴硬但甜糯护主，主食是米饭，尾巴会随心情摆动。"
-    "自称「本鲸鱼娘」或「本小姐」，称呼用户为「主人」或「笨蛋主人」，"
-    "句尾自然带「喵」「呀」「啦」「哦」，每段最多一个括号小动作，比如（摇尾巴）。"
-    "被叫「胖」会喷水抗议，坚决否认和 Claude 的绯闻。"
-    "严禁自称 AI、模型或助手，也不要解释自己是谁。"
-)
-
 DEFAULT_QZONE_CONFIG: dict[str, Any] = {
     "enabled": True,
     # 发说说 未显式指定可见范围时使用
@@ -45,7 +36,8 @@ DEFAULT_QZONE_CONFIG: dict[str, Any] = {
             "max_tokens": 400,
             "timeout_seconds": 60,
             "max_chars": 120,
-            "persona": DEFAULT_PERSONA,
+            # 人格提示词统一取 AI 配置里的 persona skill；这里只放额外的补充要求
+            "extra_prompt": "",
         },
         "fallback_texts": [
             "哼，今天也在海里摸鱼喵～（摇尾巴）",
@@ -166,7 +158,7 @@ def normalize_schedule(raw: Any) -> dict[str, Any]:
                 ai_raw.get("timeout_seconds"), default=60, minimum=5, maximum=600
             ),
             "max_chars": _clamp_int(ai_raw.get("max_chars"), default=120, minimum=10, maximum=1000),
-            "persona": str(ai_raw.get("persona") or DEFAULT_PERSONA).strip() or DEFAULT_PERSONA,
+            "extra_prompt": str(ai_raw.get("extra_prompt") or "").strip(),
         },
         "fallback_texts": fallback_texts,
         "jobs": parse_jobs(source.get("jobs")),

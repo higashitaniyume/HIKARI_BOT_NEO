@@ -49,6 +49,8 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **后台「空间」页**：网页上直接改定时说说的任务/可见范围/AI 开关，随时点「用 AI 生成」拿一条草稿、改完再发布；人格提示词统一取 AI 配置里的 persona skill（不再单独维护），生成和发布都用 NapCat 当前登录态，页面不碰 Cookie
+
 - **QQ 空间操作**：新增 `qzone` 插件，用 NapCat 当前登录的 QQ 直接发/删说说、看好友动态与好友说说、点赞和评论；登录态不落盘，每次操作前向 NapCat `get_cookies`（`domain=user.qzone.qq.com`）取一次 Cookie，换号只需换 NapCat 登录；写操作限超级用户，AI 侧只默认开放只读的 `qzone_get_feed`
 
 - **修复 AI 语音后会话卡死**：AI 文字回复、合并转发、跟随贴纸与语音发送统一加 30 秒超时，NapCat/QQ 不回 `send_msg` 时只放弃当次发送并记 warning，不再永久占住会话锁；已重启清掉卡住状态

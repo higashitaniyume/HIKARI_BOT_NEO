@@ -15,7 +15,8 @@
       "temperature": 1.0,
       "max_tokens": 400,
       "timeout_seconds": 60,
-      "max_chars": 120
+      "max_chars": 120,
+      "extra_prompt": ""
     },
     "fallback_texts": [
       "哼，今天也在海里摸鱼喵～（摇尾巴）",

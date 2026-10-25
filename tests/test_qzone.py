@@ -570,6 +570,22 @@ class ScheduleRunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request_cfg["thinking"], {"enabled": False})
         self.assertEqual(request_cfg["tools"], {"max_tool_rounds": 0})
 
+    async def test_system_prompt_uses_ai_persona(self) -> None:
+        cfg = _schedule_cfg(
+            "unused.json", ai={"enabled": True, "max_chars": 40, "extra_prompt": "别用感叹号"}
+        )
+        fake = AsyncMock(return_value={"content": "早安喵（摇尾巴）"})
+        with patch("plugins.aiagent.client.post_chat_completion", fake), patch(
+            "plugins.aiagent.persona.load_persona_prompt", return_value="人格：小鲸鱼娘"
+        ):
+            text = await schedule._generate_with_ai(_job(), cfg["ai"], cfg)
+
+        system = fake.await_args.args[1][0]["content"]
+        self.assertIn("人格：小鲸鱼娘", system)
+        self.assertIn("别用感叹号", system)
+        self.assertIn("QQ 空间", system)
+        self.assertEqual(text, "早安喵（摇尾巴）")
+
     async def test_run_job_without_bot_raises(self) -> None:
         cfg = _full_cfg(_schedule_cfg(self._state))
         with patch.object(schedule, "_pick_bot", return_value=None):

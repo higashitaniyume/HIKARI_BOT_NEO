@@ -186,8 +186,16 @@ async def _generate_with_ai(
 ) -> str:
     from plugins.aiagent.client import post_chat_completion
     from plugins.aiagent.config import get_config as get_aiagent_config
+    from plugins.aiagent.persona import load_persona_prompt
 
-    request_cfg = copy.deepcopy(get_aiagent_config())
+    agent_cfg = get_aiagent_config()
+    persona_text = ""
+    try:
+        persona_text = load_persona_prompt(agent_cfg)
+    except Exception as exc:  # pragma: no cover - 人格 skill 读不到时不该拖垮发帖
+        logger.warning("[QZone] 读取 AI 人格提示词失败，将只使用写作规则: %s", exc)
+
+    request_cfg = copy.deepcopy(agent_cfg)
     model_cfg = dict(request_cfg.get("model") or {})
     model_cfg["temperature"] = ai_cfg["temperature"]
     model_cfg["max_tokens"] = ai_cfg["max_tokens"]
@@ -197,19 +205,38 @@ async def _generate_with_ai(
     # 短文案不需要思考模式：开了会白烧 token，长思考还可能把 max_tokens 用光导致空回复
     request_cfg["thinking"] = {"enabled": False}
 
+    system_parts = [
+        persona_text,
+        str(ai_cfg.get("extra_prompt") or "").strip(),
+        (
+            "你在给 QQ 空间写一条说说：只输出正文本身，不要引号、不要话题标签、"
+            "不要链接、不要 Markdown，也不要解释你在做什么。"
+        ),
+    ]
     messages = [
-        {
-            "role": "system",
-            "content": (
-                f"{ai_cfg['persona']}\n"
-                "你在给 QQ 空间写一条说说：只输出正文本身，不要引号、不要话题标签、"
-                "不要链接、不要 Markdown，也不要解释你在做什么。"
-            ),
-        },
+        {"role": "system", "content": "\n\n".join(part for part in system_parts if part)},
         {"role": "user", "content": _build_prompt(job, ai_cfg, schedule_cfg, now=now)},
     ]
     message = await post_chat_completion(request_cfg, messages, tools=[], caller="qzone")
     return _clean_generated(str(message.get("content") or ""), ai_cfg["max_chars"])
+
+
+async def generate_draft(prompt: str = "", *, max_chars: int | None = None) -> tuple[str, str]:
+    """网页/AI 手动生成用：按 AI 配置的人格生成一条草稿，不发布。"""
+    cfg = get_config()
+    ai_cfg = dict(cfg["schedule"]["ai"])
+    if max_chars is not None:
+        try:
+            ai_cfg["max_chars"] = min(max(int(max_chars), 10), 1000)
+        except (TypeError, ValueError):
+            pass
+    schedule_cfg = {**cfg["schedule"], "ai": ai_cfg}
+    job = {
+        "id": "manual",
+        "prompt": str(prompt or "").strip() or "随便聊聊现在的心情",
+        "timezone": "Asia/Shanghai",
+    }
+    return await compose_text(job, schedule_cfg)
 
 
 def _build_prompt(

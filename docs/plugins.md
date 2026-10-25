@@ -1292,7 +1292,7 @@ NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登�
 
 ### 定时说说
 
-`schedule` 段默认关闭（`enabled: false`），打开后按任务时间自动发人设短文：
+`schedule` 段默认关闭（`enabled: false`），打开后按任务时间自动发人设短文。**人格提示词不在这里配置**，统一取后台「AI」页里当前配置文件的 persona skill（`BotData/agent_personas/…`）：
 
 ```json
 "schedule": {
@@ -1305,7 +1305,7 @@ NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登�
     "temperature": 1.0,
     "max_tokens": 400,
     "max_chars": 120,
-    "persona": "你是住在 DeepSeek 数据海洋的小鲸鱼娘……"
+    "extra_prompt": ""
   },
   "fallback_texts": ["哼，今天也在海里摸鱼喵～（摇尾巴）"],
   "jobs": [
@@ -1330,9 +1330,19 @@ NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登�
 | `state_path` | 每天去重状态文件，默认 `UserData/qzone_state.json` |
 | `ai.enabled` | 用 AI 生成文案；关掉则只用 `fallback_texts` |
 | `ai.max_chars` | 单条文案字数上限，默认 120 |
-| `ai.persona` | 生成文案的人设提示词，可随时改 |
+| `ai.extra_prompt` | 额外的写作要求（人格仍然取 AI 配置），比如「再短一点」 |
 | `jobs[].days` | 空数组=每天；也可以写 `["mon","wed"]` 或 `["周一","周三"]` |
 | `jobs[].visible` | `public` / `friends` / `private` |
+
+### 后台「空间」页
+
+后台侧边栏的「空间」页可以直接改上面所有配置，并随时蹭 AI 生成一条说说：
+
+- **定时说说**：开关、AI 开关、字数上限、补发窗口、额外写作要求、备用文案，以及每条任务的 id / 时间 / 星期 / 可见范围 / 文案方向，都能在页面上改，保存即写回 `qzone.json`（不需要重启，60 秒内定时循环就会读到）。
+- **生成并发布**：填一句可选的要求 → 「用 AI 生成」→ 草稿进文本框，可以随便改 → 选可见范围 → 「发布到空间」。生成和发布都走机器人主循环，用的是 NapCat 当前登录态，所以页面本身不保存任何 Cookie。
+- 页面顶部会显示当前人格来源（如 `BotData/agent_personas/ds`、字数）和模型，改 AI 人格就换文案风格。
+
+对应的 HTTP 接口见 [API.md](API.md#qq-空间配置)。
 
 行为约定：
 
