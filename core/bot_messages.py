@@ -201,6 +201,7 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "comments_usage": "用法：评论列表 [序号]（序号来自「我的说说」）",
         "comments_header": "这条说说有 {count} 条评论（tid={tid}）：",
         "comment_row": "{index}. {nickname}：{content}",
+        "comment_row_reply": "　└ {index}. {nickname}：{content}",
         "comments_footer": "发送「回复评论 评论序号 内容」回复其中一条。",
         "comments_empty": "这条说说还没有评论。",
         "comments_cache_miss": "请先发送「评论列表」再回复。",

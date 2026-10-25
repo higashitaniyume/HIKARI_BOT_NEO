@@ -309,9 +309,10 @@ async def handle_comment_list(ctx: CommandContext) -> None:
 
     lines = [msg("qzone.comments_header", count=len(comments), tid=post.tid)]
     for comment_index, comment in enumerate(comments, 1):
+        template = "qzone.comment_row_reply" if comment.depth > 0 else "qzone.comment_row"
         lines.append(
             msg(
-                "qzone.comment_row",
+                template,
                 index=comment_index,
                 nickname=comment.nickname,
                 content=_truncate(comment.content, 60),

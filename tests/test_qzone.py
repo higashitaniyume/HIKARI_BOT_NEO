@@ -375,6 +375,28 @@ class CommentParsingTests(unittest.TestCase):
         self.assertIsNone(service._comment_item_from_raw({"uin": "123456", "content": "x"}))
         self.assertIsNone(service._comment_item_from_raw({"tid": "1", "uin": "abc"}))
 
+    def test_replies_are_flattened_under_root_comment(self) -> None:
+        root = service.CommentItem(
+            comment_id="1", uin="1637652353", nickname="CurryPeter0613", content="水里怎么煮饭"
+        )
+        replies = service._comment_replies_from_raw(
+            {
+                "tid": "1",
+                "list_3": [
+                    {
+                        "uin": 3946388948,
+                        "name": "铁盆大肥鱼",
+                        "content": "@{uin:1637652353,nick:CurryPeter0613,auto:1} 水里也能煮",
+                    }
+                ],
+            },
+            root,
+        )
+        self.assertEqual(len(replies), 1)
+        self.assertEqual(replies[0].comment_id, "1")  # 回复沿用根评论 id
+        self.assertEqual(replies[0].depth, 1)
+        self.assertEqual(replies[0].content, "水里也能煮")
+
 
 class CommentFetchTests(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_comments_maps_payload(self) -> None:
@@ -469,6 +491,21 @@ class CommentCommandTests(unittest.IsolatedAsyncioTestCase):
         cached = qzone._get_cached_comments(ctx)
         assert cached is not None
         self.assertEqual(cached[0].tid, "tid1")
+
+    async def test_comment_list_shows_replies_indented(self) -> None:
+        ctx = _FakeContext("1")
+        qzone._my_posts_cache[qzone._cache_key(ctx)] = (time.monotonic(), [self._post])
+        reply = service.CommentItem(
+            comment_id="1", uin="3946388948", nickname="铁盆大肥鱼", content="水里也能煮", depth=1
+        )
+        with patch.object(qzone, "get_config", return_value=self._config), patch.object(
+            qzone.service, "fetch_comments", AsyncMock(return_value=[self._comment, reply])
+        ):
+            await qzone.handle_comment_list(ctx)
+
+        text = ctx.sent[-1]
+        self.assertIn("└", text)
+        self.assertIn("铁盆大肥鱼", text)
 
     async def test_comment_list_without_posts_reports_empty(self) -> None:
         ctx = _FakeContext("")

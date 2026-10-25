@@ -97,12 +97,13 @@ class MoodItem:
 
 @dataclass(frozen=True, slots=True)
 class CommentItem:
-    """一条说说下的评论。"""
+    """一条说说下的评论；depth=1 表示某条评论下的回复。"""
 
     comment_id: str
     uin: str
     nickname: str
     content: str
+    depth: int = 0
 
 
 # ── 登录态 ────────────────────────────────────────────────
@@ -374,8 +375,10 @@ async def fetch_comments(
     items: list[CommentItem] = []
     for raw in raw_items if isinstance(raw_items, list) else []:
         item = _comment_item_from_raw(raw)
-        if item is not None:
-            items.append(item)
+        if item is None:
+            continue
+        items.append(item)
+        items.extend(_comment_replies_from_raw(raw, item))
     return items
 
 
@@ -392,6 +395,32 @@ def _comment_item_from_raw(raw: Any) -> CommentItem | None:
         nickname=_clean_text(raw.get("name")) or uin,
         content=_comment_text(raw.get("content")),
     )
+
+
+def _comment_replies_from_raw(raw: Any, root: CommentItem) -> list[CommentItem]:
+    """展开评论下的回复（QZone 放在 list_2 / list_3 … 里，没有独立接口）。"""
+    if not isinstance(raw, dict):
+        return []
+    replies: list[CommentItem] = []
+    for key, value in raw.items():
+        if not str(key).startswith("list_") or not isinstance(value, list):
+            continue
+        for entry in value:
+            if not isinstance(entry, dict):
+                continue
+            uin = str(entry.get("uin") or "").strip()
+            if not uin.isdigit():
+                continue
+            replies.append(
+                CommentItem(
+                    comment_id=root.comment_id,
+                    uin=uin,
+                    nickname=_clean_text(entry.get("name")) or uin,
+                    content=_comment_text(entry.get("content")),
+                    depth=1,
+                )
+            )
+    return replies
 
 
 async def reply_comment(
