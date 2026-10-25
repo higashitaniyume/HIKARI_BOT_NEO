@@ -163,6 +163,74 @@ DEFAULT_MESSAGES: dict[str, Any] = {
     "profile_like": {
         "help": "点赞：静默给自己 QQ 资料卡点满赞，默认 10 次。\n点赞 @用户 / 点赞 QQ号：静默给指定用户点赞。\n点赞 5：给自己点 5 次；点赞 QQ号 5：给指定用户点 5 次。\n群聊发送“点赞”即可触发，不需要 @机器人；成功或失败都不会发送聊天消息。",
     },
+    "qzone": {
+        "help": (
+            "发说说 [公开|好友|私密] <内容>：用当前 NapCat 登录的 QQ 发布空间说说（仅超管）。\n"
+            "删说说 <序号|tid>：删除自己发的说说（仅超管）。\n"
+            "空间动态 [数量]：查看好友空间动态，默认 8 条。\n"
+            "好友说说 <QQ号> [数量]：查看指定好友的说说。\n"
+            "我的说说 [数量]：查看自己最近发的说说与评论数。\n"
+            "评论列表 [序号]：查看自己某条说说下的评论（序号来自「我的说说」）。\n"
+            "回复评论 <评论序号> <内容>：回复自己说说下的评论（仅超管）。\n"
+            "检查评论：立刻检查并自动回复空间评论（仅超管）。\n"
+            "说说赞 <序号>：给「空间动态」里的某条说说点赞（仅超管）。\n"
+            "说说评论 <序号> <内容>：评论「空间动态」里的某条说说（仅超管）。\n"
+            "空间定时：查看定时说说任务，空间定时 run <任务id> 立刻发一条（仅超管）。"
+        ),
+        "publish_usage": "用法：发说说 [公开|好友|私密] <内容>",
+        "publish_ok": "已发布到 QQ 空间（{visible}）：{tid}",
+        "text_too_long": "内容太长了，最多 {limit} 个字。",
+        "delete_usage": "用法：删说说 <序号|tid>",
+        "delete_ok": "已删除说说：{tid}",
+        "feed_usage": "用法：空间动态 [数量]",
+        "feed_header": "最近的空间动态（{count} 条）：",
+        "feed_row": "{index}. {nickname}：{content}",
+        "feed_row_meta": "    {time} · tid={tid}",
+        "feed_footer": "发送「说说赞 序号」点赞，或「说说评论 序号 内容」评论。",
+        "feed_empty": "没有拉到空间动态，请稍后再试。",
+        "feed_cache_miss": "列表已过期，请先发送「空间动态」。",
+        "index_invalid": "序号超出范围，请先发送「空间动态」查看列表。",
+        "moods_usage": "用法：好友说说 <QQ号> [数量]",
+        "moods_header": "{qq} 的说说（{count} 条）：",
+        "moods_row": "{index}. {content}",
+        "moods_row_meta": "    {time} · tid={tid} · 评论 {comments}",
+        "moods_empty": "没有拉到 {qq} 的说说。",
+        "my_posts_header": "我的说说（{count} 条）：",
+        "my_posts_footer": "发送「评论列表 序号」查看某条说说下的评论。",
+        "my_posts_empty": "没有拉到自己最近的说说。",
+        "my_posts_index_invalid": "序号超出范围，请先发送「我的说说」。",
+        "comments_usage": "用法：评论列表 [序号]（序号来自「我的说说」）",
+        "comments_header": "这条说说有 {count} 条评论（tid={tid}）：",
+        "comment_row": "{index}. {nickname}：{content}",
+        "comment_row_reply": "　└ {index}. {nickname}：{content}",
+        "comments_footer": "发送「回复评论 评论序号 内容」回复其中一条。",
+        "comments_empty": "这条说说还没有评论。",
+        "comments_cache_miss": "请先发送「评论列表」再回复。",
+        "comment_index_invalid": "评论序号超出范围，请先发送「评论列表」。",
+        "reply_usage": "用法：回复评论 <评论序号> <内容>",
+        "reply_ok": "已回复 {nickname}。",
+        "comments_disabled": "空间评论自动回复当前是关闭的（qzone.json 的 comment_reply.enabled）。",
+        "comments_baseline": "首次基线完成：记录 {count} 条历史评论，本次没有回复任何评论。",
+        "comments_checked": "检查完成：回复 {replied} 条，待回复 {pending} 条，失败 {failed} 条。",
+        "like_ok": "已点赞：{nickname}",
+        "comment_usage": "用法：说说评论 <序号> <内容>",
+        "comment_ok": "已评论：{nickname}",
+        "login_failed": "读取 QQ 登录态失败：{detail}",
+        "action_failed": "空间操作失败：{detail}",
+        "schedule_help": (
+            "空间定时：查看定时说说任务，默认关闭。\n"
+            "空间定时 run <任务id>：立刻执行一次指定任务。\n"
+            "在 BotData/plugin_configs/qzone.json 的 schedule 段里配置任务时间、文案来源与人设。"
+        ),
+        "schedule_header": "空间定时：{state}｜文案：{source}｜任务 {count} 个",
+        "schedule_empty": "还没有配置定时任务。",
+        "schedule_job_line": "· {id} {time}（{days}，{visible}）下次 {next_run}｜上次 {last}{error}",
+        "schedule_footer": "发送「空间定时 run <任务id>」可立刻发一条。",
+        "schedule_every_day": "每天",
+        "schedule_never_sent": "未发过",
+        "schedule_unknown_job": "没有这个定时任务：{job_id}",
+        "schedule_run_ok": "已发送定时任务 {job_id}：{tid}",
+    },
     "pixiv": {
         "r18_blocked": "Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。",
         "no_images": "Pixiv 作品 {illust_id} 没有可发送的图片。",

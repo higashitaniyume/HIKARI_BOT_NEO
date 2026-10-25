@@ -635,7 +635,7 @@ class BlockContentTests(unittest.TestCase):
         self.assertIsInstance(messages[1]["content"], list)
 
     def test_latest_user_text_reads_block_arrays(self) -> None:
-        # 工具预取和 _tool_wanted 都依赖这个函数，带图消息不能让它返回空
+        # wiki 工具预取依赖这个函数，带图消息不能让它返回空
         text = _latest_user_text(
             [
                 {"role": "system", "content": "指令"},

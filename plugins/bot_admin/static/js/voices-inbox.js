@@ -404,6 +404,10 @@ function renderTtsConfig() {
   $("#ttsReceiveTimeout").value = cfg.receive_timeout ?? 60;
   $("#ttsMaxChars").value = cfg.max_chars ?? 120;
   $("#ttsCooldown").value = cfg.cooldown_seconds ?? 5;
+  const aiTool = cfg.ai_tool || {};
+  $("#ttsAiMaxChars").value = aiTool.max_chars ?? 80;
+  $("#ttsAiCooldown").value = aiTool.cooldown_seconds ?? 10;
+  $("#ttsAiAllowAutoReply").checked = aiTool.allow_auto_reply === true;
   $("#ttsCacheDir").value = cfg.cache_dir || "/tmp/hikari_bot/tts";
   $("#ttsCacheTtl").value = cfg.cache_ttl_minutes ?? 60;
   $("#fishApiKey").value = "";
@@ -657,21 +661,28 @@ function renderAiAgentConfig() {
   $("#aiagentTimeout").value = model.timeout_seconds ?? 60;
   $("#aiagentTemperature").value = model.temperature ?? 0.7;
   $("#aiagentTopP").value = model.top_p ?? 1.0;
-  $("#aiagentMaxTokens").value = model.max_tokens ?? 1024;
+  $("#aiagentMaxTokens").value = model.max_tokens ?? 8192;
 
   const personaPath = persona.skill_path || "BotData/agent_personas/default";
   $("#aiagentPersonaPath").value = personaPath;
   $("#aiagentPersonaMaxChars").value = persona.max_chars ?? 12000;
   $("#aiagentFallbackPrompt").value = persona.fallback_prompt || "";
   $("#aiagentMaxUserChars").value = chat.max_user_chars ?? 2000;
-  $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 3500;
+  $("#aiagentMaxReplyChars").value = chat.max_reply_chars ?? 8000;
+  $("#aiagentSingleMessageChars").value = chat.single_message_chars ?? (chat.short_reply_chars ?? 1200);
+  $("#aiagentForwardNodeChars").value = chat.forward_node_chars ?? 1500;
+  $("#aiagentForwardMaxNodes").value = chat.forward_max_nodes ?? 30;
+  $("#aiagentHistoryReplyChars").value = chat.history_reply_chars ?? 1200;
   $("#aiagentMaxHistory").value = chat.max_history_messages ?? 10;
   $("#aiagentMaxContextChars").value = chat.max_context_chars ?? 12000;
+  $("#aiagentRequestTimeout").value = chat.request_timeout_seconds ?? 120;
+  $("#aiagentMaxConcurrent").value = chat.max_concurrent_requests ?? 8;
   $("#aiagentCooldown").value = chat.cooldown_seconds ?? 3;
   $("#aiagentSystemExtra").value = chat.system_prompt_extra || "";
   const sharedChat = chat.group_shared_context || {};
   $("#aiagentGroupSharedContext").checked = sharedChat.enabled === true;
   $("#aiagentGroupSharedMax").value = sharedChat.max_messages ?? 10;
+  $("#aiagentQuoteReply").checked = chat.quote_reply !== false;
 
   const select = $("#aiagentPersonaSelect");
   select.replaceChildren(option("", "手动填写路径"));
@@ -715,15 +726,161 @@ function renderAiAgentConfig() {
   $("#aiagentChatlogMaxMb").value = chatlog.max_total_mb ?? 200;
   $("#aiagentChatlogGroups").value = (Array.isArray(chatlog.groups) ? chatlog.groups : []).join(", ");
   $("#aiagentChatlogRecordBot").checked = chatlog.record_bot === true;
+  const autoReply = cfg.auto_reply || {};
+  $("#aiagentAutoReplyEnabled").checked = autoReply.enabled === true;
+  state.aiagentAutoReplyGroups = normalizeAiAgentAutoReplyGroups(autoReply.groups);
+  renderAiAgentAutoReplyGroups();
+  $("#aiagentAutoReplyCooldown").value = autoReply.cooldown_seconds ?? 5;
+  $("#aiagentAutoReplyContextMessages").value = autoReply.context_messages ?? 10;
+  $("#aiagentAutoReplyContextChars").value = autoReply.context_max_chars ?? 1200;
   const wikiPrefetch = tools.wiki_prefetch || {};
   $("#aiagentWikiPrefetch").checked = wikiPrefetch.enabled !== false;
   $("#aiagentWikiPrefetchSearch").checked = wikiPrefetch.web_search !== false;
-  $("#aiagentSearchMode").value = search.mode === "searxng" ? "searxng" : "builtin";
+  $("#aiagentSearchMode").value = ["searxng", "hybrid"].includes(search.mode) ? search.mode : "builtin";
   $("#aiagentSearchMaxResults").value = search.max_results ?? 5;
   $("#aiagentSearchNeedContent").checked = search.need_content === true;
+  const images = tools.images || {};
+  $("#aiagentImagesEnabled").checked = images.enabled !== false;
+  $("#aiagentImagesAllowSend").checked = images.allow_send === true;
+  $("#aiagentImagesMaxResults").value = images.max_results ?? 5;
+  $("#aiagentImagesMaxSend").value = images.max_images_per_send ?? 3;
+  $("#aiagentImagesSafesearch").value = String(images.safesearch ?? 1);
+  $("#aiagentImagesMaxDownloadMb").value = images.max_download_mb ?? 15;
+  $("#aiagentImagesTimeout").value = images.download_timeout_seconds ?? 20;
+
+  const workspace = tools.workspace || {};
+  $("#aiagentWorkspaceEnabled").checked = workspace.enabled !== false;
+  $("#aiagentWorkspaceAllowWrites").checked = workspace.allow_writes === true;
+  $("#aiagentWorkspaceAllowDelete").checked = workspace.allow_delete === true;
+  $("#aiagentWorkspaceAllowSend").checked = workspace.allow_send === true;
+  $("#aiagentWorkspaceAllowAutoReply").checked = workspace.allow_in_auto_reply === true;
+  $("#aiagentWorkspaceIngestIncoming").checked = workspace.ingest_incoming !== false;
+  $("#aiagentWorkspaceIncludeQuoted").checked = workspace.include_quoted_files !== false;
+  $("#aiagentWorkspaceIncomingMaxMb").value = workspace.incoming_max_mb ?? 100;
+  $("#aiagentWorkspaceIncomingMaxFiles").value = workspace.incoming_max_files ?? 3;
+  $("#aiagentWorkspaceIncomingRetention").value = workspace.incoming_retention_days ?? 7;
+  $("#aiagentWorkspaceMaxFileMb").value = workspace.max_file_mb ?? 20;
+  $("#aiagentWorkspaceMaxTotalMb").value = workspace.max_total_mb ?? 300;
+  $("#aiagentWorkspaceMaxFiles").value = workspace.max_files ?? 500;
+  $("#aiagentWorkspaceMaxSendMb").value = workspace.max_send_mb ?? 100;
+
+  const sticker = chat.sticker || {};
+  $("#aiagentStickerEnabled").checked = sticker.enabled === true;
+  $("#aiagentStickerProbability").value = sticker.probability ?? 1.0;
+  $("#aiagentStickerMaxPerReply").value = sticker.max_per_reply ?? 1;
+  $("#aiagentStickerAllowAutoReply").checked = sticker.allow_auto_reply !== false;
+  const configuredPacks = Array.isArray(sticker.packs) ? sticker.packs.map(String) : [];
+  const isAllPacks = configuredPacks.length === 0;
+  const stickerAllCheckbox = $("#aiagentStickerPacksAll");
+  if (stickerAllCheckbox) stickerAllCheckbox.checked = isAllPacks;
+  renderAiAgentStickerPacks(configuredPacks);
+  setAiAgentStickerPacksDisabled(isAllPacks);
+
   renderAiAgentTools(false);
   renderAiAgentProfiles();
   renderAiAgentBindings();
+}
+
+/* ── 限定贴纸包多选（手机可点选，不依赖 Ctrl） ───────────────── */
+
+function aiAgentStickerPackInputs() {
+  const container = $("#aiagentStickerPacks");
+  return container ? Array.from(container.querySelectorAll("input[type='checkbox']")) : [];
+}
+
+function selectedAiAgentStickerPacks() {
+  return aiAgentStickerPackInputs()
+    .filter((input) => input.checked)
+    .map((input) => input.value);
+}
+
+function updateAiAgentStickerPacksSummary() {
+  const summary = $("#aiagentStickerPacksSummary");
+  if (!summary) return;
+  const allChecked = $("#aiagentStickerPacksAll")?.checked === true;
+  if (allChecked) {
+    summary.textContent = "当前使用全部贴纸包，新增的贴纸包也会自动包含。";
+    return;
+  }
+  const count = selectedAiAgentStickerPacks().length;
+  summary.textContent = count
+    ? `已选 ${count} 个贴纸包，只会从这些贴纸包中抽取。`
+    : "还没有选择贴纸包：可勾选上面的「使用全部贴纸包」，或在这里至少选一个。";
+}
+
+function filterAiAgentStickerPacks() {
+  const container = $("#aiagentStickerPacks");
+  const empty = $("#aiagentStickerPacksEmpty");
+  if (!container) return;
+  const query = ($("#aiagentStickerPackSearch")?.value || "").trim().toLowerCase();
+  const items = Array.from(container.querySelectorAll(".pack-multi-item"));
+  let visible = 0;
+  for (const item of items) {
+    const match = !query || (item.dataset.pack || "").includes(query);
+    item.hidden = !match;
+    if (match) visible += 1;
+  }
+  if (!empty) return;
+  if (!items.length) {
+    empty.textContent = "暂无贴纸包，请先在「贴纸」页创建。";
+    empty.hidden = false;
+  } else if (!visible) {
+    empty.textContent = "没有匹配的贴纸包。";
+    empty.hidden = false;
+  } else {
+    empty.hidden = true;
+  }
+}
+
+function renderAiAgentStickerPacks(selectedPacks = []) {
+  const container = $("#aiagentStickerPacks");
+  if (!container) return;
+  const selected = new Set((selectedPacks || []).map(String));
+  const packs = Array.isArray(state.aiagentStickerPacks) ? state.aiagentStickerPacks.map(String) : [];
+  container.replaceChildren();
+
+  for (const pack of packs) {
+    const item = document.createElement("label");
+    item.className = "pack-multi-item";
+    item.dataset.pack = pack.toLowerCase();
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = pack;
+    input.checked = selected.has(pack);
+    item.classList.toggle("is-selected", input.checked);
+    input.addEventListener("change", () => {
+      item.classList.toggle("is-selected", input.checked);
+      updateAiAgentStickerPacksSummary();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = pack;
+
+    item.append(input, text);
+    container.append(item);
+  }
+
+  filterAiAgentStickerPacks();
+  updateAiAgentStickerPacksSummary();
+}
+
+function setAllAiAgentStickerPacks(checked) {
+  for (const input of aiAgentStickerPackInputs()) {
+    input.checked = checked;
+    input.closest(".pack-multi-item")?.classList.toggle("is-selected", checked);
+  }
+  updateAiAgentStickerPacksSummary();
+}
+
+function setAiAgentStickerPacksDisabled(disabled) {
+  const field = $("#aiagentStickerPackField");
+  if (!field) return;
+  field.classList.toggle("is-disabled", disabled);
+  for (const el of field.querySelectorAll("input, button")) {
+    el.disabled = disabled;
+  }
+  updateAiAgentStickerPacksSummary();
 }
 
 /* ── 配置文件栏 ─────────────────────────────────────────────── */

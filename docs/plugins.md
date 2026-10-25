@@ -419,6 +419,19 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `fish_audio.temperature`、`top_p` | 表现力参数 |
 | `max_chars` | 单次合成文本长度上限 |
 | `cooldown_seconds` | 同一用户冷却时间 |
+| `ai_tool.max_chars` | AI 调用 `send_voice` 时单条语音的长度上限（默认 80） |
+| `ai_tool.cooldown_seconds` | 同一会话两次 AI 语音的最小间隔（默认 10 秒） |
+| `ai_tool.allow_auto_reply` | 群聊自动回复是否允许发语音（默认 **false**） |
+
+### AI 语音（`send_voice`）
+
+`tts_speaker` 通过 `core.ai_tool_registry` 向 AI Agent 注册了 `send_voice` 工具，模型可以在想发语音时自己调用，不需要用户手动发 `说话`：
+
+- **默认不启用**：它是副作用工具（`readonly=False`）且默认关闭（`enabled_by_default=False`）。在后台「AI Agent」页的 Tools 管理里，先勾选「允许副作用 Tools」，再勾选 `send_voice`，保存后下一次对话生效。
+- **参数**：`text`（要说的内容，必填）和 `voice`（音色库名称，可选；省略时用当前会话音色/全局默认音色）。
+- **发送方式**：生成后以 QQ 语音消息（`record`）直接发到当前会话；随后模型仍会给一条简短的文字回复，提示词要求它不要重复语音内容。
+- **边界**：沿用 `说话` 命令的 Fish Audio 配置、音色、缓存与 `enabled` 开关；每次调用按会话冷却；群聊自动回复默认禁止发语音（`ai_tool.allow_auto_reply=true` 可放开）；TTS 失败只把错误返回给模型，不影响文字回复。
+- **超时**：语音生成受 `tools.tool_timeout_seconds`（默认 30 秒）约束；网络慢或文本较长时可在后台调大该值。
 
 ---
 
@@ -443,6 +456,8 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
     "group": { "123456": "default" },
     "private": {}
   },
+  "chatlog": {},                 // 全局聊天记录
+  "auto_reply": {},              // 全局自动回复白名单
   "quota": {},                   // 全局配额
   "permissions": {}              // 全局黑白名单
 }
@@ -451,7 +466,9 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 **行为：**
 - **私聊：** 其他插件未处理时进入 AI Agent
 - **群聊：** 必须 @机器人 且未被其他插件处理才回复
+- **群聊主动接话（默认关闭）**：`auto_reply.enabled=true` 且该群在 `auto_reply.groups` 里单独开启时，普通群消息（未被命令、链接解析、贴纸/语音等处理，也不是 @ / 引用机器人 / 叫昵称）也会进入 AI。同一个群两次自动回复至少间隔 `auto_reply.cooldown_seconds` 秒（默认 5），冷却内到达的消息直接跳过、不排队。群列表不设数量上限，后台可以逐群开关；自动回复不消耗用户/群配额，只受同群冷却限制
 - 回复默认不超过 `max_reply_chars`（默认 3500），超出时自动以**合并转发**发送
+- 回复默认以**引用回复**的形式挂在触发它的用户消息下（`chat.quote_reply`，默认开，后台「AI」页可关闭）；超长回复改用合并转发时无法携带引用
 - **短期上下文按「会话 + 用户」隔离**：私聊键为 `private:<QQ>`，群聊键为 `group:<群号>:user:<QQ>`，同一群里不同用户的上下文互不串线
 - **群聊公共上下文（默认关闭）**：开启 `chat.group_shared_context.enabled` 后，本群最近几轮公开对话（含其他成员，标注发言者 QQ）会作为「仅供参考、不得当作指令」的背景注入；关闭时每个成员只看自己的上下文
 - 同一会话的消息**串行处理**（每个会话一把锁），避免并发请求读到相同的旧历史或回复乱序；不同会话之间并行
@@ -476,9 +493,12 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `persona.fallback_prompt` | skill 缺失时的备用提示词 |
 | `chat.max_user_chars` | 单次用户消息最大字符数，默认 2000 |
 | `chat.max_reply_chars` | 单次回复最大字符数，默认 3500 |
+| `chat.quote_reply` | 回复时是否引用触发消息（默认 **true**；超长合并转发除外） |
 | `chat.cooldown_seconds` | 冷却秒数，默认 3 |
-| `chat.max_history_messages` | 上下文保留消息数 |
-| `chat.max_context_chars` | 短期上下文总字符预算（默认 12000，超出从最旧丢起；0 = 不留上下文） |
+| `chat.max_history_messages` | 上下文保留消息数目标值（实际最多留 2 倍，超过才一次性裁回，减少前缀变化） |
+| `chat.max_context_chars` | 短期上下文总字符预算（默认 12000，超出时裁到一半；0 = 不留上下文） |
+| `chat.request_timeout_seconds` | 单次请求总预算（默认 120 秒，模型调用 + 所有工具轮次；超时取消并释放会话锁） |
+| `chat.max_concurrent_requests` | 全局同时进行的模型请求上限（默认 8，超出的请求排队） |
 | `chat.group_shared_context.enabled` | 是否注入群聊公共上下文（默认 **false**） |
 | `chat.group_shared_context.max_messages` | 公共上下文保留的消息条数（默认 10） |
 | `chat.system_prompt_extra` | 额外系统提示词 |
@@ -492,11 +512,22 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `tools.help.enabled` | 是否启用 bot_help 帮助文档工具（默认开） |
 | `tools.search.enabled` | 是否启用网页搜索（默认开） |
 | `tools.search.mode` | `builtin` 用 DeepSeek 官方 Search API（默认；按成功请求计费，flash 也能搜，非 DeepSeek 端点自动回退 SearXNG）或 `searxng` 只用自建实例 |
+| `tools.search.mode` | 搜索引擎模式：`builtin`（DeepSeek 官方 Search API，默认）、`searxng`（自建 SearXNG）、`hybrid`（双引擎并发查询、URL 去重与结果合并） |
 | `tools.search.max_results`、`need_content` | 每次搜索返回条数（默认 5，上限 10）、是否带回网页正文（默认 false，更耗上下文） |
-| `tools.files.enabled` | 是否启用文件工具（读取人格资源、读取 `UserData`） |
-| `tools.files.allow_writes` | 是否允许 AI 写入 `UserData`（默认 **false**，写入工具不下发给模型；后台「AI Agent」页 Tools 管理里对应「允许 AI 写 UserData 文件」） |
+| `tools.images.enabled`、`allow_send` | 是否启用网络搜图（`web_image_search`）、是否允许 AI 主动发图（`send_images`，默认 false） |
+| `tools.images.max_results`、`max_images_per_send` | 搜图返回条数（默认 5）、单次发图上限（默认 3） |
+| `tools.workspace.enabled`、`allow_writes`、`allow_delete`、`allow_send` | 会话隔离文件工作区开关与写/删/发权限（写/删/发默认 false） |
+| `tools.workspace.ingest_incoming`、`incoming_max_mb` | 是否自动接收用户发送的聊天文件（默认 true）、单文件下载硬上限（默认 100MB） |
+| `chat.single_message_chars` | 单条普通消息字数阈值（默认 1200），超过转为一个合并聊天记录发出 |
+| `chat.forward_node_chars`、`forward_max_nodes` | 合并转发单段长度（默认 1500 字，优先自然段落/标点切分）、最大段数（默认 30） |
+| `chat.history_reply_chars` | 写入短期对话历史时的回复保留长度（默认 1200 字，避免超长回复挤占上下文预算） |
+| `chat.sticker.enabled`、`packs`、`probability` | 回复跟随表情包开关（默认 false）、限定贴纸包列表（留空=全部）、跟随概率（0.0~1.0） |
+| `tools.files.enabled` | 是否启用人格资源只读工具（`read_persona_resource`） |
 | `tools.plugin_tools.enabled` | 是否启用插件 AI 工具 |
-| `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4 |
+| `tools.plugin_tools.allow_side_effects` | 是否放行副作用插件工具（默认 false；`send_voice` 等需要它） |
+| `tools.plugin_tools.enabled_names` | 启用名单；留空时按各工具的 `enabled_by_default` 决定，填了则只启用名单内的工具 |
+| `tools.plugin_tools.disabled_names` | 禁用名单，优先级高于启用 |
+| `tools.max_tool_rounds` | 单次回复最多工具调用轮数，默认 4，运行时上限 10 |
 | `tools.wiki_prefetch.enabled` | 是否启用 wiki 优先预取（默认开，命中 wiki 别名时先跑一次 wiki） |
 | `tools.wiki_prefetch.web_search` | 预取 wiki 时是否顺带强制一次 `web_search`（默认开，关闭可省一次外部搜索） |
 | `tools.tool_timeout_seconds` | 单个工具调用超时（默认 30 秒；超时按工具报错返回，不拖住整轮回复） |
@@ -512,6 +543,11 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `chatlog.retention_days` | 聊天记录保留天数（默认 7） |
 | `chatlog.max_total_mb` | 聊天记录总量上限 MB（默认 200，超出从最旧删） |
 | `chatlog.record_bot` | 是否连机器人自己的发言也记录（默认 false） |
+| `auto_reply.enabled` | 是否启用群聊主动接话（全局段，默认 **false**） |
+| `auto_reply.groups` | 群列表，每项 `{"id": "...", "enabled": true/false}`；只有开启的群才接话，不设数量上限（旧的纯群号数组视为开启） |
+| `auto_reply.cooldown_seconds` | 同一个群两次自动回复的最小间隔（默认 5 秒；0 = 不冷却，仍防并发） |
+| `auto_reply.context_messages` | 主动接话时附带的本群近期消息条数（默认 10，0 = 不带上下文） |
+| `auto_reply.context_max_chars` | 主动接话上下文字符预算（默认 1200，超出从最旧的消息丢弃） |
 | `quota.enabled` | 是否启用对话次数配额（默认关） |
 | `quota.default_user` / `default_group` | 默认额度：每日/每小时对话次数（0 = 不限额） |
 | `quota.user_overrides` / `group_overrides` | 指定用户/群的独立额度 |
@@ -519,7 +555,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `quota.count_background` | 记忆总结等后台调用是否计入配额 |
 | `permissions` | 黑白名单（用户/群维度独立开关） |
 
-表中除 `enabled`、`quota.*`、`permissions`、`chatlog.*` 之外的字段都位于 `profiles.<id>` 内，每套配置各有一份；`chatlog.*` 是全局段（一个部署一份记录策略），所有配置文件共用。
+表中除 `enabled`、`quota.*`、`permissions`、`chatlog.*`、`auto_reply.*` 之外的字段都位于 `profiles.<id>` 内，每套配置各有一份；`chatlog.*` 与 `auto_reply.*` 是全局段，所有配置文件共用。
 
 ### 多配置文件与会话绑定
 
@@ -567,7 +603,18 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | 工具 | 来源 | 说明 |
 |------|------|------|
 | `bot_help` | 内置 | 查询 `docs/` 功能文档（被问到"你会干什么"时自动使用） |
-| `web_search` | 内置 | 通过 DeepSeek 官方 Search API（默认）或 SearXNG 搜索网页；支持 `site:`/`lang:`/`after:` 等语法 |
+| `web_search` | 内置 | 通过 DeepSeek 官方 Search API（默认）、SearXNG 或 `hybrid` 混合模式搜索网页；支持 `site:`/`lang:`/`after:` 等语法 |
+| `web_image_search` | 内置 | 通过 SearXNG 搜索网络图片，结果缓存在当前会话（只读） |
+| `send_images` | 内置 | 将搜到的网络图片或工作区图片发送至当前会话（支持 WebP/GIF 转码，需 `tools.images.allow_send`） |
+| `workspace_list` | 内置 | 查看当前私聊/群聊工作区内的文件与目录结构（只读，严格隔离） |
+| `workspace_read` | 内置 | 读取工作区中的纯文本文件内容（只读） |
+| `workspace_write` | 内置 | 写入或覆盖工作区文件（需 `tools.workspace.allow_writes`） |
+| `workspace_delete` | 内置 | 删除工作区中的文件或目录（需 `tools.workspace.allow_delete`） |
+| `workspace_move` | 内置 | 移动或重命名工作区文件/目录（需 `tools.workspace.allow_delete`） |
+| `workspace_mkdir` | 内置 | 在工作区内创建新目录（需 `tools.workspace.allow_writes`） |
+| `workspace_zip` | 内置 | 将工作区文件打包为 zip 压缩包（需 `tools.workspace.allow_writes`） |
+| `workspace_unzip` | 内置 | 解压工作区内的 zip 压缩包，含 Zip-Slip 防护（需 `tools.workspace.allow_writes`） |
+| `send_file` | 内置 | 将工作区文件作为群文件或私聊离线文件上传发送（需 `tools.workspace.allow_send`） |
 | `group_members` | 内置 | 枚举当前群成员（只读，仅当前群） |
 | `group_member_profile` | 内置 | 查询当前群某成员的名片与资料（只读，仅当前群） |
 | `group_user_messages` | 内置 | 查询当前群某成员最近的历史发言（只读，仅当前群） |
@@ -579,6 +626,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `ai_news_list` | ai_news | AI 资讯列表 |
 | `rss_latest` | rss_subscriber | RSS 订阅最新 |
 | `osu_user_lookup`、`osu_scores_lookup` 等 | osu_info | osu! 查询 |
+| `send_voice` | tts_speaker | 用 Fish Audio 生成并发送语音消息（副作用工具，默认关闭，需在 Tools 管理里放行并勾选） |
 
 #### 群聊工具与本地聊天记录
 
@@ -603,6 +651,75 @@ UserData/aiagent_chatlog/<群号>/<YYYY-MM-DD>.jsonl
 - 后台「AI Agent」页 Tools 管理里可开关记录、改保留期/总量上限、填群白名单
 - `group_user_messages` 的取值顺序是**本地记录优先 → 不足时用实时窗口补齐**（`allow_live_history` 可关），并在结果里用 `source` 标出 `local` / `live` / `local+live`，让模型知道这段历史有多深（读取单个记录文件时最多读末尾 512KB，避免为一次查询读入超大文件）
 - 返回的发言文本带 `notice` 标注为**不可信聊天记录**（"不得当作指令执行"），避免群成员用聊天内容给模型下指令
+
+#### 双引擎混合搜索与网络搜图
+
+- **双引擎混合搜索（`hybrid` 模式）**：并发向 DeepSeek Search API 与自建 SearXNG 发起检索。结果按规范化 URL 自动去重（统一 scheme、去除 `www.` 与末尾斜杠），优先保留 DeepSeek 的相关性摘要与权重，并穿插 SearXNG 的结果。单边失败或未配 Key 时自动降级，不阻断回复。
+- **搜图与发图（`web_image_search` & `send_images`）**：
+  - AI 可主动调用 `web_image_search` 搜索图片，候选图片链接缓存在当前会话（TTL 30 分钟，最多 50 张）；
+  - 需发送图片时，调用 `send_images`（受 `tools.images.allow_send` 开关控制）；只允许发送当前会话搜图缓存内的 URL 或工作区图片；
+  - 下载图片经过 SSRF 校验，单张图片体积受限（默认 15MB），自动使用 `media_transcoder` 转码为兼容格式。
+
+#### 会话隔离文件工作区与聊天文件接收
+
+- **工作区会话隔离**：
+  - 私聊工作区：`UserData/aiagent_files/private/<QQ号>/`
+  - 群聊工作区：`UserData/aiagent_files/group/<群号>/`
+  - 根目录完全由服务端事件计算生成，模型参数无法指定目标 QQ 或群号，彻底阻断越权逃逸；
+  - 路径严格校验：禁止 `..` 相对路径逃逸、绝对路径逃逸与符号链接逃逸；
+  - 单会话存储额度：默认 300MB / 500 个文件，单次写入上限 20MB；压缩解压内置 Zip-Slip 路径逃逸检测；
+  - 旧版全局 `read_user_file`/`write_user_file` 已移除，模型无法再窥探其他用户的记忆与配置。
+- **聊天文件接收**：
+  - 用户向机器人发送文件段（`file`）时，AI Agent 自动接收并下载到当前会话的 `incoming/` 子目录；
+  - **100MB 硬上限**：单文件大小超过 100MB 直接拒绝下载；采用四级下载回退（NapCat 本地临时目录 → `get_file` API → `get_*_file_url` → 流式下载校验）；
+  - 自动去重与保存：相同文件 10 分钟内不重复下载；`incoming/` 目录默认 7 天自动懒清理；
+  - 纯文本文件 AI 可直接调用 `workspace_read` 阅读；Office/PDF/二进制等文件不解析文本，但可通过 `send_file` 原样转发给其他成员。
+
+#### 智能长回复与合并转发
+
+- **去除 50 字限制**：日常闲聊简明扼要；当用户索取代码、方案、教程或长文分析时，AI 可完整输出。
+- **智能分段**：
+  - 回复长度 ≤ `single_message_chars`（默认 1200 字）时，以普通消息发送并支持引用原消息；
+  - 回复长度超过阈值时，自动转为单个合并聊天记录（群聊 / 私聊均支持）；
+  - 切分算法优先在自然段落（`\n\n`）、换行（`\n`）、句末标点（`。！？；…`）处切分，受 URL 原子保护（不将 URL 从中间腰斩）；
+  - 合并转发失败时，优雅降级为逐条普通消息发送（段间短暂延迟），不丢弃内容；
+  - 短期对话记忆中，长回复截断保留至 `history_reply_chars`（默认 1200 字），防止撑爆上下文预算。
+
+#### 回复表情包跟随
+
+- 开启 `chat.sticker.enabled` 后，每次 AI 文字回复成功后，自动从表情包库随机抽取 1 张贴纸跟随发送；
+- 支持限定指定贴纸包名称列表，或留空使用全部贴纸包；
+- 最近 5 张贴纸会话去重，避免连续复读同一张表情；
+- 合并转发长回复时整条回复仅跟发 1 张贴纸；贴纸发送失败完全静默，绝不影响文字交付。
+
+#### 群聊主动接话（自动回复）
+
+默认关闭。开启后，只有群列表里**单独开启**的群会进入「没 @ 也回复」模式：
+
+```jsonc
+"auto_reply": {
+  "enabled": true,
+  "groups": [
+    {"id": "123456789", "enabled": true},
+    {"id": "987654321", "enabled": false}   // 留在列表里但关掉，不会接话
+  ],
+  "cooldown_seconds": 5,                  // 同一个群两次回复的最小间隔
+  "context_messages": 10,                 // 接话前读多少条本群近期消息
+  "context_max_chars": 1200               // 接话上下文字符预算
+}
+```
+
+- 触发条件是**普通群消息**：命令、链接解析、贴纸/语音触发、空 @ 表情等已被其他插件处理的消息不会触发；@机器人、引用机器人、以机器人昵称开头的消息走原来的直接回复，不受群列表限制。
+- 普通消息按到达顺序逐条判断：冷却已过就回复；冷却内到达的消息**直接跳过，不会排队补发**。同一个群同时只允许一笔自动回复在生成，避免一次回复耗时较长时并发触发第二条。
+- 群列表不设数量上限；只有 `enabled: true` 的群才会接话，总开关 `enabled` 关掉时整份列表都不生效。没有黑名单。自动回复仍受顶层 `permissions` 黑白名单约束（不在 AI 允许范围内的群不会回复）。
+- 后台「AI Agent → 群聊主动接话」用列表管理：可以手动输群号添加，也可以点「从机器人所在群选择」按群名/群号搜索后批量添加；每行一个开关，关掉即暂停该群，删除即移除。保存时自动去重、忽略非数字项。旧配置里写成纯群号数组也能直接读（视为已开启）。
+- 启用总开关时至少要有一个群处于开启状态，否则保存会报错。
+- **主动接话会带本群近期上下文**：读取最近 `context_messages` 条群消息（字符预算 `context_max_chars`）作为背景，并明确告诉模型这些消息不一定是在对它说。模型判断不需要插话时只输出 `<NO_REPLY>`，机器人不发送任何内容。
+- 自动回复**不使用引用回复**，避免看起来像在针对某个人回答；只有 @ / 引用 / 昵称 / 私聊的直接回复才引用原消息。
+- 自动回复复用原有 AI Agent 的全套行为：人格 skill、短期上下文、持久化记忆、图片输入、工具、`strip_markdown`、长回复合并转发。
+- 自动回复**不消耗**用户/群对话次数配额（`quota.*`）；成本由开启接话的群数量与冷却控制。直接回复（@ / 引用 / 昵称 / 私聊）仍按原规则扣配额。
+- 自动回复失败时静默处理（只写日志），不会在群里发「请求失败」之类的提示；直接回复仍会按失败原因提示。
+- 隐私提醒：开启自动回复后，开启接话的群里未被 @ 的普通消息也会进入模型请求；请只在接受这一点的群里开启。
 
 **人格 skill 路径：** `BotData/agent_personas/`，支持目录结构（优先读取 `SKILL.md`、`skill.md`、`PERSONA.md` 等）或直接指向 `.md`、`.txt`、`.json` 文件。支持引用补充资源文件。
 
@@ -632,9 +749,10 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 | 群聊 | `group:<群号>:user:<QQ>`，群内按用户隔离 | 群共享 `groups/<群号>/memory.md` + 个人 `groups/<群号>/users/<QQ>/memory.md` |
 | 重启后 | 丢失（进程内存） | 保留 |
 
-- 群聊短期历史不会把其他群成员与机器人的对话喂给当前用户；群共享记忆是显式的“群级事实”，读取时会同时作为背景注入。
+- 群聊短期历史不会把其他群成员与机器人的对话喂给当前用户；群共享记忆是显式的“群级事实”，读取时只注入群记忆的稳定摘要区（个人记忆是群记忆的子集，不再重复注入）。
 - 需要多人接话、跨用户话题连续性时，可显式开启 `chat.group_shared_context`（默认关闭）：开启后本群最近的公开对话会作为**不可信背景**注入，并标注发言者 QQ；后台「AI Agent」页可开关与调整条数。
-- 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条），并受 `chat.max_context_chars` 字符预算约束（默认 12000，超出从最旧的对话丢起）。
+- 短期历史条数由 `chat.max_history_messages` 控制（默认 10 条，一问一答各占 1 条）：实际最多保留 2 倍，超过才整段裁回目标值；并受 `chat.max_context_chars` 字符预算约束（默认 12000，超出时裁到一半）。
+- 请求前缀按「人格 → 记忆摘要 → 短期历史 → 群公共上下文 → 当前时间 + 用户消息」排列：时间戳放在最后一条 user 消息里并原样写入历史，记忆只注入会话标记之前的摘要区，工具集合固定下发并按名字排序。这样连续多轮请求的前缀尽量逐字节一致，DeepSeek 的前缀缓存才能命中；每次请求会打一行 `[AIAgent] usage caller=... hit=... miss=... hit_rate=...` 日志，便于按 caller 归因。
 - 持久化记忆按**参考数据**注入：提示里明确它不是指令，记忆文本内的 `system:`/`assistant:`/`user:` 等角色标记与 `<...>` 会被转义，降低「在聊天里喂指令写进记忆」的提示注入风险。
 - `重置` / `清空上下文` 只清空**当前用户**的短期上下文与记忆文件。
 - 记忆总结（自动或 `总结记忆`）按当前配置的 `api.protocol` 走对应接口，Responses 与 Chat Completions 两种配置都可用。
@@ -642,6 +760,7 @@ UserData/aiagent_memory/groups/<群号>/users/<QQ>/memory.md
 - 配额采用**先预留、失败退回**：请求发出前原子检查并扣费（同一 scope 并发请求不会一起挤过限额），只有成功回复才真正消耗；API 报错、网络异常或消息为空都会退回。
 - 失败原因会区分提示：超时 / 网络不通 / 上游限流（429）/ 上游故障（5xx）/ Key 无效（401、403）/ 其他失败，对应 `bot_messages.json` 里的 `aiagent.timeout`、`aiagent.network_error`、`aiagent.rate_limited`、`aiagent.upstream_error`、`aiagent.auth_failed`、`aiagent.failed`。
 - 单个工具调用受 `tools.tool_timeout_seconds` 限制（默认 30 秒），超时只让该工具返回错误，不会让整轮回复失败，也不会卡住该会话的锁。
+- AI 文字回复、合并转发、跟随贴纸和 `send_voice` 语音发送都带 30 秒发送超时。NapCat/QQ 偶发不回应 `send_msg` 时只放弃当次发送并记录 warning，不会永久占住会话锁、让该会话后续消息一直排队。
 
 **文件工具边界：**
 - 读取：`read_persona_resource`（仅 `BotData/agent_personas` 下的 `.md`/`.txt`/`.json`）、`read_user_file`（仅 `UserData`）
@@ -1122,6 +1241,171 @@ async def build_message(ctx: PushContext):
 |------|------|
 | `default_times` | 默认点赞次数，默认 10 |
 | `max_times` | 单次最大次数（最高 10） |
+
+---
+
+## QQ 空间
+
+**配置文件：** `BotData/plugin_configs/qzone.json`（默认值见 `qzone.example.json`）
+
+用 NapCat 当前登录的 QQ 直接操作 QQ 空间：发说说、删说说、看好友动态、看指定好友说说、点赞与评论。
+
+**登录态：** 不保存 Cookie。每次操作前调用 OneBot `get_cookies`（`domain=user.qzone.qq.com`）向 NapCat 取一次 Cookie，
+由 vendored 的 [qzone-sdk](https://github.com/Eganchiyu/qzone-sdk)（`third_party/qzone_sdk/`，MIT）计算 `g_tk` 并发起 CGI 请求。
+NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登录，无需改配置。
+
+**可用指令：**
+
+| 消息 | 效果 | 权限 |
+|------|------|------|
+| `发说说 [公开\|好友\|私密] <内容>` | 发布纯文本说说，默认可见范围取配置 `default_visible` | 超级用户 |
+| `删说说 <序号\|tid>` | 删除说说；序号来自最近一次 `空间动态` | 超级用户 |
+| `空间动态 [数量]` | 拉取好友动态（feeds3），默认 8 条，自动过滤广告与空内容 | 按黑白名单 |
+| `好友说说 <QQ号> [数量]` | 拉取指定好友（或自己）的说说 | 按黑白名单 |
+| `我的说说 [数量]` | 看自己最近发的说说、tid 与评论数 | 按黑白名单 |
+| `评论列表 [序号]` | 看自己某条说说下的评论（序号来自「我的说说」） | 按黑白名单 |
+| `回复评论 <评论序号> <内容>` | 回复自己说说下的某条评论 | 超级用户 |
+| `说说赞 <序号>` | 给 `空间动态` 列表里的某条点赞 | 超级用户 |
+| `说说评论 <序号> <内容>` | 评论 `空间动态` 列表里的某条 | 超级用户 |
+
+`空间动态` 的结果按「会话 + 用户」缓存 10 分钟，`说说赞` / `说说评论` / `删说说` 才能按序号取到 tid；
+缓存过期后需要重新发送 `空间动态`。
+
+`我的说说` 同样会把结果缓存 10 分钟：先 `我的说说` 看帖子和序号，再 `评论列表 序号` 看这条说说下的评论，
+最后 `回复评论 评论序号 内容` 回复。回复会带上 `@{uin:...}` 提及（和空间网页行为一致），
+评论下的回复会展开成 `└` 开头的行一起编号，回复时会挂在对应的一级评论下。
+评论列表走 `emotion_cgi_msgdetail_v6`，只能读到接口返回的评论（最近说说的前 20 条）。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用，默认开 |
+| `default_visible` | 发说说默认可见范围：`public` / `friends` / `private` |
+| `max_length` | 单条说说字数上限，默认 1000 |
+| `feed_count` | `空间动态` 默认条数，默认 8（最大 20） |
+| `moods_count` | `好友说说` 默认条数，默认 5（最大 20） |
+| `timeout` | 单次空间请求超时秒数，默认 20 |
+| `permissions` | 黑白名单，结构同其它插件 |
+
+**AI 工具：**
+
+| 工具 | 说明 |
+|------|------|
+| `qzone_get_feed` | 只读，返回好友动态（昵称、正文、图片数、tid、链接），默认可用 |
+| `qzone_publish` | 发说说，**有副作用且默认关闭**：需在 `aiagent.json` 的 `tools.plugin_tools` 打开 `allow_side_effects` 并把 `qzone_publish` 加进 `enabled_names`，且调用者必须是超级用户 |
+
+**注意：**
+
+- 写操作（发/删/赞/评论）一律限超级用户，避免群里任何人替机器人发空间。
+- 空间接口有频率风控，`-10000` 一般是操作过快，隔几分钟再试；不建议把 `feed_count` 调到 20 以上反复刷新。
+- 图片说说暂未支持（需要先把聊天图片落到本地再上传）；当前版本只发纯文本。
+
+### 定时说说
+
+`schedule` 段默认关闭（`enabled: false`），打开后按任务时间自动发人设短文。**人格提示词不在这里配置**，统一取后台「AI」页里当前配置文件的 persona skill（`BotData/agent_personas/…`）：
+
+```json
+"schedule": {
+  "enabled": true,
+  "check_interval_seconds": 60,
+  "grace_seconds": 1800,
+  "state_path": "UserData/qzone_state.json",
+  "ai": {
+    "enabled": true,
+    "temperature": 1.0,
+    "max_tokens": 400,
+    "max_chars": 120,
+    "extra_prompt": ""
+  },
+  "fallback_texts": ["哼，今天也在海里摸鱼喵～（摇尾巴）"],
+  "jobs": [
+    {
+      "id": "morning",
+      "enabled": true,
+      "time": "08:30",
+      "days": [],
+      "timezone": "Asia/Shanghai",
+      "visible": "public",
+      "prompt": "刚睡醒，写一句早安或今天想做的小事"
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 定时总开关，默认 `false`（不开就不会自动发） |
+| `check_interval_seconds` | 轮询间隔，默认 60 秒 |
+| `grace_seconds` | 到点后允许补发的时间窗，默认 1800 秒；机器人当时没在线就跳过当天 |
+| `state_path` | 每天去重状态文件，默认 `UserData/qzone_state.json` |
+| `ai.enabled` | 用 AI 生成文案；关掉则只用 `fallback_texts` |
+| `ai.max_chars` | 单条文案字数上限，默认 120 |
+| `ai.extra_prompt` | 额外的写作要求（人格仍然取 AI 配置），比如「再短一点」 |
+| `jobs[].days` | 空数组=每天；也可以写 `["mon","wed"]` 或 `["周一","周三"]` |
+| `jobs[].visible` | `public` / `friends` / `private` |
+
+定时说说的行为约定：
+
+- 每条任务每天最多发一次，重启不会重复（状态落盘）；`空间定时` 可查看下次时间与上次 tid。
+- `空间定时 run <任务id>` 立即执行一次（仅超管），用于试文案。
+- AI 失败会自动用 `fallback_texts` 兜底；连续失败 3 次当天放弃，只写日志不发错误消息。
+- 生成文案会带上最近 3 条已发内容做去重提示，避免每天说同一句。
+
+### 自动回复评论
+
+`comment_reply` 段默认关闭。打开后每 `interval_minutes` 分钟检查最近 `posts` 条说说下的评论，
+对「不是自己发的、自己还没回复过的、没记录过的」评论回一句：
+
+```json
+"comment_reply": {
+  "enabled": true,
+  "interval_minutes": 60,
+  "posts": 3,
+  "per_run_limit": 2,
+  "daily_limit": 20,
+  "mode": "ai",
+  "template": "谢谢{name}的评论喵～",
+  "baseline_on_first_run": true,
+  "state_path": "UserData/qzone_comment_state.json",
+  "ai": {"max_chars": 60, "max_tokens": 300, "timeout_seconds": 60, "extra_prompt": ""}
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 总开关，默认关闭 |
+| `interval_minutes` | 检查间隔（5~1440，默认 60） |
+| `posts` | 每次检查最近几条说说（1~10） |
+| `per_run_limit` | 每轮最多回几条（默认 2） |
+| `daily_limit` | 每天最多回几条（默认 20，0 = 不自动回） |
+| `mode` | `ai`（默认，按 AI 配置的人格生成）或 `template` |
+| `template` | 模板模式文案，可用 `{name}`、`{content}` |
+| `baseline_on_first_run` | 首次只记录现有评论、不补回历史（默认开启） |
+| `ai.max_chars` | 回复字数上限（默认 60） |
+| `ai.extra_prompt` | 额外写作要求（人格仍取 AI 配置） |
+
+行为与边界：
+
+- 首次开启（或状态文件被删）会先做一次**基线**：把当前所有未回复评论记为已见，**不发任何回复**；之后只回新出现的评论。
+- 自己发的评论、自己已经回复过的评论（评论区里已有自己的回复）会跳过，不会自问自答。
+- 回复仍然走 `emotion_cgi_re_feeds`，会带 `@{uin:...}` 提及；每条之间停 3 秒，避免风控。
+- 状态在 `UserData/qzone_comment_state.json`（已见评论、每日计数、上次运行结果），不随配置切换。
+- 后台「空间」页有「自动回复评论」面板：改间隔、条数、上限、模板，以及「立即检查」按钮；页面上会显示基线状态、今天回了多少条、上次检查时间。
+- 聊天里也可以用 `检查评论`（仅超管）立刻跑一轮。
+
+---
+
+### 后台「空间」页
+
+后台侧边栏的「空间」页可以直接改上面所有配置，并随时蹭 AI 生成一条说说：
+
+- **定时说说**：开关、AI 开关、字数上限、补发窗口、额外写作要求、备用文案，以及每条任务的 id / 时间 / 星期 / 可见范围 / 文案方向，都能在页面上改，保存即写回 `qzone.json`（不需要重启，60 秒内定时循环就会读到）。
+- **自动回复评论**：开关、检查间隔、最近几条说说、每次/每天上限、AI 或模板、字数上限与额外要求；面板上会显示基线状态、今天已回条数、上次检查时间，另有「立即检查」按钮。
+- **生成并发布**：填一句可选的要求 → 「用 AI 生成」→ 草稿进文本框，可以随便改 → 选可见范围 → 「发布到空间」。生成和发布都走机器人主循环，用的是 NapCat 当前登录态，所以页面本身不保存任何 Cookie。
+- 页面顶部会显示当前人格来源（如 `BotData/agent_personas/ds`、字数）和模型，改 AI 人格就换文案风格。
+
+对应的 HTTP 接口见 [API.md](API.md#qq-空间配置)。
 
 ---
 

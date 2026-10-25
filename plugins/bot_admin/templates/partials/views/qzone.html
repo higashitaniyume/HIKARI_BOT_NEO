@@ -1,0 +1,190 @@
+    <section class="view-panel" data-view="qzone" hidden>
+      <section class="panel qzone-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>QQ 空间</h2>
+            <p>用 NapCat 当前登录的 QQ 发说说：定时配置、AI 草稿、编辑后发布。人格提示词取自 AI 配置。</p>
+          </div>
+          <div class="panel-actions">
+            <button type="button" id="qzoneRefreshBtn" class="ghost">刷新</button>
+            <button type="button" id="qzoneSaveConfigBtn" class="primary">保存设置</button>
+          </div>
+        </div>
+
+        <form id="qzoneConfigForm" class="settings-form qzone-config-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="qzoneEnabled" type="checkbox">
+            <span>启用空间插件</span>
+          </label>
+
+          <label>
+            <span>默认可见范围</span>
+            <select id="qzoneDefaultVisible">
+              <option value="public">公开</option>
+              <option value="friends">好友可见</option>
+              <option value="private">仅自己</option>
+            </select>
+          </label>
+
+          <label>
+            <span>说说字数上限</span>
+            <input id="qzoneMaxLength" type="number" min="1" max="5000" step="1">
+          </label>
+
+          <label>
+            <span>空间动态条数</span>
+            <input id="qzoneFeedCount" type="number" min="1" max="20" step="1">
+          </label>
+
+          <div class="wide-field inline-heading qzone-section-heading">
+            <h3>定时说说</h3>
+            <p id="qzoneScheduleSummary">加载中...</p>
+          </div>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="qzoneScheduleEnabled" type="checkbox">
+            <span>启用定时发送</span>
+          </label>
+
+          <label class="checkbox-field settings-toggle">
+            <input id="qzoneAiEnabled" type="checkbox">
+            <span>用 AI 生成文案（关闭则用备用文案）</span>
+          </label>
+
+          <label>
+            <span>文案字数上限</span>
+            <input id="qzoneAiMaxChars" type="number" min="10" max="1000" step="1">
+          </label>
+
+          <label>
+            <span>到点补发窗口（秒）</span>
+            <input id="qzoneGraceSeconds" type="number" min="60" max="21600" step="60">
+          </label>
+
+          <label class="wide-field">
+            <span>额外写作要求（可选，人格仍取 AI 配置）</span>
+            <textarea id="qzoneExtraPrompt" rows="2" placeholder="例如：再短一点、别用感叹号、少提米饭"></textarea>
+          </label>
+
+          <label class="wide-field">
+            <span>备用文案（每行一条，AI 失败时随机使用）</span>
+            <textarea id="qzoneFallbackTexts" rows="3"></textarea>
+          </label>
+
+          <div class="wide-field inline-heading qzone-job-heading">
+            <h3>定时任务</h3>
+            <div class="panel-actions">
+              <button type="button" id="qzoneAddJobBtn" class="ghost">添加任务</button>
+            </div>
+          </div>
+
+          <div class="wide-field qzone-job-list" id="qzoneJobList"></div>
+        </form>
+      </section>
+
+      <section class="panel qzone-draft-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>生成并发布</h2>
+            <p id="qzonePersonaSummary">人格提示词来自 AI 配置</p>
+          </div>
+        </div>
+
+        <div class="settings-form">
+          <label class="wide-field">
+            <span>想让 AI 写什么（可选）</span>
+            <textarea id="qzoneDraftPrompt" rows="2" placeholder="例如：今天下雨，写一句带点撒娇的碎碎念"></textarea>
+          </label>
+
+          <div class="wide-field qzone-actions-row">
+            <button type="button" id="qzoneGenerateBtn" class="primary">用 AI 生成</button>
+            <p id="qzoneDraftStatus" class="qzone-status"></p>
+          </div>
+
+          <label class="wide-field">
+            <span>说说内容（可以改，改完再发）</span>
+            <textarea id="qzoneDraftText" rows="6" maxlength="1000" placeholder="点「用 AI 生成」拿一条草稿，或者直接在这里写"></textarea>
+          </label>
+
+          <label>
+            <span>可见范围</span>
+            <select id="qzonePublishVisible">
+              <option value="public">公开</option>
+              <option value="friends">好友可见</option>
+              <option value="private">仅自己</option>
+            </select>
+          </label>
+
+          <div class="wide-field qzone-actions-row">
+            <button type="button" id="qzonePublishBtn" class="primary">发布到空间</button>
+            <p id="qzonePublishStatus" class="qzone-status"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel qzone-comment-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>自动回复评论</h2>
+            <p id="qzoneCommentSummary">加载中...</p>
+          </div>
+          <div class="panel-actions">
+            <button type="button" id="qzoneCheckCommentsBtn" class="ghost">立即检查</button>
+          </div>
+        </div>
+
+        <div class="settings-form qzone-comment-form">
+          <label class="checkbox-field settings-toggle">
+            <input id="qzoneCommentEnabled" type="checkbox">
+            <span>启用评论自动回复</span>
+          </label>
+
+          <label>
+            <span>检查间隔（分钟）</span>
+            <input id="qzoneCommentInterval" type="number" min="5" max="1440" step="5">
+          </label>
+
+          <label>
+            <span>检查最近几条说说</span>
+            <input id="qzoneCommentPosts" type="number" min="1" max="10" step="1">
+          </label>
+
+          <label>
+            <span>每次最多回复</span>
+            <input id="qzoneCommentPerRun" type="number" min="1" max="10" step="1">
+          </label>
+
+          <label>
+            <span>每天最多回复</span>
+            <input id="qzoneCommentDaily" type="number" min="0" max="200" step="1">
+          </label>
+
+          <label>
+            <span>回复方式</span>
+            <select id="qzoneCommentMode">
+              <option value="ai">AI 按人格生成</option>
+              <option value="template">固定模板</option>
+            </select>
+          </label>
+
+          <label>
+            <span>回复字数上限</span>
+            <input id="qzoneCommentMaxChars" type="number" min="10" max="300" step="5">
+          </label>
+
+          <label class="wide-field">
+            <span>模板文案（可用 {name}、{content}）</span>
+            <input id="qzoneCommentTemplate" maxlength="200" placeholder="谢谢{name}的评论喵～">
+          </label>
+
+          <label class="wide-field">
+            <span>额外写作要求（可选，人格仍取 AI 配置）</span>
+            <textarea id="qzoneCommentExtraPrompt" rows="2" placeholder="例如：只回一句、别问问题"></textarea>
+          </label>
+
+          <div class="wide-field qzone-actions-row">
+            <p id="qzoneCommentStatus" class="qzone-status"></p>
+          </div>
+        </div>
+      </section>
+    </section>

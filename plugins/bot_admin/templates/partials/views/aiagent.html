@@ -78,7 +78,8 @@
 
           <label>
             <span>最大输出 Tokens</span>
-            <input id="aiagentMaxTokens" type="number" min="1" max="32000" step="1">
+            <input id="aiagentMaxTokens" type="number" min="1" max="131072" step="1">
+            <small>DeepSeek Flash 上限 393216；建议日常 32768，不要低于 16384（思考也占输出预算）。</small>
           </label>
 
           <label>
@@ -104,7 +105,31 @@
 
           <label>
             <span>回复长度上限</span>
-            <input id="aiagentMaxReplyChars" type="number" min="100" max="12000" step="100">
+            <input id="aiagentMaxReplyChars" type="number" min="100" max="30000" step="100">
+          </label>
+
+          <label>
+            <span>单条消息阈值（字）</span>
+            <input id="aiagentSingleMessageChars" type="number" min="0" max="12000" step="100">
+            <small>超过该长度后改用合并聊天记录发送（0=总是合并转发）</small>
+          </label>
+
+          <label>
+            <span>合并转发每段长度（字）</span>
+            <input id="aiagentForwardNodeChars" type="number" min="100" max="5000" step="100">
+            <small>优先在自然段落或句末标点边界切分</small>
+          </label>
+
+          <label>
+            <span>合并转发最大段数</span>
+            <input id="aiagentForwardMaxNodes" type="number" min="1" max="100" step="1">
+            <small>超出上限时合并较短段落，仍超则截断并提示</small>
+          </label>
+
+          <label>
+            <span>历史上下文回复保留长度（字）</span>
+            <input id="aiagentHistoryReplyChars" type="number" min="100" max="12000" step="100">
+            <small>存入短期记忆时的截断上限，防止长回复消耗过多上下文预算</small>
           </label>
 
           <label>
@@ -116,6 +141,18 @@
             <span>上下文字符预算</span>
             <input id="aiagentMaxContextChars" type="number" min="0" max="200000" step="1000">
             <small>短期上下文总字符上限，超出时从最旧的对话开始丢弃（0=不留上下文）</small>
+          </label>
+
+          <label>
+            <span>单次请求总预算（秒）</span>
+            <input id="aiagentRequestTimeout" type="number" min="15" max="600" step="5">
+            <small>模型调用 + 所有工具轮次的总时限；超时会取消并释放会话锁，避免一个用户卡住十几分钟。</small>
+          </label>
+
+          <label>
+            <span>全局并发请求数</span>
+            <input id="aiagentMaxConcurrent" type="number" min="1" max="64" step="1">
+            <small>同时打模型的请求上限，默认 8；高峰期超出的请求会排队而不是把上游打成 429。</small>
           </label>
 
           <label>
@@ -142,6 +179,12 @@
           <label>
             <span>公共上下文消息数</span>
             <input id="aiagentGroupSharedMax" type="number" min="0" max="40" step="1">
+          </label>
+
+          <label class="checkbox-field">
+            <input id="aiagentQuoteReply" type="checkbox">
+            <span>回复时引用原消息</span>
+            <small>开启后，AI 的回复会以引用回复的形式挂在触发它的消息下；超长回复改用合并转发时无法携带引用。</small>
           </label>
 
           <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentVisionTitle">
@@ -235,6 +278,7 @@
                   <select id="aiagentSearchMode">
                     <option value="builtin">DeepSeek 官方搜索（Search API）</option>
                     <option value="searxng">自建 SearXNG</option>
+                    <option value="hybrid">混合模式（DeepSeek + SearXNG 并发去重）</option>
                   </select>
                   <small>官方搜索按成功请求计费（5 元/1000 次）；非 DeepSeek 端点自动回退 SearXNG</small>
                 </label>
@@ -256,7 +300,7 @@
                 </label>
                 <label>
                   <span>最大 Tool 轮次</span>
-                  <input id="aiagentMaxToolRounds" type="number" min="0" max="50" step="1">
+                  <input id="aiagentMaxToolRounds" type="number" min="0" max="10" step="1">
                   <small>单次对话中 AI 调用工具的最大轮次（0=禁用工具调用）</small>
                 </label>
                 <label>
@@ -322,6 +366,215 @@
               </div>
             </div>
             <div id="aiagentToolList" class="aiagent-tool-list" aria-live="polite"></div>
+          </section>
+
+                    <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentImagesTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentImagesTitle">网络搜图与发图</h3>
+                <p>通过 SearXNG 进行图片搜索（<code>web_image_search</code>），并允许模型将搜到的图片发至聊天（<code>send_images</code>）。图片 URL 受会话缓存与 SSRF 白名单保护，发图时自动转码 WebP/GIF。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentImagesEnabled" type="checkbox">
+                  <span>启用网络搜图（web_image_search）</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentImagesAllowSend" type="checkbox">
+                  <span>允许 AI 发送搜到的图片（send_images）</span>
+                  <small>副作用开关；关闭时 AI 只能搜索图片信息，无法直接在聊天中发图</small>
+                </label>
+                <label>
+                  <span>单次搜图返回条数</span>
+                  <input id="aiagentImagesMaxResults" type="number" min="1" max="20" step="1">
+                </label>
+                <label>
+                  <span>单次最多发送图片数</span>
+                  <input id="aiagentImagesMaxSend" type="number" min="1" max="9" step="1">
+                </label>
+                <label>
+                  <span>安全搜索级别</span>
+                  <select id="aiagentImagesSafesearch">
+                    <option value="0">0（关闭）</option>
+                    <option value="1">1（适中）</option>
+                    <option value="2">2（严格）</option>
+                  </select>
+                </label>
+                <label>
+                  <span>单张图片下载上限（MB）</span>
+                  <input id="aiagentImagesMaxDownloadMb" type="number" min="1" max="50" step="1">
+                </label>
+                <label>
+                  <span>图片下载超时（秒）</span>
+                  <input id="aiagentImagesTimeout" type="number" min="3" max="120" step="1">
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentWorkspaceTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentWorkspaceTitle">文件工作区与聊天文件接收</h3>
+                <p>为每个 QQ 用户 / 群组提供严格隔离的文件工作区（<code>UserData/aiagent_files/...</code>）。支持文件读写、删除、移动、zip/unzip 压缩解压以及发送文件（<code>send_file</code>）；自动接收用户发送的聊天文件（≤100MB）。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceEnabled" type="checkbox">
+                  <span>启用文件工作区</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceAllowWrites" type="checkbox">
+                  <span>允许 AI 写入 / 覆盖工作区文件</span>
+                  <small>副作用开关；控制 workspace_write / workspace_mkdir / workspace_zip / workspace_unzip</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceAllowDelete" type="checkbox">
+                  <span>允许 AI 删除工作区文件</span>
+                  <small>副作用开关；控制 workspace_delete / workspace_move</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceAllowSend" type="checkbox">
+                  <span>允许 AI 发送工作区文件到聊天（send_file）</span>
+                  <small>副作用开关；支持群文件与私聊离线文件上传</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceAllowAutoReply" type="checkbox">
+                  <span>允许在群聊自动回复模式下使用副作用操作</span>
+                  <small>默认关闭，防止无人监管时被刷写文件</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceIngestIncoming" type="checkbox">
+                  <span>自动接收用户发来的聊天文件</span>
+                  <small>自动下载至当前会话 incoming/ 目录供 AI 分析处理</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentWorkspaceIncludeQuoted" type="checkbox">
+                  <span>连带接收引用回复中的文件</span>
+                </label>
+                <label>
+                  <span>单个接收文件大小上限（MB，硬上限 100MB）</span>
+                  <input id="aiagentWorkspaceIncomingMaxMb" type="number" min="1" max="100" step="5">
+                </label>
+                <label>
+                  <span>单条消息最多接收文件数</span>
+                  <input id="aiagentWorkspaceIncomingMaxFiles" type="number" min="1" max="10" step="1">
+                </label>
+                <label>
+                  <span>接收文件保留天数</span>
+                  <input id="aiagentWorkspaceIncomingRetention" type="number" min="0" max="365" step="1">
+                  <small>0 表示不自动清理</small>
+                </label>
+                <label>
+                  <span>单次写入文件大小上限（MB）</span>
+                  <input id="aiagentWorkspaceMaxFileMb" type="number" min="1" max="100" step="5">
+                </label>
+                <label>
+                  <span>单会话总存储上限（MB）</span>
+                  <input id="aiagentWorkspaceMaxTotalMb" type="number" min="10" max="5000" step="50">
+                </label>
+                <label>
+                  <span>单会话最多文件总数</span>
+                  <input id="aiagentWorkspaceMaxFiles" type="number" min="10" max="5000" step="50">
+                </label>
+                <label>
+                  <span>单次发送文件上限（MB）</span>
+                  <input id="aiagentWorkspaceMaxSendMb" type="number" min="1" max="100" step="5">
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="wide-field aiagent-tools-block" aria-labelledby="aiagentStickerTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentStickerTitle">回复表情包</h3>
+                <p>文字回复成功后自动随机跟发 1 张贴纸。合并转发时整条回复仅跟发 1 张；失败静默不报错；自动对最近 5 张去重。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentStickerEnabled" type="checkbox">
+                  <span>启用回复跟随贴纸</span>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentStickerPacksAll" type="checkbox">
+                  <span>使用全部贴纸包</span>
+                  <small>勾选后将从所有本地贴纸包中随机抽取</small>
+                </label>
+                <div class="wide-field pack-multi-field" id="aiagentStickerPackField">
+                  <div class="pack-multi-head">
+                    <span class="pack-multi-title" id="aiagentStickerPackTitle">限定贴纸包（点选可多选）</span>
+                    <div class="pack-multi-actions">
+                      <button type="button" id="aiagentStickerPacksSelectAll" class="ghost">全选</button>
+                      <button type="button" id="aiagentStickerPacksClear" class="ghost">清空</button>
+                    </div>
+                  </div>
+                  <input id="aiagentStickerPackSearch" type="search" autocomplete="off" placeholder="搜索贴纸包名称">
+                  <div
+                    id="aiagentStickerPacks"
+                    class="pack-multi-list"
+                    role="group"
+                    aria-labelledby="aiagentStickerPackTitle"
+                  ></div>
+                  <p id="aiagentStickerPacksEmpty" class="pack-multi-empty" hidden>暂无贴纸包。</p>
+                  <small id="aiagentStickerPacksSummary" class="pack-multi-summary">还没有选择贴纸包。</small>
+                </div>
+                <label>
+                  <span>跟发概率</span>
+                  <input id="aiagentStickerProbability" type="number" min="0" max="1" step="0.05">
+                  <small>0.0 ~ 1.0，1.0 表示每次文字回复后必跟发贴纸</small>
+                </label>
+                <label>
+                  <span>单条回复最多贴纸数</span>
+                  <input id="aiagentStickerMaxPerReply" type="number" min="1" max="5" step="1">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentStickerAllowAutoReply" type="checkbox">
+                  <span>群聊自动回复时也跟发贴纸</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+<section class="wide-field aiagent-tools-block" aria-labelledby="aiagentAutoReplyTitle">
+            <div class="aiagent-tools-head">
+              <div>
+                <h3 id="aiagentAutoReplyTitle">群聊主动接话</h3>
+                <p>全局设置，所有配置文件共用。群列表里的群只有单独开启后，才会在没有 @ 机器人时主动接话；不设数量上限。同一群两次接话之间至少间隔冷却秒数，冷却内到达的消息直接跳过、不排队。</p>
+              </div>
+              <div class="aiagent-tools-controls">
+                <label class="checkbox-field">
+                  <input id="aiagentAutoReplyEnabled" type="checkbox">
+                  <span>启用群聊主动接话</span>
+                </label>
+                <div class="wide-field aiagent-group-block">
+                  <span>主动接话的群（每个群可单独开关）</span>
+                  <div id="aiagentAutoReplyGroupList" class="aiagent-group-list"></div>
+                  <div class="aiagent-group-add">
+                    <input id="aiagentAutoReplyGroupInput" inputmode="numeric" maxlength="20" placeholder="输入群号，例如 123456789">
+                    <button type="button" id="aiagentAutoReplyAddBtn" class="ghost">添加群号</button>
+                    <button type="button" id="aiagentAutoReplyPickBtn" class="ghost">从机器人所在群选择</button>
+                  </div>
+                  <small id="aiagentAutoReplyGroupCount">当前 0 个群，0 个开启</small>
+                  <small>只有开启的群才会在没被 @ 时主动接话；关掉上面的总开关不影响这份列表</small>
+                </div>
+                <label>
+                  <span>同群冷却（秒）</span>
+                  <input id="aiagentAutoReplyCooldown" type="number" min="0" max="3600" step="1">
+                  <small>冷却内到达的消息不会回复，也不会排队补发</small>
+                </label>
+                <label>
+                  <span>接话上下文条数</span>
+                  <input id="aiagentAutoReplyContextMessages" type="number" min="0" max="30" step="1">
+                  <small>主动接话前读取本群最近多少条消息作为背景；0 = 不带上下文</small>
+                </label>
+                <label>
+                  <span>接话上下文字符上限</span>
+                  <input id="aiagentAutoReplyContextChars" type="number" min="0" max="6000" step="100">
+                  <small>超过预算时从最旧的消息开始丢弃</small>
+                </label>
+              </div>
+            </div>
           </section>
 
           <button type="submit" class="primary">保存 AI Agent 设置</button>

@@ -770,7 +770,12 @@ multipart/form-data
     "max_chars": 120,
     "cooldown_seconds": 5,
     "cache_dir": "/tmp/hikari_bot/tts",
-    "cache_ttl_minutes": 60
+    "cache_ttl_minutes": 60,
+    "ai_tool": {
+      "max_chars": 80,
+      "cooldown_seconds": 10,
+      "allow_auto_reply": false
+    }
   }
 }
 ```
@@ -783,7 +788,7 @@ multipart/form-data
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `enabled` | boolean | 是否启用 TTS 命令 |
+| `enabled` | boolean | 是否启用 TTS 命令与 AI 语音工具 |
 | `selected_voice` | string | 当前使用的音色名，必须存在于 `voices` |
 | `voices` | array | 音色数组，元素为 `{ "name": "...", "reference_id": "..." }` |
 | `fish_audio` | object | Fish Audio 参数 |
@@ -794,6 +799,7 @@ multipart/form-data
 | `cooldown_seconds` | number | 用户冷却，0-3600 秒 |
 | `cache_dir` | string | TTS 缓存目录 |
 | `cache_ttl_minutes` | number | 缓存保留分钟数，1-10080 |
+| `ai_tool` | object | AI Agent `send_voice` 工具参数：`max_chars`（1-1000）、`cooldown_seconds`（0-3600）、`allow_auto_reply`（boolean） |
 
 `fish_audio.api_key` 留空时保留现有 Key。
 
@@ -834,7 +840,7 @@ multipart/form-data
       "model": "deepseek-flash",
       "temperature": 0.7,
       "top_p": 1.0,
-      "max_tokens": 1024,
+      "max_tokens": 8192,
       "timeout_seconds": 60,
       "proxy": ""
     },
@@ -886,13 +892,28 @@ multipart/form-data
   "bindings": {
     "group": { "123456": "default" },
     "private": {}
-  }
+  },
+  "sticker_packs": ["default_pack", "meme_pack"]
 }
 ```
 
 `tools_catalog[].selected` 表示按当前 `tools.plugin_tools` 配置计算后是否会提供给模型。`blocked_reason` 描述被拦截原因，例如 `plugin_tools 已关闭`、`已加入禁用名单`、`副作用工具未放行`。
 
 `profiles[]` 是配置文件摘要（不含 API Key 本身），`active_profile` 是全局默认配置，`editing_profile` 是本次响应里 `config` 对应的配置文件，`bindings` 是会话到配置文件的映射。
+
+#### `GET /api/groups`
+
+机器人当前所在群列表，供「群聊主动接话」挑选群用（`get_group_list`）。
+
+```json
+{
+  "groups": [
+    {"id": "123456789", "name": "例群", "member_count": 42}
+  ]
+}
+```
+
+可能状态码：`409`（机器人未连接）、`504`（读取超时）。
 
 #### `POST /api/aiagent-config`
 
@@ -904,12 +925,14 @@ multipart/form-data
 | --- | --- | --- |
 | `profile` | string | 要写入的配置文件 ID；缺省写全局默认配置 |
 | `enabled` | boolean | 是否启用聊天 Agent（全局段，对所有配置文件生效） |
+| `auto_reply.enabled` | boolean | 是否启用群聊主动接话（全局段，默认 false） |
+| `auto_reply.groups` | array | 群列表：`[{"id": "123456789", "enabled": true}]`；只有 `enabled` 的群会接话，纯群号数组按已开启处理 |
 | `model.base_url` | string | OpenAI-compatible API base URL，不能为空 |
 | `model.api_key` | string | 模型 API Key；留空保留现有 Key |
 | `model.model` | string | 模型名称，不能为空 |
 | `model.temperature` | number | 0-2 |
 | `model.top_p` | number | 0-1 |
-| `model.max_tokens` | number | 1-32000 |
+| `model.max_tokens` | number | 1-131072；思考模式也占输出预算，建议 ≥16384 |
 | `model.timeout_seconds` | number | 5-600 |
 | `model.proxy` | string | 请求代理 |
 | `persona.skill_path` | string | 必须位于 `BotData/agent_personas` |
@@ -921,18 +944,37 @@ multipart/form-data
 | `persona.reference_max_total_chars` | number | 1000-160000 |
 | `persona.fallback_prompt` | string | 默认人格提示词 |
 | `chat.max_user_chars` | number | 1-20000 |
-| `chat.max_reply_chars` | number | 100-12000 |
+| `chat.max_reply_chars` | number | 100-30000（长回复上限） |
+| `chat.single_message_chars` | number | 0-12000，单条消息字数阈值，超过转为单个合并转发消息发出 |
+| `chat.forward_node_chars` | number | 100-5000，合并转发每段字数（默认 1500，优先自然语义切分） |
+| `chat.forward_max_nodes` | number | 1-100，合并转发最大节点数（默认 30） |
+| `chat.history_reply_chars` | number | 100-12000，存入短期对话记忆时的单条截断长度（默认 1200） |
+| `chat.quote_reply` | boolean | 回复时是否引用触发消息，默认 true |
 | `chat.max_history_messages` | number | 0-40 |
+| `chat.request_timeout_seconds` | number | 15-600，单次请求总预算（模型 + 所有工具轮次） |
+| `chat.max_concurrent_requests` | number | 1-64，全局同时进行的模型请求上限（默认 8） |
 | `chat.cooldown_seconds` | number | 0-3600 |
 | `chat.system_prompt_extra` | string | 附加系统提示词 |
+| `chat.sticker.enabled` | boolean | 是否启用回复跟随表情包（默认 false） |
+| `chat.sticker.packs` | string[] | 限定贴纸包列表，留空为全部贴纸包 |
+| `chat.sticker.probability` | number | 跟随概率（0.0-1.0，默认 1.0） |
+| `chat.sticker.max_per_reply` | number | 单条回复最多贴纸数（默认 1） |
+| `chat.sticker.allow_auto_reply` | boolean | 自动回复时是否跟发贴纸（默认 true） |
 | `memory.enabled` | boolean | 是否启用记忆 |
 | `memory.root` | string | 记忆根目录，默认 `UserData/aiagent_memory` |
 | `memory.max_read_chars_per_file` | number | 1000-80000 |
 | `memory.max_file_chars` | number | 5000-500000 |
-| `tools.search` | object | 搜索工具配置 |
-| `tools.files` | object | 文件工具配置 |
+| `tools.search` | object | 搜索配置，`mode` 支持 `builtin` / `searxng` / `hybrid`（双引擎并发去重） |
+| `tools.images` | object | 网络搜图与发图配置，含 `enabled`、`allow_send`、`max_results`、`max_images_per_send`、`safesearch`、`max_download_mb`、`download_timeout_seconds` |
+| `tools.workspace` | object | 会话隔离文件工作区配置，含 `enabled`、`allow_writes`、`allow_delete`、`allow_send`、`allow_in_auto_reply`、`ingest_incoming`、`include_quoted_files`、`incoming_max_mb` 等 |
+| `tools.files` | object | 人格资源文件工具配置（`enabled`、`max_read_chars`） |
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
-| `tools.max_tool_rounds` | number | 0-5 |
+| `tools.max_tool_rounds` | number | 0-10（运行时上限 10；建议 3-4） |
+| `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |
+| `auto_reply.groups` | string[] | 自动回复群白名单；留空 = 不自动回复任何群，不设数量上限（后台按行/逗号/空格输入，保存时去重） |
+| `auto_reply.cooldown_seconds` | number | 0-3600，同一个群两次自动回复的最小间隔 |
+| `auto_reply.context_messages` | number | 0-30，主动接话时附带的本群近期消息条数（默认 10） |
+| `auto_reply.context_max_chars` | number | 0-6000，接话上下文字符预算（默认 1200） |
 
 `tools.plugin_tools` 字段：
 
@@ -952,7 +994,7 @@ multipart/form-data
 - `disabled_names` 用于禁用默认启用的 tool。
 - `allow_side_effects=false` 时，`readonly=false` 的 tool 即使被选中也不会给模型。
 
-除 `enabled` 外的字段都写入 `profile` 指定的那一套配置，其他配置文件不受影响。
+除 `enabled`、`auto_reply.*`（以及 `quota.*`、`permissions`、`chatlog.*`）这些全局段外，其余字段都写入 `profile` 指定的那一套配置，其他配置文件不受影响。
 
 成功响应同 `GET /api/aiagent-config`，并增加：
 
@@ -1124,6 +1166,144 @@ ID 由名称自动生成 slug（`[A-Za-z0-9_-]{1,32}`），纯中文名回落 `p
 - `404`：任务不存在。
 - `409`：任务当前状态不允许执行。
 - `504`：执行超时。
+
+### QQ 空间配置
+
+#### `GET /api/qzone-config`
+
+读取空间插件配置、定时任务状态与当前 AI 人格信息。
+
+响应（节选）：
+
+```json
+{
+  "config": {
+    "enabled": true,
+    "default_visible": "public",
+    "max_length": 1000,
+    "feed_count": 8,
+    "schedule": {
+      "enabled": true,
+      "grace_seconds": 1800,
+      "ai": {"enabled": true, "max_chars": 120, "extra_prompt": ""},
+      "fallback_texts": ["…"],
+      "jobs": [{"id": "morning", "enabled": true, "time": "08:30", "days": [], "visible": "public", "prompt": "…"}]
+    },
+    "comment_reply": {
+      "enabled": false,
+      "interval_minutes": 60,
+      "posts": 3,
+      "per_run_limit": 2,
+      "daily_limit": 20,
+      "mode": "ai",
+      "template": "谢谢{name}的评论喵～",
+      "baseline_on_first_run": true,
+      "ai": {"max_chars": 60, "max_tokens": 300, "timeout_seconds": 60, "extra_prompt": ""}
+    }
+  },
+  "status": {
+    "enabled": true,
+    "ai_enabled": true,
+    "jobs": [{"id": "morning", "time": "08:30", "days": [], "visible_label": "公开", "next_run": "10-26 08:30", "last_date": "2026-10-25", "last_tid": "…", "error": ""}]
+  },
+  "persona": {"skill_path": "BotData/agent_personas/ds", "chars": 3200, "preview": "…", "model": "deepseek-flash"},
+  "file": {"name": "qzone.json", "size": 1234, "mtime": 1761000000.0}
+}
+```
+
+`persona` 来自 `aiagent.json` 的人格 skill，空间生成始终使用它，不在空间配置里单独设置。
+
+#### `POST /api/qzone-config`
+
+保存空间配置。请求体只需带要修改的段，未出现的字段保持原样：
+
+```json
+{
+  "enabled": true,
+  "default_visible": "friends",
+  "max_length": 1000,
+  "schedule": {
+    "enabled": true,
+    "grace_seconds": 1800,
+    "ai": {"enabled": true, "max_chars": 120, "extra_prompt": "短一点"},
+    "fallback_texts": ["第一条备用文案"],
+    "jobs": [{"id": "morning", "enabled": true, "time": "08:30", "days": [0, 2], "visible": "public", "prompt": "早安"}]
+  }
+}
+```
+
+约束：
+
+- `jobs[].id` 不能为空且不能重复，`jobs[].time` 必须是 `HH:MM`（`25:00` 之类会返回 `400`）。
+- `jobs[].days` 支持数字（0=周一）或 `mon`/`wed`/`周一` 等别名，空数组表示每天。
+- `fallback_texts` 也接受换行分隔的字符串。
+- 保存成功后返回同 `GET /api/qzone-config` 的结构，并附带 `message`。
+
+#### `POST /api/qzone-generate`
+
+用 AI 人格生成一条说说草稿（不发布）。
+
+请求：
+
+```json
+{"prompt": "今天下雨，写一句带点撒娇的碎碎念", "max_chars": 120}
+```
+
+响应：
+
+```json
+{
+  "result": {
+    "text": "……",
+    "source": "ai",
+    "persona": {"skill_path": "BotData/agent_personas/ds", "chars": 3200, "preview": "…", "model": "deepseek-flash"},
+    "max_chars": 120
+  }
+}
+```
+
+`source` 为 `fallback` 表示 AI 调用失败、用了 `fallback_texts` 里的备用文案。可能状态码：`409`（未登录空间 / NapCat 不在线）、`504`（超时）。
+
+#### `POST /api/qzone-publish`
+
+发布已经在页面上改好的内容。
+
+请求：
+
+```json
+{"text": "改好之后的内容", "visible": "private"}
+```
+
+响应：
+
+```json
+{
+  "result": {"tid": "d41d39eb…", "visible": "private", "visible_label": "仅自己", "length": 12},
+  "message": "已发布到 QQ 空间。"
+}
+```
+
+约束与状态码：
+
+- `text` 不能为空，长度不得超过配置的 `max_length`，否则 `400`。
+- `visible` 只接受 `public` / `friends` / `private`，非法值回落到配置的 `default_visible`。
+- `409`：登录态失效、NapCat 不在线或空间接口拒绝；`504`：超时。
+
+#### `POST /api/qzone-check-comments`
+
+立刻跑一轮评论检查（后台「立即检查」按钮）。首次运行只做基线、不发送回复。
+
+响应：
+
+```json
+{
+  "result": {"replied": 1, "pending": 2, "failed": 0, "posts": 3},
+  "status": {"enabled": true, "interval_minutes": 60, "mode": "ai", "replied_today": 3, "seen": 12, "baseline_done": true, "last_run": "2026-10-25 18:00"}
+}
+```
+
+首次（未做基线）时 `result` 为 `{"baseline": 4, "posts": 3}`；总开关关闭且为手动触发时仍会执行。
+可能状态码：`409`（未登录 / 机器人未连接）、`504`（超时）。
 
 ### RSS 配置
 

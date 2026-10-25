@@ -15,6 +15,9 @@ logger = logging.getLogger("HikariBot.AIAgent.Memory")
 MAX_STORED_MESSAGES = 40
 # 单次请求注入的短期上下文总字符预算默认值（防止长消息把上下文撑爆）
 DEFAULT_HISTORY_CHARS = 12000
+# 历史涨到目标窗口的多少倍才整段裁剪。2 表示存到 2N 条才裁回 N 条，
+# 让连续多轮请求的前缀保持一致（对 DeepSeek 前缀缓存友好）。
+HISTORY_TRIM_FACTOR = 2
 
 _histories: dict[str, list[dict[str, str]]] = {}
 # 群聊公共上下文（显式开启才写入/注入）：键为 group:<群号>，跨用户共享。
@@ -58,11 +61,16 @@ def remember_shared(event: MessageEvent, user_text: str, assistant_text: str, cf
     limit = shared_limit(cfg)
     if limit <= 0:
         return
+    chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    history_chars = safe_int(chat_cfg.get("history_reply_chars"), 1200, minimum=100, maximum=12000)
+    stored_reply = assistant_text
+    if len(stored_reply) > history_chars:
+        stored_reply = f"{stored_reply[:history_chars]}…（以下长内容已省略）"
     history = _shared_histories.setdefault(key, [])
     history.extend(
         [
             {"role": "user", "content": f"[{event.get_user_id()}] {user_text}"},
-            {"role": "assistant", "content": assistant_text},
+            {"role": "assistant", "content": stored_reply},
         ]
     )
     _shared_histories[key] = history[-limit:]
@@ -95,21 +103,42 @@ def clear_shared_session(event: MessageEvent) -> None:
         _shared_histories.pop(key, None)
 
 
+def _history_chars(history: list[dict[str, str]]) -> int:
+    return sum(len(str(item.get("content") or "")) for item in history)
+
+
 def trim_history(
     history: list[dict[str, str]],
     max_messages: Any,
     max_chars: Any = None,
 ) -> list[dict[str, str]]:
-    """按条数与总字符数裁剪短期历史，从最旧的开始丢。"""
-    limit = safe_int(max_messages, 10, minimum=0, maximum=40)
+    """按「追加 + 超额整段裁」裁剪短期历史。
+
+    不要每轮都从头部滑窗：历史一旦滑窗，每一轮请求的前缀从历史第一条就
+    不同，DeepSeek 的前缀缓存永远命中不了历史部分。这里改成涨到目标窗口
+    的 2 倍才一次性裁回目标值，多数轮次的请求前缀因此保持不变。
+
+    字符预算超限时裁到预算的一半，避免刚裁完下一轮又触发。
+    """
+    limit = safe_int(max_messages, 10, minimum=0, maximum=MAX_STORED_MESSAGES)
     if limit <= 0:
         return []
-    trimmed = history[-limit:]
-    budget = safe_int(max_chars if max_chars is not None else DEFAULT_HISTORY_CHARS, DEFAULT_HISTORY_CHARS, minimum=0, maximum=200000)
+    window = min(limit * HISTORY_TRIM_FACTOR, MAX_STORED_MESSAGES)
+    trimmed = list(history)
+    if len(trimmed) > window:
+        trimmed = trimmed[-limit:]
+    budget = safe_int(
+        max_chars if max_chars is not None else DEFAULT_HISTORY_CHARS,
+        DEFAULT_HISTORY_CHARS,
+        minimum=0,
+        maximum=200000,
+    )
     if budget <= 0:
         return []
-    while len(trimmed) > 1 and sum(len(str(item.get("content") or "")) for item in trimmed) > budget:
-        trimmed = trimmed[1:]
+    if _history_chars(trimmed) > budget:
+        target = max(budget // 2, 1)
+        while len(trimmed) > 1 and _history_chars(trimmed) > target:
+            trimmed = trimmed[1:]
     return trimmed
 
 
@@ -119,15 +148,20 @@ def get_history(session: str, max_messages: Any, max_chars: Any = None) -> list[
 
 def remember(session: str, user_text: str, assistant_text: str, cfg: dict[str, Any]) -> None:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    history_chars = safe_int(chat_cfg.get("history_reply_chars"), 1200, minimum=100, maximum=12000)
+    stored_reply = assistant_text
+    if len(stored_reply) > history_chars:
+        stored_reply = f"{stored_reply[:history_chars]}…（以下长内容已省略）"
     history = _histories.setdefault(session, [])
     history.extend([
         {"role": "user", "content": user_text},
-        {"role": "assistant", "content": assistant_text},
+        {"role": "assistant", "content": stored_reply},
     ])
-    # 内存里按硬上限留存（与配置解耦，配置调大后仍能取到旧消息），并同样受字符预算约束
+    # 按配置的窗口整段裁剪（MAX_STORED_MESSAGES 是绝对上限），
+    # 不再每轮滑窗，避免破坏请求前缀。
     _histories[session] = trim_history(
         history,
-        MAX_STORED_MESSAGES,
+        chat_cfg.get("max_history_messages"),
         chat_cfg.get("max_context_chars"),
     )
 
@@ -160,20 +194,43 @@ def memory_paths(event: MessageEvent, cfg: dict[str, Any]) -> list[tuple[str, Pa
     return [("私聊个人记忆", root / "private" / user_id / "memory.md")]
 
 
+def _stable_memory_head(content: str, max_chars: int) -> str:
+    """取会话标记之前的稳定摘要区。
+
+    标记之后的「当前会话原文」每轮都在追加，而且短期历史里已经有一份；
+    把它注入 prompt 中间只会让前缀每轮都变，所以这里直接跳过。
+    摘要区只在写摘要时增长，取最近 max_chars 保证记忆不过期；两次摘要
+    之间这段内容逐字节不变，缓存前缀不会抖。
+    """
+    marker = _SESSION_MARKER.strip()
+    pos = content.rfind(marker)
+    if pos >= 0:
+        return content[:pos].strip()[-max_chars:]
+    # 旧文件没有会话标记：从头截断，保证内容不随每轮追加而滑动。
+    return content[:max_chars].strip()
+
+
 def read_memory_context(event: MessageEvent, cfg: dict[str, Any]) -> str:
     memory_cfg = cfg.get("memory") if isinstance(cfg.get("memory"), dict) else {}
     max_chars = safe_int(memory_cfg.get("max_read_chars_per_file"), 8000, minimum=1000, maximum=80000)
+    paths = memory_paths(event, cfg)
+    # 群聊只注入群共享记忆：群文件已经包含该用户的发言，个人记忆是它的子集，
+    # 两份都注入等于把同一段内容重复一遍，还让前缀更容易变。
+    if isinstance(event, GroupMessageEvent) and paths:
+        paths = paths[:1]
+
     blocks: list[str] = []
-    for label, path in memory_paths(event, cfg):
+    for label, path in paths:
         if not path.is_file():
             continue
         try:
-            content = path.read_text(encoding="utf-8", errors="replace").strip()
+            content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if not content:
+        head = _stable_memory_head(content, max_chars)
+        if not head:
             continue
-        blocks.append(f"## {label}\n{_neutralize_memory(content[-max_chars:])}")
+        blocks.append(f"## {label}\n{_neutralize_memory(head)}")
     if not blocks:
         return ""
     # 记忆文件是聊天历史里长出来的文本，任何人都可能在对话中"喂"进去指令。
@@ -339,7 +396,7 @@ async def summarize_session_memory(
                 {"role": "system", "content": _SUMMARIZE_SYSTEM_PROMPT},
                 {"role": "user", "content": f"请总结以下对话：\n\n{raw[:4000]}"},
             ]
-            summary_text = await request_chat_completion(cfg, messages)
+            summary_text = await request_chat_completion(cfg, messages, caller="summarize")
             summary_msg = {"content": summary_text}
             # 后台总结按 count_background 计入配额（只计不拦；配额未启用/豁免时 record_usage 内部跳过）
             quota_cfg = cfg.get("quota") if isinstance(cfg.get("quota"), dict) else {}

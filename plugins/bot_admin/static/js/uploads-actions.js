@@ -233,6 +233,11 @@ function buildTtsPayload() {
     receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
     max_chars: Number($("#ttsMaxChars").value || 120),
     cooldown_seconds: Number($("#ttsCooldown").value || 5),
+    ai_tool: {
+      max_chars: Number($("#ttsAiMaxChars").value || 80),
+      cooldown_seconds: Number($("#ttsAiCooldown").value || 10),
+      allow_auto_reply: $("#ttsAiAllowAutoReply").checked,
+    },
     cache_dir: $("#ttsCacheDir").value.trim(),
     cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
   };
@@ -252,7 +257,7 @@ function buildAiAgentPayload() {
       model: $("#aiagentModel").value.trim(),
       temperature: Number($("#aiagentTemperature").value || 0.7),
       top_p: Number($("#aiagentTopP").value || 1),
-      max_tokens: Number($("#aiagentMaxTokens").value || 1024),
+      max_tokens: Number($("#aiagentMaxTokens").value || 8192),
       timeout_seconds: Number($("#aiagentTimeout").value || 60),
       proxy: $("#aiagentProxy").value.trim(),
     },
@@ -276,26 +281,62 @@ function buildAiAgentPayload() {
     },
     chat: {
       max_user_chars: Number($("#aiagentMaxUserChars").value || 2000),
-      max_reply_chars: Number($("#aiagentMaxReplyChars").value || 3500),
+      max_reply_chars: Number($("#aiagentMaxReplyChars").value || 8000),
+      single_message_chars: Number($("#aiagentSingleMessageChars").value ?? 1200),
+      forward_node_chars: Number($("#aiagentForwardNodeChars").value || 1500),
+      forward_max_nodes: Number($("#aiagentForwardMaxNodes").value || 30),
+      history_reply_chars: Number($("#aiagentHistoryReplyChars").value || 1200),
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
       max_context_chars: Number($("#aiagentMaxContextChars").value || 12000),
+      request_timeout_seconds: Number($("#aiagentRequestTimeout").value || 120),
+      max_concurrent_requests: Number($("#aiagentMaxConcurrent").value || 8),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
+      quote_reply: $("#aiagentQuoteReply").checked,
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
       group_shared_context: {
         enabled: $("#aiagentGroupSharedContext").checked,
         max_messages: Number($("#aiagentGroupSharedMax").value || 10),
+      },
+      sticker: {
+        enabled: $("#aiagentStickerEnabled").checked,
+        packs: $("#aiagentStickerPacksAll").checked ? [] : selectedAiAgentStickerPacks(),
+        probability: Number($("#aiagentStickerProbability").value ?? 1.0),
+        max_per_reply: Number($("#aiagentStickerMaxPerReply").value || 1),
+        allow_auto_reply: $("#aiagentStickerAllowAutoReply").checked,
       },
     },
     tools: {
       max_tool_rounds: Number($("#aiagentMaxToolRounds").value),
       tool_timeout_seconds: Number($("#aiagentToolTimeout").value || 30),
       search: {
-        mode: $("#aiagentSearchMode").value === "searxng" ? "searxng" : "builtin",
+        mode: ["searxng", "hybrid"].includes($("#aiagentSearchMode").value) ? $("#aiagentSearchMode").value : "builtin",
         max_results: Number($("#aiagentSearchMaxResults").value || 5),
         need_content: $("#aiagentSearchNeedContent").checked,
       },
-      files: {
-        allow_writes: $("#aiagentAllowFileWrites").checked,
+      images: {
+        enabled: $("#aiagentImagesEnabled").checked,
+        allow_send: $("#aiagentImagesAllowSend").checked,
+        max_results: Number($("#aiagentImagesMaxResults").value || 5),
+        max_images_per_send: Number($("#aiagentImagesMaxSend").value || 3),
+        safesearch: Number($("#aiagentImagesSafesearch").value ?? 1),
+        max_download_mb: Number($("#aiagentImagesMaxDownloadMb").value || 15),
+        download_timeout_seconds: Number($("#aiagentImagesTimeout").value || 20),
+      },
+      workspace: {
+        enabled: $("#aiagentWorkspaceEnabled").checked,
+        allow_writes: $("#aiagentWorkspaceAllowWrites").checked,
+        allow_delete: $("#aiagentWorkspaceAllowDelete").checked,
+        allow_send: $("#aiagentWorkspaceAllowSend").checked,
+        allow_in_auto_reply: $("#aiagentWorkspaceAllowAutoReply").checked,
+        ingest_incoming: $("#aiagentWorkspaceIngestIncoming").checked,
+        include_quoted_files: $("#aiagentWorkspaceIncludeQuoted").checked,
+        incoming_max_mb: Number($("#aiagentWorkspaceIncomingMaxMb").value || 100),
+        incoming_max_files: Number($("#aiagentWorkspaceIncomingMaxFiles").value || 3),
+        incoming_retention_days: Number($("#aiagentWorkspaceIncomingRetention").value ?? 7),
+        max_file_mb: Number($("#aiagentWorkspaceMaxFileMb").value || 20),
+        max_total_mb: Number($("#aiagentWorkspaceMaxTotalMb").value || 300),
+        max_files: Number($("#aiagentWorkspaceMaxFiles").value || 500),
+        max_send_mb: Number($("#aiagentWorkspaceMaxSendMb").value || 100),
       },
       group_members: {
         enabled: $("#aiagentGroupMembersEnabled").checked,
@@ -323,19 +364,38 @@ function buildAiAgentPayload() {
       max_total_mb: Number($("#aiagentChatlogMaxMb").value || 200),
       record_bot: $("#aiagentChatlogRecordBot").checked,
     },
+    auto_reply: {
+      enabled: $("#aiagentAutoReplyEnabled").checked,
+      groups: collectAiAgentAutoReplyGroups(),
+      cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
+      context_messages: Number($("#aiagentAutoReplyContextMessages").value || 10),
+      context_max_chars: Number($("#aiagentAutoReplyContextChars").value || 1200),
+    },
   };
 }
 
-// 「只记录这些群号」输入框：逗号/空格/换行分隔，只保留数字群号
+// 群号输入框：逗号/空格/换行分隔，只保留数字群号并去重
 function parseAiAgentGroupIds(value) {
-  return String(value || "")
-    .split(/[\s,，]+/)
-    .map((item) => item.trim())
-    .filter((item) => /^\d+$/.test(item));
+  return Array.from(
+    new Set(
+      String(value || "")
+        .split(/[\s,，]+/)
+        .map((item) => item.trim())
+        .filter((item) => /^\d+$/.test(item))
+    )
+  );
 }
 
 async function saveAiAgentConfig(event) {
   event.preventDefault();
+  if (
+    $("#aiagentStickerEnabled").checked &&
+    !$("#aiagentStickerPacksAll").checked &&
+    !selectedAiAgentStickerPacks().length
+  ) {
+    showToast("请至少选择一个限定贴纸包，或勾选「使用全部贴纸包」。", true);
+    return;
+  }
   const button = event.currentTarget.querySelector("button[type='submit']");
   button.disabled = true;
   try {

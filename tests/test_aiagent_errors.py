@@ -14,7 +14,9 @@ from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, PrivateMessa
 
 import plugins.aiagent as aiagent
 from core.bot_messages import get_message as msg
+from plugins.aiagent import memory as memory_mod
 from plugins.aiagent import quota as quota_mod
+from plugins.aiagent import reply as reply_mod
 from plugins.aiagent.client import AIAgentRequestError
 
 
@@ -58,9 +60,12 @@ def make_private_event(user_id: str = "333", self_id: str = "1") -> PrivateMessa
 class RecordingBot:
     def __init__(self) -> None:
         self.sent: list[str] = []
+        self.messages: list[Message] = []
 
     async def send(self, event: Any, message: Message) -> None:
-        self.sent.append(str(message))
+        self.messages.append(message)
+        # 引用段不算文本内容，这里只记录真正发出的文字
+        self.sent.append(message.extract_plain_text())
 
 
 def enabled_cfg(**overrides: Any) -> dict[str, Any]:
@@ -174,6 +179,9 @@ class QuotaReservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         status = quota_mod.get_quota_status(cfg, event)
         self.assertEqual(status["daily"]["used"], 1)
         self.assertEqual(bot.sent, ["你好呀"])
+        # 成功回复默认引用触发它的那条消息
+        self.assertEqual(bot.messages[0][0].type, "reply")
+        self.assertEqual(str(bot.messages[0][0].data["id"]), "1")
 
     async def test_failure_refunds_reserved_quota(self) -> None:
         cfg = self._quota_cfg()
@@ -276,6 +284,72 @@ class QuotaReservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(success_replies), 1)
         self.assertEqual(len(blocked_replies), 4)
         self.assertEqual(quota_mod.get_quota_status(cfg, events[0])["daily"]["used"], 1)
+
+    async def test_send_failure_refunds_reserved_quota(self) -> None:
+        cfg = self._quota_cfg()
+        event = make_group_event(group_id="506", user_id="90001")
+
+        class FailingBot:
+            async def send(self, event: Any, message: Message) -> None:
+                raise RuntimeError("NapCat result 120")
+
+        async def ok(*args: Any, **kwargs: Any) -> str:
+            return "你好呀"
+
+        with (
+            patch.object(aiagent, "get_config_for_event", return_value=cfg),
+            patch.object(aiagent, "is_event_allowed", return_value=True),
+            patch.object(aiagent, "request_chat_completion", ok),
+            patch.object(reply_mod, "SEND_RETRY_DELAY_SECONDS", 0),
+        ):
+            await aiagent._handle_chat_event(FailingBot(), event, "你好")
+
+        # 文字没发出去：不能算 delivered，预留下的配额必须退回
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 0)
+        # 也不能把用户没看到的 assistant 回复写进下一轮上下文
+        self.assertEqual(
+            memory_mod.get_history(aiagent.session_key(event), 10, 12000),
+            [],
+        )
+
+
+class PromptCachePrefixTests(unittest.IsolatedAsyncioTestCase):
+    """时间戳放在 user 消息里，且写入历史的内容与发送内容逐字节一致。"""
+
+    def setUp(self) -> None:
+        aiagent._last_used_at.clear()
+        memory_mod._histories.clear()
+
+    def tearDown(self) -> None:
+        memory_mod._histories.clear()
+
+    async def test_sent_time_is_stored_and_prefix_is_stable(self) -> None:
+        bot = RecordingBot()
+        event = make_group_event(user_id="90002")
+        captured: list[list[dict[str, Any]]] = []
+
+        async def fake_reply(cfg: dict[str, Any], messages: list[dict[str, Any]], tool_context: Any = None) -> str:
+            captured.append([dict(message) for message in messages])
+            return "好的"
+
+        with (
+            patch.object(aiagent, "get_config_for_event", return_value=enabled_cfg()),
+            patch.object(aiagent, "is_event_allowed", return_value=True),
+            patch.object(aiagent, "request_chat_completion", fake_reply),
+            patch.object(aiagent, "load_persona_prompt", return_value="人格"),
+            patch.object(aiagent, "read_memory_context", return_value=""),
+        ):
+            await aiagent._handle_chat_event(bot, event, "你好")
+            await aiagent._handle_chat_event(bot, event, "再问一句")
+
+        first, second = captured
+        self.assertTrue(str(first[-1]["content"]).startswith("【当前时间】"))
+        self.assertTrue(str(second[-1]["content"]).startswith("【当前时间】"))
+        # 上一轮实际发送的 user 内容必须原样进入下一轮历史，否则前缀对不上
+        self.assertEqual(second[-3], {"role": "user", "content": first[-1]["content"]})
+        self.assertEqual(second[-2], {"role": "assistant", "content": "好的"})
+        # system prompt 逐字节不变
+        self.assertEqual(first[0], second[0])
 
 
 if __name__ == "__main__":

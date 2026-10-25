@@ -45,7 +45,7 @@ CONFIG_PATH = Path("BotData/plugin_configs/aiagent.json")
 # 属于单个配置文件的段（后台「AI」页编辑）。
 PROFILE_KEYS: tuple[str, ...] = ("api", "model", "thinking", "vision", "persona", "chat", "memory", "tools")
 # 所有配置文件共用的全局段（后台「AI 配额」页 / 「AI Agent」页编辑）。
-GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog")
+GLOBAL_KEYS: tuple[str, ...] = ("enabled", "quota", "permissions", "chatlog", "auto_reply")
 
 DEFAULT_PROFILE_ID = "default"
 DEFAULT_PROFILE_NAME = "默认配置"
@@ -107,11 +107,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "chat": {
         "max_user_chars": 2000,
-        "max_reply_chars": 3500,
-        "short_reply_chars": 200,
+        "max_reply_chars": 8000,
+        "single_message_chars": 1200,
+        "forward_node_chars": 1500,
+        "forward_max_nodes": 30,
+        "history_reply_chars": 1200,
+
+        # 回复时是否引用触发回复的那条消息（群聊 / 私聊都生效）。
+        # 超长回复会以合并转发发送，转发本身无法携带引用。
+        "quote_reply": True,
         "max_history_messages": 10,
-        # 短期上下文总字符预算：超出时从最旧的对话开始丢弃（防止长消息撑爆上下文与费用）
+        # 短期上下文总字符预算：超出时裁到一半，避免每轮都触发裁剪（前缀缓存友好）
         "max_context_chars": 12000,
+        # 单条消息的总预算（秒）：模型调用 + 所有工具轮次都受它约束。
+        # 超过后取消本次请求并释放会话锁，不再无限期占用。
+        "request_timeout_seconds": 120,
+        # 全局同时进行中的模型请求数；高峰期用来保护上游，避免 429。
+        "max_concurrent_requests": 8,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
         # 群聊公共上下文（默认关闭）：开启后把本群最近几轮「成员 ↔ 机器人」的对话
@@ -119,6 +131,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "group_shared_context": {
             "enabled": False,
             "max_messages": 10,
+        },
+        "sticker": {
+            "enabled": False,
+            "packs": [],
+            "probability": 1.0,
+            "max_per_reply": 1,
+            "allow_auto_reply": True,
         },
         "blocked_url_domains": [
             "douyin.com",
@@ -160,6 +179,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # 是否连机器人自己的发言也记
         "record_bot": False,
     },
+    # 群聊自动回复：只有白名单内的群会“没 @ 也回复”，默认关闭。
+    # 群列表不设上限；cooldown_seconds 是同一个群两次自动回复之间的最小间隔。
+    "auto_reply": {
+        "enabled": False,
+        "groups": [],
+        "cooldown_seconds": 5,
+        # 主动接话时附带的本群近期消息，避免把每条群聊都当成对机器人说的。
+        "context_messages": 10,
+        "context_max_chars": 1200,
+    },
     "tools": {
         "help": {
             "enabled": True,
@@ -170,6 +199,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             #            计费，5 元/1000 次）；Responses / Chat Completions 都可用，
             #            flash 也能搜。非 api.deepseek.com 端点没有该接口，自动回退 SearXNG。
             # "searxng": 只用自建 SearXNG（兼容任意 OpenAI 兼容端点）。
+            # "hybrid": 并发 DeepSeek Search API + SearXNG，合并去重。
             "mode": "builtin",
             # 是否让搜索结果带回网页正文（need_content）；更完整但更耗上下文。
             "need_content": False,
@@ -180,11 +210,36 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "language": "auto",
             "categories": "general",
         },
-        "files": {
+        "images": {
+            "enabled": True,
+            "allow_send": False,
+            "max_results": 5,
+            "max_per_send": 3,
+            "safesearch": 1,
+            "max_bytes": 10485760,
+            "download_timeout_seconds": 20,
+        },
+        "workspace": {
             "enabled": True,
             "allow_writes": False,
+            "allow_delete": False,
+            "allow_send": False,
+            "allow_in_auto_reply": False,
+            "ingest_incoming": True,
+            "include_quoted_files": True,
+            "incoming_max_mb": 100,
+            "incoming_max_files": 3,
+            "incoming_retention_days": 7,
+            "max_file_mb": 20,
+            "max_total_mb": 300,
+            "max_files": 500,
+            "max_send_mb": 100,
+        },
+        "files": {
+            "enabled": True,
+
             "max_read_chars": 20000,
-            "max_write_chars": 20000,
+
         },
         # 群聊工具（只读，且只在当前群生效）：枚举本群成员、查成员名片资料、查成员发言
         "group_members": {
@@ -253,6 +308,8 @@ DEFAULT_DOCUMENT: dict[str, Any] = {
     "permissions": copy.deepcopy(DEFAULT_CONFIG["permissions"]),
     # 全局段：本地聊天记录是整机一份（一个保留策略），不随配置文件切换
     "chatlog": copy.deepcopy(DEFAULT_CONFIG["chatlog"]),
+    # 全局段：自动回复白名单也是整机一份，不随配置文件切换
+    "auto_reply": copy.deepcopy(DEFAULT_CONFIG["auto_reply"]),
 }
 
 BINDING_KINDS: tuple[str, ...] = ("group", "private")
@@ -324,6 +381,9 @@ def _normalize_profile(raw: Any) -> dict[str, Any]:
     src = raw if isinstance(raw, dict) else {}
     patch = {key: src[key] for key in PROFILE_KEYS if isinstance(src.get(key), dict)}
     profile = _deep_merge({key: DEFAULT_PROFILE[key] for key in PROFILE_KEYS}, patch)
+    chat_src = src.get("chat") if isinstance(src.get("chat"), dict) else {}
+    if "single_message_chars" not in chat_src and "short_reply_chars" in chat_src:
+        profile.setdefault("chat", {})["single_message_chars"] = chat_src["short_reply_chars"]
     return {
         "name": _safe_profile_name(src.get("name")),
         **{key: profile[key] for key in PROFILE_KEYS},
@@ -403,6 +463,12 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
     else:
         chatlog = copy.deepcopy(DEFAULT_DOCUMENT["chatlog"])
 
+    # auto_reply 是全局段：白名单与冷却整机一份，缺失时补默认值。
+    if isinstance(src.get("auto_reply"), dict):
+        auto_reply = _deep_merge(DEFAULT_DOCUMENT["auto_reply"], src["auto_reply"])
+    else:
+        auto_reply = copy.deepcopy(DEFAULT_DOCUMENT["auto_reply"])
+
     return {
         "enabled": bool(src.get("enabled", DEFAULT_DOCUMENT["enabled"])),
         "active_profile": active,
@@ -411,6 +477,7 @@ def _normalize_document(raw: Any) -> dict[str, Any]:
         "quota": quota,
         "permissions": copy.deepcopy(permissions),
         "chatlog": chatlog,
+        "auto_reply": auto_reply,
     }
 
 

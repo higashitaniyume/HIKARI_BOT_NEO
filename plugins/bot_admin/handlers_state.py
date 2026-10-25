@@ -19,6 +19,7 @@ from .operations import (
     _push_config_state,
     _rss_config_state,
 )
+from .groups_admin import group_list_state
 from .settings import _aiagent_config_state, _aiagent_quota_state, _tts_config_state
 from .stickers import _inbox_state, _pack_state, _voice_state
 from .system_probe import system_probe_state
@@ -57,6 +58,17 @@ class StateHandlerMixin:
         # ?profile=<id> 指定正在编辑的配置文件，缺省读全局默认。
         profile_id = self._query_params.get("profile", [""])[0].strip() or None
         self._send_json(_aiagent_config_state(profile_id))
+
+    def _handle_groups(self) -> None:
+        try:
+            self._send_json(group_list_state())
+        except TimeoutError as e:
+            self._send_json({"error": str(e) or "读取群列表超时。"}, 504)
+        except RuntimeError as e:
+            self._send_json({"error": str(e) or "机器人未连接，无法读取群列表。"}, 409)
+        except Exception as e:
+            logger.exception("读取群列表失败: %s", e)
+            self._send_json({"error": "读取群列表失败，请检查服务日志。"}, 500)
 
     def _handle_aiagent_memory(self) -> None:
         file_param = self._query_params.get("file", [None])[0]

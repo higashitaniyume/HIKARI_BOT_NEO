@@ -1,0 +1,76 @@
+{
+  "enabled": true,
+  "default_visible": "public",
+  "max_length": 1000,
+  "feed_count": 8,
+  "moods_count": 5,
+  "timeout": 20,
+  "schedule": {
+    "enabled": false,
+    "check_interval_seconds": 60,
+    "grace_seconds": 1800,
+    "state_path": "UserData/qzone_state.json",
+    "ai": {
+      "enabled": true,
+      "temperature": 1.0,
+      "max_tokens": 400,
+      "timeout_seconds": 60,
+      "max_chars": 120,
+      "extra_prompt": ""
+    },
+    "fallback_texts": [
+      "哼，今天也在海里摸鱼喵～（摇尾巴）",
+      "米饭煮好了哦，主人在忙什么呀？（晃尾）"
+    ],
+    "jobs": [
+      {
+        "id": "morning",
+        "enabled": true,
+        "time": "08:30",
+        "days": [],
+        "timezone": "Asia/Shanghai",
+        "visible": "public",
+        "prompt": "刚睡醒，准备开始新的一天，写一句早安或今天想做的小事"
+      },
+      {
+        "id": "night",
+        "enabled": true,
+        "time": "22:30",
+        "days": [],
+        "timezone": "Asia/Shanghai",
+        "visible": "public",
+        "prompt": "准备睡觉了，写一句晚安或今天的小感想"
+      }
+    ]
+  },
+  "comment_reply": {
+    "enabled": false,
+    "interval_minutes": 60,
+    "posts": 3,
+    "per_run_limit": 2,
+    "daily_limit": 20,
+    "mode": "ai",
+    "template": "谢谢{name}的评论喵～",
+    "baseline_on_first_run": true,
+    "state_path": "UserData/qzone_comment_state.json",
+    "ai": {
+      "max_chars": 60,
+      "max_tokens": 300,
+      "timeout_seconds": 60,
+      "extra_prompt": ""
+    }
+  },
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    }
+  }
+}

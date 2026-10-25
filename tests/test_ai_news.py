@@ -228,7 +228,7 @@ class AiNewsSummaryTests(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        async def fake_post_chat_completion(request_cfg, messages, tools):
+        async def fake_post_chat_completion(request_cfg, messages, tools, **kwargs):
             self.assertEqual(request_cfg["model"]["base_url"], "https://api.example.com/v1")
             self.assertEqual(request_cfg["model"]["api_key"], "secret-key")
             self.assertEqual(request_cfg["model"]["model"], "unit-model")
@@ -255,7 +255,7 @@ class AiNewsSummaryTests(unittest.IsolatedAsyncioTestCase):
         item = NewsItem("openai", "OpenAI News", "official", "New model", "https://example.com/model", "A new model ships.")
         cfg = {"ai_summary": {"enabled": True, "fallback_to_original": True}}
 
-        async def fake_post_chat_completion(request_cfg, messages, tools):
+        async def fake_post_chat_completion(request_cfg, messages, tools, **kwargs):
             raise RuntimeError("boom")
 
         with (

@@ -18,7 +18,7 @@ from third_party.astrbot_plugin_media_parser.core.parser.utils import extract_ur
 from third_party.astrbot_plugin_media_parser.core.storage.parse_record import ParseRecordManager
 
 from .cache_cleanup import media_cache_ttl_seconds, register_metadata_temp_media
-from .config import get_config, video_only_platforms
+from .config import effective_max_send, get_config, video_only_platforms
 from .runtime import MediaParserRuntime
 from .queues import (
     MediaParseQueueItem,
@@ -468,7 +468,7 @@ async def _prepare_links_once(
         metadata_list = _suppress_redundant_error_metadata(metadata_list)
 
         processed: list[dict[str, Any]] = []
-        max_send = max(1, int(runtime.config.get("max_send", 8)))
+        max_send = effective_max_send(runtime.config)
         cache_ttl_seconds = media_cache_ttl_seconds(runtime.config)
         for metadata in metadata_list:
             if not _apply_output_modes(runtime, metadata):

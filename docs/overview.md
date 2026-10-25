@@ -65,8 +65,8 @@ Message from QQ → NapCat → OneBot V11 WS → NoneBot
 | Telegram 贴纸包解析 | `tg贴纸 <链接>` | [plugins.md](plugins.md#telegram-贴纸包解析) |
 | 本地贴纸包 | 关键词触发 / `贴纸包` 命令 | [plugins.md](plugins.md#本地贴纸包) |
 | 本地语音触发 | 关键词匹配 | [plugins.md](plugins.md#本地语音触发) |
-| TTS 语音合成 | `说话 <文本>` / `音色列表` / `切换音色` | [plugins.md](plugins.md#tts-语音合成) |
-| AI Agent 聊天 | 私聊文本 / 群聊 @机器人 | [plugins.md](plugins.md#ai-agent-聊天) |
+| TTS 语音合成 | `说话 <文本>` / `音色列表` / `切换音色`；AI Agent 可调用 `send_voice` 主动发语音 | [plugins.md](plugins.md#tts-语音合成) |
+| AI Agent 聊天 | 私聊文本 / 群聊 @机器人 / 白名单群自动回复 | [plugins.md](plugins.md#ai-agent-聊天) |
 | AI 配额管理 | 后台「AI 配额」页 / `额度` 命令 | [plugins.md](plugins.md#ai-agent-聊天) |
 | Bot 后台 | 浏览器打开 `http://IP:54213/` | [plugins.md](plugins.md#bot-后台) |
 | 贴纸静默收集 | 自动 | [plugins.md](plugins.md#贴纸静默收集) |

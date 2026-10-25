@@ -18,6 +18,9 @@ class AIToolContext:
     bot: Any | None = None
     event: Any | None = None
     agent_config: dict[str, Any] | None = None
+    # 是否为群聊自动回复（没有 @ / 引用机器人）。副作用工具可以据此收紧权限，
+    # 例如 TTS 默认只在用户主动找机器人说话时才发语音。
+    auto: bool = False
 
 
 AIToolHandler = Callable[[AIToolContext, dict[str, Any]], Awaitable[Any] | Any]

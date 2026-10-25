@@ -19,6 +19,12 @@ OUTPUT_MODE_VIDEO_ONLY = "仅视频"
 UPSTREAM_MODE_FULL = "全部发送"
 VIDEO_ONLY_PLATFORMS_KEY = "_video_only_platforms"
 
+# 一条消息最多发送多少个媒体。上游配置允许很大（例如 80），但 NapCat 上传
+# 一个 80 节点的合并转发会占用发送通道数分钟，拖慢所有人的文字回复。
+MAX_MEDIA_PER_SEND = 12
+# 同时进行中的媒体发送数（全局，跨会话）。文字发送不经过这个信号量。
+MAX_CONCURRENT_MEDIA_SENDS = 2
+
 _first_load_done = False
 
 
@@ -65,6 +71,25 @@ def video_only_platforms(cfg: dict[str, Any]) -> set[str]:
     if isinstance(platforms, str):
         platforms = [platforms]
     return {str(name).strip() for name in platforms if str(name or "").strip()}
+
+
+def effective_max_send(cfg: dict[str, Any], default: int = 8) -> int:
+    """单条消息实际发送上限：配置值再做一次硬上限保护。"""
+    try:
+        value = int(cfg.get("max_send", default))
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, 1), MAX_MEDIA_PER_SEND)
+
+
+def effective_send_concurrency(cfg: dict[str, Any]) -> int:
+    """全局媒体发送并发；未配置时用保守的 2。"""
+    strategy = cfg.get("send_strategy") if isinstance(cfg.get("send_strategy"), dict) else {}
+    try:
+        value = int(strategy.get("max_concurrent_sends", MAX_CONCURRENT_MEDIA_SENDS))
+    except (TypeError, ValueError):
+        value = MAX_CONCURRENT_MEDIA_SENDS
+    return min(max(value, 1), 8)
 
 
 def _log_config_summary(cfg: dict[str, Any]) -> None:

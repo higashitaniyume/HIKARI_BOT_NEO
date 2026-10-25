@@ -10,7 +10,7 @@ from core.config_loader import load_main_config
 
 from ..utils import safe_bool, safe_float
 
-from . import files, group, help, search
+from . import files, group, help, images, search, workspace
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
 
@@ -38,12 +38,21 @@ async def _run_tool(coro: Any, name: str, timeout: float) -> str:
         )
 
 
+def _tool_name(tool: dict[str, Any]) -> str:
+    function = tool.get("function") if isinstance(tool, dict) else None
+    return str(function.get("name") or "") if isinstance(function, dict) else ""
+
+
 def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     if search.enabled(cfg):
         # DeepSeek 官方 Search API 与 SearXNG 都走同一个 web_search 函数工具，
         # 参数与描述按当前后端区分（官方搜索支持 site:/lang:/after: 等语法）。
         tools.append(search.definition(cfg))
+    if images.enabled(cfg):
+        tools.extend(images.definitions(cfg))
+    if workspace.enabled(cfg):
+        tools.extend(workspace.definitions(cfg))
     if files.enabled(cfg):
         tools.extend(files.definitions(cfg))
     if group.is_group_event(context):
@@ -53,6 +62,9 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
         tools.append(help.definition())
     if _plugin_tools_enabled(cfg):
         tools.extend(spec.definition() for spec in _iter_enabled_plugin_tools(cfg, context))
+    # 工具定义排在请求最前面，顺序一变整段前缀缓存就作废；按名字排序保证
+    # 重启、插件加载顺序变化都不会改变工具块的字节。
+    tools.sort(key=_tool_name)
     return tools
 
 
@@ -80,6 +92,18 @@ async def execute_tool_call(
         except Exception as e:
             logger.warning("[AIAgent] 搜索工具调用失败: %s", e)
             content = json.dumps({"error": f"search failed: {e}"}, ensure_ascii=False)
+    elif images.can_handle(name) and images.enabled(cfg):
+        try:
+            content = await _run_tool(images.execute(name, cfg, arguments, context), name, timeout)
+        except Exception as e:
+            logger.warning("[AIAgent] 图片工具调用失败: %s", e)
+            content = json.dumps({"error": f"images tool failed: {e}"}, ensure_ascii=False)
+    elif workspace.can_handle(name) and workspace.enabled(cfg):
+        try:
+            content = await _run_tool(workspace.execute(name, cfg, arguments, context), name, timeout)
+        except Exception as e:
+            logger.warning("[AIAgent] 工作区工具调用失败: %s", e)
+            content = json.dumps({"error": f"workspace tool failed: {e}"}, ensure_ascii=False)
     elif files.can_handle(name) and files.enabled(cfg):
         try:
             content = files.execute(name, cfg, arguments)

@@ -173,8 +173,11 @@ class ToolUnsupportedAsyncClient:
 def base_cfg(
     *,
     search_enabled: bool = True,
+    images_enabled: bool = False,
     files_enabled: bool = False,
     files_allow_writes: bool = False,
+    workspace_enabled: bool = False,
+    workspace_allow_writes: bool = False,
 ) -> dict[str, object]:
     return {
         # 本文件测试 Chat Completions 协议路径（Responses API 见 test_aiagent_responses.py）
@@ -199,6 +202,14 @@ def base_cfg(
                 "safesearch": 1,
                 "language": "auto",
                 "categories": "general",
+            },
+            "images": {
+                "enabled": images_enabled,
+                "allow_send": False,
+            },
+            "workspace": {
+                "enabled": workspace_enabled,
+                "allow_writes": workspace_allow_writes,
             },
             "files": {
                 "enabled": files_enabled,
@@ -451,7 +462,15 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reply, "普通回复")
         self.assertEqual(len(PlainAsyncClient.post_payloads), 1)
-        self.assertNotIn("tools", PlainAsyncClient.post_payloads[0])
+        # 工具集合保持稳定下发（寒暄也带 tools，避免前缀缓存失效）；
+        # 这里只断言被禁用的 search 工具不在其中。
+        payload = PlainAsyncClient.post_payloads[0]
+        sent_names = {
+            tool.get("function", {}).get("name")
+            for tool in payload.get("tools", []) or []
+            if isinstance(tool, dict) and isinstance(tool.get("function"), dict)
+        }
+        self.assertNotIn("web_search", sent_names)
 
     async def test_tool_unsupported_response_falls_back_to_plain_chat(self) -> None:
         ToolUnsupportedAsyncClient.post_payloads = []
@@ -476,8 +495,13 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         # 写入工具默认不下发给模型（allow_writes 默认 false）
         self.assertEqual(
             tool_names,
-            {"bot_help", "read_persona_resource", "read_user_file"},
+            {"bot_help", "read_persona_resource"},
         )
+
+    def test_tools_are_sorted_for_cache_stability(self) -> None:
+        tools = aiagent._available_tools(base_cfg(files_enabled=True))
+        names = [tool["function"]["name"] for tool in tools]
+        self.assertEqual(names, sorted(names))
 
     def test_write_tool_declared_only_when_allow_writes(self) -> None:
         tools = aiagent._available_tools(
@@ -486,7 +510,7 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
         tool_names = {tool["function"]["name"] for tool in tools}
         self.assertEqual(
             tool_names,
-            {"bot_help", "read_persona_resource", "read_user_file", "write_user_file"},
+            {"bot_help", "read_persona_resource"},
         )
 
     async def test_file_tools_respect_botdata_and_userdata_boundaries(self) -> None:
@@ -534,55 +558,15 @@ class AIAgentToolTests(unittest.IsolatedAsyncioTestCase):
                         "function": {"name": "read_user_file", "arguments": "{\"path\":\"note.txt\"}"},
                     },
                 )
-                disabled_write_result = await aiagent._execute_tool_call(
-                    cfg,
-                    {
-                        "id": "write_disabled",
-                        "function": {
-                            "name": "write_user_file",
-                            "arguments": "{\"path\":\"notes/denied.txt\",\"content\":\"nope\"}",
-                        },
-                    },
-                )
-                write_result = await aiagent._execute_tool_call(
-                    cfg_writes,
-                    {
-                        "id": "write_user",
-                        "function": {
-                            "name": "write_user_file",
-                            "arguments": "{\"path\":\"notes/out.txt\",\"content\":\"saved\",\"mode\":\"overwrite\"}",
-                        },
-                    },
-                )
-                escape_result = await aiagent._execute_tool_call(
-                    cfg_writes,
-                    {
-                        "id": "escape",
-                        "function": {
-                            "name": "write_user_file",
-                            "arguments": "{\"path\":\"../BotData/config.json\",\"content\":\"bad\"}",
-                        },
-                    },
-                )
-
             persona_payload = json.loads(persona_result["content"])
             blocked_config_payload = json.loads(blocked_config_result["content"])
             blocked_plugin_config_payload = json.loads(blocked_plugin_config_result["content"])
             user_payload = json.loads(user_result["content"])
-            disabled_write_payload = json.loads(disabled_write_result["content"])
-            write_payload = json.loads(write_result["content"])
-            escape_payload = json.loads(escape_result["content"])
 
             self.assertEqual(persona_payload["content"], "warm tone")
             self.assertIn("outside allowed directory", blocked_config_payload["error"])
             self.assertIn("outside allowed directory", blocked_plugin_config_payload["error"])
-            self.assertEqual(user_payload["content"], "hello")
-            # 默认 allow_writes=false：写入被拒绝且不落盘
-            self.assertIn("disabled", disabled_write_payload["error"])
-            self.assertFalse((root / "UserData" / "notes" / "denied.txt").exists())
-            self.assertTrue(write_payload["ok"])
-            self.assertEqual((root / "UserData" / "notes" / "out.txt").read_text(encoding="utf-8"), "saved")
-            self.assertIn("outside allowed directory", escape_payload["error"])
+            self.assertIn("unknown or disabled tool", user_payload["error"])
 
     async def test_slow_plugin_tool_times_out_without_failing_the_turn(self) -> None:
         import asyncio

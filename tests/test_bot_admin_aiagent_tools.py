@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import copy
+import nonebot
+
+try:
+    nonebot.get_driver()
+except ValueError:
+    nonebot.init(driver="nonebot.drivers.none:Driver")
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -120,16 +126,16 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         current = self._base_config()
         result = self._save_with(current, {"tools": {"max_tool_rounds": 2}})
 
-        self.assertFalse(result["tools"]["files"]["allow_writes"])
+        self.assertFalse(result["tools"]["workspace"]["allow_writes"])
 
     def test_update_aiagent_config_round_trips_allow_writes(self) -> None:
         current = self._base_config()
-        enabled = self._save_with(current, {"tools": {"files": {"allow_writes": True}}})
-        self.assertTrue(enabled["tools"]["files"]["allow_writes"])
+        enabled = self._save_with(current, {"tools": {"workspace": {"allow_writes": True}}})
+        self.assertTrue(enabled["tools"]["workspace"]["allow_writes"])
 
-        # 后续保存（表单未携带 files 段）不应把已开启的写入静默改回关闭
+        # 后续保存（表单未携带 workspace 段）不应把已开启的写入静默改回关闭
         kept = self._save_with(enabled, {"tools": {"max_tool_rounds": 3}})
-        self.assertTrue(kept["tools"]["files"]["allow_writes"])
+        self.assertTrue(kept["tools"]["workspace"]["allow_writes"])
 
     def test_update_aiagent_config_round_trips_tool_timeout(self) -> None:
         current = self._base_config()
@@ -190,6 +196,18 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         # 未携带时保留已开启状态，不会静默关闭
         kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
         self.assertTrue(kept["chat"]["group_shared_context"]["enabled"])
+
+    def test_update_aiagent_config_round_trips_quote_reply(self) -> None:
+        current = self._base_config()
+        default = self._save_with(current, {"chat": {}})
+        self.assertTrue(default["chat"]["quote_reply"])
+
+        saved = self._save_with(current, {"chat": {"quote_reply": False}})
+        self.assertFalse(saved["chat"]["quote_reply"])
+
+        # 未携带时保留关闭状态，不会静默改回开启
+        kept = self._save_with(saved, {"chat": {"max_history_messages": 5}})
+        self.assertFalse(kept["chat"]["quote_reply"])
 
     def test_update_aiagent_config_round_trips_group_tools(self) -> None:
         current = self._base_config()
@@ -287,6 +305,120 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         self.assertEqual(saved["chatlog"]["retention_days"], 1)
         self.assertEqual(saved["chatlog"]["max_total_mb"], 1)
         self.assertEqual(saved["chatlog"]["groups"], ["123456", "789012", "42"])
+
+
+    def test_update_aiagent_config_round_trips_hybrid_search(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(current, {"tools": {"search": {"mode": "hybrid"}}})
+        self.assertEqual(saved["tools"]["search"]["mode"], "hybrid")
+
+        # 无效模式回退 builtin
+        fallback = self._save_with(current, {"tools": {"search": {"mode": "invalid"}}})
+        self.assertEqual(fallback["tools"]["search"]["mode"], "builtin")
+
+    def test_update_aiagent_config_round_trips_images_and_workspace(self) -> None:
+        current = self._base_config()
+        payload = {
+            "tools": {
+                "images": {
+                    "enabled": True,
+                    "allow_send": True,
+                    "max_results": 10,
+                    "max_images_per_send": 5,
+                    "safesearch": 2,
+                    "max_download_mb": 25,
+                    "download_timeout_seconds": 45,
+                },
+                "workspace": {
+                    "enabled": True,
+                    "allow_writes": True,
+                    "allow_delete": True,
+                    "allow_send": True,
+                    "allow_in_auto_reply": True,
+                    "ingest_incoming": True,
+                    "include_quoted_files": False,
+                    "incoming_max_mb": 50,
+                    "incoming_max_files": 2,
+                    "incoming_retention_days": 14,
+                    "max_file_mb": 15,
+                    "max_total_mb": 200,
+                    "max_files": 300,
+                    "max_send_mb": 50,
+                },
+            }
+        }
+        saved = self._save_with(current, payload)
+        self.assertEqual(saved["tools"]["images"], payload["tools"]["images"])
+        self.assertEqual(saved["tools"]["workspace"], payload["tools"]["workspace"])
+
+    def test_update_aiagent_config_round_trips_chat_split_and_sticker(self) -> None:
+        current = self._base_config()
+        payload = {
+            "chat": {
+                "max_reply_chars": 6000,
+                "single_message_chars": 800,
+                "forward_node_chars": 1200,
+                "forward_max_nodes": 20,
+                "history_reply_chars": 1000,
+                "sticker": {
+                    "enabled": True,
+                    "packs": ["pack_a", "pack_b"],
+                    "probability": 0.8,
+                    "max_per_reply": 1,
+                    "allow_auto_reply": False,
+                },
+            }
+        }
+        saved = self._save_with(current, payload)
+        self.assertEqual(saved["chat"]["max_reply_chars"], 6000)
+        self.assertEqual(saved["chat"]["single_message_chars"], 800)
+        self.assertEqual(saved["chat"]["forward_node_chars"], 1200)
+        self.assertEqual(saved["chat"]["forward_max_nodes"], 20)
+        self.assertEqual(saved["chat"]["history_reply_chars"], 1000)
+        self.assertEqual(saved["chat"]["sticker"], payload["chat"]["sticker"])
+
+    def test_update_aiagent_config_clamps_workspace_and_images(self) -> None:
+        current = self._base_config()
+        payload = {
+            "tools": {
+                "images": {
+                    "max_results": 999,
+                    "safesearch": 10,
+                    "max_download_mb": 100,
+                },
+                "workspace": {
+                    "incoming_max_mb": 500,
+                    "max_total_mb": 100000,
+                },
+            }
+        }
+        saved = self._save_with(current, payload)
+        self.assertEqual(saved["tools"]["images"]["max_results"], 20)
+        self.assertEqual(saved["tools"]["images"]["safesearch"], 2)
+        self.assertEqual(saved["tools"]["images"]["max_download_mb"], 50)
+        self.assertEqual(saved["tools"]["workspace"]["incoming_max_mb"], 100)
+        self.assertEqual(saved["tools"]["workspace"]["max_total_mb"], 5000)
+
+    def test_update_aiagent_config_allows_large_output_budget(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(
+            current,
+            {
+                "model": {"max_tokens": 32768},
+                "chat": {"request_timeout_seconds": 90, "max_concurrent_requests": 4},
+                "tools": {"max_tool_rounds": 50},
+            },
+        )
+        self.assertEqual(saved["model"]["max_tokens"], 32768)
+        self.assertEqual(saved["chat"]["request_timeout_seconds"], 90)
+        self.assertEqual(saved["chat"]["max_concurrent_requests"], 4)
+        # 运行时工具轮次上限是 10，后台不再接受 50 造成“设了但没生效”
+        self.assertEqual(saved["tools"]["max_tool_rounds"], 10)
+
+    def test_update_aiagent_config_normalizes_reasoning_effort(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(current, {"thinking": {"reasoning_effort": "turbo"}})
+        self.assertEqual(saved["thinking"]["reasoning_effort"], "high")
 
 
 if __name__ == "__main__":

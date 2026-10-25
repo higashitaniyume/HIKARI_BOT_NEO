@@ -23,6 +23,7 @@ from plugins.tts_speaker.config import get_config as get_tts_config
 from plugins.tts_speaker.config import save_config as save_tts_config
 
 from .parsing import (
+    _parse_auto_reply_groups,
     _parse_bool,
     _parse_fish_backup_model,
     _parse_fish_format,
@@ -51,9 +52,9 @@ def _tts_config_state() -> dict[str, Any]:
 
 
 def _parse_group_ids(value: Any) -> list[str]:
-    """规整「群号白名单」：接受列表或逗号/换行分隔的字符串，只保留数字群号。"""
+    """规整「群号白名单」：接受列表或逗号/空格/换行分隔的字符串，只保留数字群号。"""
     if isinstance(value, str):
-        raw_items: list[str] = value.replace("\n", ",").split(",")
+        raw_items = re.split(r"[\s,，]+", value)
     elif isinstance(value, list):
         raw_items = [str(item) for item in value]
     else:
@@ -65,6 +66,30 @@ def _parse_group_ids(value: Any) -> list[str]:
             continue
         result.append(group_id)
     return result
+
+
+def _parse_sticker_packs(value: Any) -> list[str]:
+    """规整贴纸包名称列表。"""
+    if isinstance(value, str):
+        raw_items = re.split(r"[\s,，]+", value)
+    elif isinstance(value, list):
+        raw_items = [str(item) for item in value]
+    else:
+        return []
+    result: list[str] = []
+    for item in raw_items:
+        name = item.strip()
+        if name and name not in result:
+            result.append(name)
+    return result
+
+
+def _get_available_sticker_packs() -> list[str]:
+    try:
+        from plugins.sticker_library import list_pack_names
+        return list_pack_names()
+    except Exception:
+        return []
 
 
 def _parse_ai_tool_names(value: Any) -> list[str]:
@@ -191,12 +216,15 @@ def _aiagent_config_state(profile_id: str | None = None) -> dict[str, Any]:
         "active_profile": doc["active_profile"],
         "editing_profile": str(sanitized.get("_profile_id") or doc["active_profile"]),
         "bindings": doc["bindings"],
+        "sticker_packs": _get_available_sticker_packs(),
     }
 
 def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
     current = get_tts_config()
     current_fish = current.get("fish_audio") if isinstance(current.get("fish_audio"), dict) else {}
     input_fish = data.get("fish_audio") if isinstance(data.get("fish_audio"), dict) else {}
+    current_ai_tool = current.get("ai_tool") if isinstance(current.get("ai_tool"), dict) else {}
+    input_ai_tool = data.get("ai_tool") if isinstance(data.get("ai_tool"), dict) else {}
     current_voices = current.get("voices") if isinstance(current.get("voices"), list) else DEFAULT_VOICES
     voices = _parse_tts_voices(data.get("voices", current_voices), current_voices)
     selected_voice = str(data.get("selected_voice", current.get("selected_voice", ""))).strip()
@@ -264,6 +292,25 @@ def _update_tts_config(data: dict[str, Any]) -> dict[str, Any]:
             minimum=1,
             maximum=10080,
         ),
+        "ai_tool": {
+            "max_chars": _parse_int(
+                input_ai_tool.get("max_chars", current_ai_tool.get("max_chars", 80)),
+                80,
+                minimum=1,
+                maximum=1000,
+            ),
+            "cooldown_seconds": _parse_int(
+                input_ai_tool.get("cooldown_seconds", current_ai_tool.get("cooldown_seconds", 10)),
+                10,
+                minimum=0,
+                maximum=3600,
+            ),
+            "allow_auto_reply": _parse_bool(
+                input_ai_tool.get(
+                    "allow_auto_reply", current_ai_tool.get("allow_auto_reply", False)
+                )
+            ),
+        },
     }
     return save_tts_config(next_config)
 
@@ -276,35 +323,43 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_persona = current.get("persona") if isinstance(current.get("persona"), dict) else {}
     current_chat = current.get("chat") if isinstance(current.get("chat"), dict) else {}
     current_shared = current_chat.get("group_shared_context") if isinstance(current_chat.get("group_shared_context"), dict) else {}
+    current_sticker = current_chat.get("sticker") if isinstance(current_chat.get("sticker"), dict) else {}
     current_thinking = current.get("thinking") if isinstance(current.get("thinking"), dict) else {}
     current_vision = current.get("vision") if isinstance(current.get("vision"), dict) else {}
     current_memory = current.get("memory") if isinstance(current.get("memory"), dict) else {}
     current_tools = current.get("tools") if isinstance(current.get("tools"), dict) else {}
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
+    current_images = current_tools.get("images") if isinstance(current_tools.get("images"), dict) else {}
+    current_workspace = current_tools.get("workspace") if isinstance(current_tools.get("workspace"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
     current_wiki_prefetch = current_tools.get("wiki_prefetch") if isinstance(current_tools.get("wiki_prefetch"), dict) else {}
     current_group_members = current_tools.get("group_members") if isinstance(current_tools.get("group_members"), dict) else {}
     current_member_profile = current_tools.get("member_profile") if isinstance(current_tools.get("member_profile"), dict) else {}
     current_user_messages = current_tools.get("user_messages") if isinstance(current_tools.get("user_messages"), dict) else {}
     current_chatlog = current.get("chatlog") if isinstance(current.get("chatlog"), dict) else {}
+    current_auto_reply = current.get("auto_reply") if isinstance(current.get("auto_reply"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
     input_model = data.get("model") if isinstance(data.get("model"), dict) else {}
     input_persona = data.get("persona") if isinstance(data.get("persona"), dict) else {}
     input_chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
     input_shared = input_chat.get("group_shared_context") if isinstance(input_chat.get("group_shared_context"), dict) else {}
+    input_sticker = input_chat.get("sticker") if isinstance(input_chat.get("sticker"), dict) else {}
     input_thinking = data.get("thinking") if isinstance(data.get("thinking"), dict) else {}
     input_vision = data.get("vision") if isinstance(data.get("vision"), dict) else {}
     input_memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     input_tools = data.get("tools") if isinstance(data.get("tools"), dict) else {}
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
+    input_images = input_tools.get("images") if isinstance(input_tools.get("images"), dict) else {}
+    input_workspace = input_tools.get("workspace") if isinstance(input_tools.get("workspace"), dict) else {}
     input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
     input_wiki_prefetch = input_tools.get("wiki_prefetch") if isinstance(input_tools.get("wiki_prefetch"), dict) else {}
     input_group_members = input_tools.get("group_members") if isinstance(input_tools.get("group_members"), dict) else {}
     input_member_profile = input_tools.get("member_profile") if isinstance(input_tools.get("member_profile"), dict) else {}
     input_user_messages = input_tools.get("user_messages") if isinstance(input_tools.get("user_messages"), dict) else {}
     input_chatlog = data.get("chatlog") if isinstance(data.get("chatlog"), dict) else {}
+    input_auto_reply = data.get("auto_reply") if isinstance(data.get("auto_reply"), dict) else {}
 
     api_key = _parse_str(input_model.get("api_key"), "", max_length=4096)
     if not api_key:
@@ -321,11 +376,17 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     if api_protocol not in {"responses", "chat_completions"}:
         api_protocol = "responses"
     search_mode = _parse_str(input_search.get("mode", current_search.get("mode", "builtin")), max_length=16).strip().lower()
-    if search_mode not in {"builtin", "searxng"}:
+    if search_mode not in {"builtin", "searxng", "hybrid"}:
         search_mode = "builtin"
     vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "auto")), max_length=16).strip().lower()
     if vision_detail not in VISION_DETAILS:
         vision_detail = "auto"
+    reasoning_effort = _parse_str(
+        input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")),
+        max_length=16,
+    ).strip().lower()
+    if reasoning_effort not in {"low", "medium", "high", "max"}:
+        reasoning_effort = "high"
 
     next_config = {
         "enabled": _parse_bool(data.get("enabled", current.get("enabled", False))),
@@ -336,14 +397,14 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "model": model_name,
             "temperature": _parse_float(input_model.get("temperature", current_model.get("temperature", 0.7)), 0.7, minimum=0.0, maximum=2.0),
             "top_p": _parse_float(input_model.get("top_p", current_model.get("top_p", 1.0)), 1.0, minimum=0.0, maximum=1.0),
-            "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 1024)), 1024, minimum=1, maximum=32000),
+            "max_tokens": _parse_int(input_model.get("max_tokens", current_model.get("max_tokens", 8192)), 8192, minimum=1, maximum=131072),
             "timeout_seconds": _parse_int(input_model.get("timeout_seconds", current_model.get("timeout_seconds", 60)), 60, minimum=5, maximum=600),
             "proxy": _parse_str(input_model.get("proxy", current_model.get("proxy", "")), max_length=512),
             "tool_choice": _validate_tool_choice(input_model.get("tool_choice", current_model.get("tool_choice", None))),
         },
         "thinking": {
             "enabled": _parse_bool(input_thinking.get("enabled", current_thinking.get("enabled", True))),
-            "reasoning_effort": _parse_str(input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")), max_length=16),
+            "reasoning_effort": reasoning_effort,
         },
         "vision": {
             "enabled": _parse_bool(input_vision.get("enabled", current_vision.get("enabled", True))),
@@ -366,15 +427,49 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         },
         "chat": {
             "max_user_chars": _parse_int(input_chat.get("max_user_chars", current_chat.get("max_user_chars", 2000)), 2000, minimum=1, maximum=20000),
-            "max_reply_chars": _parse_int(input_chat.get("max_reply_chars", current_chat.get("max_reply_chars", 3500)), 3500, minimum=100, maximum=12000),
+            "max_reply_chars": _parse_int(input_chat.get("max_reply_chars", current_chat.get("max_reply_chars", 8000)), 8000, minimum=100, maximum=30000),
+            "single_message_chars": _parse_int(
+                input_chat.get("single_message_chars", input_chat.get("short_reply_chars", current_chat.get("single_message_chars", current_chat.get("short_reply_chars", 1200)))),
+                1200,
+                minimum=0,
+                maximum=12000,
+            ),
+            "forward_node_chars": _parse_int(input_chat.get("forward_node_chars", current_chat.get("forward_node_chars", 1500)), 1500, minimum=100, maximum=5000),
+            "forward_max_nodes": _parse_int(input_chat.get("forward_max_nodes", current_chat.get("forward_max_nodes", 30)), 30, minimum=1, maximum=100),
+            "history_reply_chars": _parse_int(input_chat.get("history_reply_chars", current_chat.get("history_reply_chars", 1200)), 1200, minimum=100, maximum=12000),
             "max_history_messages": _parse_int(input_chat.get("max_history_messages", current_chat.get("max_history_messages", 10)), 10, minimum=0, maximum=40),
             "max_context_chars": _parse_int(input_chat.get("max_context_chars", current_chat.get("max_context_chars", 12000)), 12000, minimum=0, maximum=200000),
+            "request_timeout_seconds": _parse_int(
+                input_chat.get("request_timeout_seconds", current_chat.get("request_timeout_seconds", 120)),
+                120,
+                minimum=15,
+                maximum=600,
+            ),
+            "max_concurrent_requests": _parse_int(
+                input_chat.get("max_concurrent_requests", current_chat.get("max_concurrent_requests", 8)),
+                8,
+                minimum=1,
+                maximum=64,
+            ),
             "cooldown_seconds": _parse_int(input_chat.get("cooldown_seconds", current_chat.get("cooldown_seconds", 3)), 3, minimum=0, maximum=3600),
-            "short_reply_chars": _parse_int(input_chat.get("short_reply_chars", current_chat.get("short_reply_chars", 200)), 200, minimum=50, maximum=5000),
+            "short_reply_chars": _parse_int(
+                input_chat.get("single_message_chars", input_chat.get("short_reply_chars", current_chat.get("single_message_chars", current_chat.get("short_reply_chars", 1200)))),
+                1200,
+                minimum=0,
+                maximum=12000,
+            ),
+            "quote_reply": _parse_bool(input_chat.get("quote_reply", current_chat.get("quote_reply", True))),
             "system_prompt_extra": _parse_str(input_chat.get("system_prompt_extra", current_chat.get("system_prompt_extra", "")), max_length=20000),
             "group_shared_context": {
                 "enabled": _parse_bool(input_shared.get("enabled", current_shared.get("enabled", False))),
                 "max_messages": _parse_int(input_shared.get("max_messages", current_shared.get("max_messages", 10)), 10, minimum=0, maximum=40),
+            },
+            "sticker": {
+                "enabled": _parse_bool(input_sticker.get("enabled", current_sticker.get("enabled", False))),
+                "packs": _parse_sticker_packs(input_sticker.get("packs", current_sticker.get("packs", []))),
+                "probability": _parse_float(input_sticker.get("probability", current_sticker.get("probability", 1.0)), 1.0, minimum=0.0, maximum=1.0),
+                "max_per_reply": _parse_int(input_sticker.get("max_per_reply", current_sticker.get("max_per_reply", 1)), 1, minimum=1, maximum=5),
+                "allow_auto_reply": _parse_bool(input_sticker.get("allow_auto_reply", current_sticker.get("allow_auto_reply", True))),
             },
             "blocked_url_domains": current_chat.get("blocked_url_domains", []),
         },
@@ -392,6 +487,31 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             "max_total_mb": _parse_int(input_chatlog.get("max_total_mb", current_chatlog.get("max_total_mb", 200)), 200, minimum=1, maximum=20000),
             "record_bot": _parse_bool(input_chatlog.get("record_bot", current_chatlog.get("record_bot", False))),
         },
+        # 自动回复白名单：只有列在这里的群才会“没 @ 也回复”，不设数量上限。
+        "auto_reply": {
+            "enabled": _parse_bool(input_auto_reply.get("enabled", current_auto_reply.get("enabled", False))),
+            "groups": _parse_auto_reply_groups(
+                input_auto_reply.get("groups", current_auto_reply.get("groups", []))
+            ),
+            "cooldown_seconds": _parse_int(
+                input_auto_reply.get("cooldown_seconds", current_auto_reply.get("cooldown_seconds", 5)),
+                5,
+                minimum=0,
+                maximum=3600,
+            ),
+            "context_messages": _parse_int(
+                input_auto_reply.get("context_messages", current_auto_reply.get("context_messages", 10)),
+                10,
+                minimum=0,
+                maximum=30,
+            ),
+            "context_max_chars": _parse_int(
+                input_auto_reply.get("context_max_chars", current_auto_reply.get("context_max_chars", 1200)),
+                1200,
+                minimum=0,
+                maximum=6000,
+            ),
+        },
         "tools": {
             "search": {
                 "enabled": _parse_bool(input_search.get("enabled", current_search.get("enabled", True))),
@@ -406,10 +526,32 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
             },
             "files": {
                 "enabled": _parse_bool(input_files.get("enabled", current_files.get("enabled", True))),
-                # 默认 false：AI 不能写 UserData（写入工具不下发给模型）
-                "allow_writes": _parse_bool(input_files.get("allow_writes", current_files.get("allow_writes", False))),
                 "max_read_chars": _parse_int(input_files.get("max_read_chars", current_files.get("max_read_chars", 20000)), 20000, minimum=1000, maximum=200000),
-                "max_write_chars": _parse_int(input_files.get("max_write_chars", current_files.get("max_write_chars", 20000)), 20000, minimum=1000, maximum=200000),
+            },
+            "images": {
+                "enabled": _parse_bool(input_images.get("enabled", current_images.get("enabled", True))),
+                "allow_send": _parse_bool(input_images.get("allow_send", current_images.get("allow_send", False))),
+                "max_results": _parse_int(input_images.get("max_results", current_images.get("max_results", 5)), 5, minimum=1, maximum=20),
+                "max_images_per_send": _parse_int(input_images.get("max_images_per_send", current_images.get("max_images_per_send", 3)), 3, minimum=1, maximum=9),
+                "safesearch": _parse_int(input_images.get("safesearch", current_images.get("safesearch", 1)), 1, minimum=0, maximum=2),
+                "max_download_mb": _parse_int(input_images.get("max_download_mb", current_images.get("max_download_mb", 15)), 15, minimum=1, maximum=50),
+                "download_timeout_seconds": _parse_int(input_images.get("download_timeout_seconds", current_images.get("download_timeout_seconds", 20)), 20, minimum=3, maximum=120),
+            },
+            "workspace": {
+                "enabled": _parse_bool(input_workspace.get("enabled", current_workspace.get("enabled", True))),
+                "allow_writes": _parse_bool(input_workspace.get("allow_writes", current_workspace.get("allow_writes", False))),
+                "allow_delete": _parse_bool(input_workspace.get("allow_delete", current_workspace.get("allow_delete", False))),
+                "allow_send": _parse_bool(input_workspace.get("allow_send", current_workspace.get("allow_send", False))),
+                "allow_in_auto_reply": _parse_bool(input_workspace.get("allow_in_auto_reply", current_workspace.get("allow_in_auto_reply", False))),
+                "ingest_incoming": _parse_bool(input_workspace.get("ingest_incoming", current_workspace.get("ingest_incoming", True))),
+                "include_quoted_files": _parse_bool(input_workspace.get("include_quoted_files", current_workspace.get("include_quoted_files", True))),
+                "incoming_max_mb": _parse_int(input_workspace.get("incoming_max_mb", current_workspace.get("incoming_max_mb", 100)), 100, minimum=1, maximum=100),
+                "incoming_max_files": _parse_int(input_workspace.get("incoming_max_files", current_workspace.get("incoming_max_files", 3)), 3, minimum=1, maximum=10),
+                "incoming_retention_days": _parse_int(input_workspace.get("incoming_retention_days", current_workspace.get("incoming_retention_days", 7)), 7, minimum=0, maximum=365),
+                "max_file_mb": _parse_int(input_workspace.get("max_file_mb", current_workspace.get("max_file_mb", 20)), 20, minimum=1, maximum=100),
+                "max_total_mb": _parse_int(input_workspace.get("max_total_mb", current_workspace.get("max_total_mb", 300)), 300, minimum=10, maximum=5000),
+                "max_files": _parse_int(input_workspace.get("max_files", current_workspace.get("max_files", 500)), 500, minimum=10, maximum=5000),
+                "max_send_mb": _parse_int(input_workspace.get("max_send_mb", current_workspace.get("max_send_mb", 100)), 100, minimum=1, maximum=100),
             },
             "plugin_tools": {
                 "enabled": _parse_bool(input_plugin_tools.get("enabled", current_plugin_tools.get("enabled", True))),
@@ -431,7 +573,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "max_chars": _parse_int(input_user_messages.get("max_chars", current_user_messages.get("max_chars", 4000)), 4000, minimum=500, maximum=20000),
                 "allow_live_history": _parse_bool(input_user_messages.get("allow_live_history", current_user_messages.get("allow_live_history", True))),
             },
-            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=50),
+            "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=10),
             "wiki_prefetch": {
                 "enabled": _parse_bool(input_wiki_prefetch.get("enabled", current_wiki_prefetch.get("enabled", True))),
                 "web_search": _parse_bool(input_wiki_prefetch.get("web_search", current_wiki_prefetch.get("web_search", True))),
@@ -445,6 +587,11 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
+    auto_reply_groups = next_config["auto_reply"]["groups"]
+    if next_config["auto_reply"]["enabled"] and not any(
+        bool(entry.get("enabled")) for entry in auto_reply_groups if isinstance(entry, dict)
+    ):
+        raise ValueError("启用群聊主动接话时，至少要开启一个群。")
     # 保留配额配置（本页面不含 quota 字段，由「AI 配额」页面单独管理）
     next_config["quota"] = current.get("quota", {})
     # 只在指定了配置文件时传第二个参数，保持旧调用签名可用。

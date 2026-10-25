@@ -42,5 +42,10 @@
   "max_chars": 120,
   "cooldown_seconds": 5,
   "cache_dir": "/tmp/hikari_bot/tts",
-  "cache_ttl_minutes": 60
+  "cache_ttl_minutes": 60,
+  "ai_tool": {
+    "max_chars": 80,
+    "cooldown_seconds": 10,
+    "allow_auto_reply": false
+  }
 }
