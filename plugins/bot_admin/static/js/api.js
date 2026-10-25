@@ -107,6 +107,8 @@ function applyAiAgentConfigPayload(data) {
     group: bindings.group || {},
     private: bindings.private || {},
   };
+  const autoReply = state.aiagentConfig.auto_reply || {};
+  state.aiagentAutoReplyGroups = normalizeAiAgentAutoReplyGroups(autoReply.groups);
 }
 
 async function fetchPushConfig(shouldRender = true) {

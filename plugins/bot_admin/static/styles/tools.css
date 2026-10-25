@@ -730,3 +730,92 @@
 .guard-form textarea[data-guard-field="review.prompt"] {
   font: 13px/1.6 var(--mono);
 }
+
+/* AI Agent 主动接话群列表（逐群开关 + 从机器人所在群挑选） */
+.aiagent-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aiagent-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aiagent-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.aiagent-group-toggle {
+  margin: 0;
+  min-width: 76px;
+}
+
+.aiagent-group-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiagent-group-id {
+  color: var(--muted);
+  font: 12px/1.4 var(--mono);
+}
+
+.aiagent-group-remove {
+  flex: 0 0 auto;
+}
+
+.aiagent-group-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aiagent-group-add input {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.aiagent-group-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.aiagent-group-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.aiagent-group-picker-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.aiagent-group-picker-status.is-error {
+  color: var(--danger, #e74c3c);
+}
+
+.aiagent-group-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aiagent-group-picker-item.is-disabled {
+  opacity: 0.55;
+}

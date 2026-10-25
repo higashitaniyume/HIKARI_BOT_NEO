@@ -901,6 +901,20 @@ multipart/form-data
 
 `profiles[]` 是配置文件摘要（不含 API Key 本身），`active_profile` 是全局默认配置，`editing_profile` 是本次响应里 `config` 对应的配置文件，`bindings` 是会话到配置文件的映射。
 
+#### `GET /api/groups`
+
+机器人当前所在群列表，供「群聊主动接话」挑选群用（`get_group_list`）。
+
+```json
+{
+  "groups": [
+    {"id": "123456789", "name": "例群", "member_count": 42}
+  ]
+}
+```
+
+可能状态码：`409`（机器人未连接）、`504`（读取超时）。
+
 #### `POST /api/aiagent-config`
 
 保存 AI Agent 配置。
@@ -911,6 +925,8 @@ multipart/form-data
 | --- | --- | --- |
 | `profile` | string | 要写入的配置文件 ID；缺省写全局默认配置 |
 | `enabled` | boolean | 是否启用聊天 Agent（全局段，对所有配置文件生效） |
+| `auto_reply.enabled` | boolean | 是否启用群聊主动接话（全局段，默认 false） |
+| `auto_reply.groups` | array | 群列表：`[{"id": "123456789", "enabled": true}]`；只有 `enabled` 的群会接话，纯群号数组按已开启处理 |
 | `model.base_url` | string | OpenAI-compatible API base URL，不能为空 |
 | `model.api_key` | string | 模型 API Key；留空保留现有 Key |
 | `model.model` | string | 模型名称，不能为空 |

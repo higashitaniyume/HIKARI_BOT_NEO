@@ -160,6 +160,37 @@ class AutoReplyConfigTests(unittest.TestCase):
         )
 
 
+    def test_single_group_toggle(self) -> None:
+        cfg = {
+            "auto_reply": {
+                "enabled": True,
+                "groups": [
+                    {"id": str(GROUP_ID), "enabled": False},
+                    {"id": "10002", "enabled": True},
+                ],
+            }
+        }
+        self.assertTrue(auto_reply.allowed(cfg, 10002))
+        self.assertFalse(auto_reply.allowed(cfg, GROUP_ID))
+        self.assertEqual(auto_reply.groups(cfg), {"10002"})
+
+    def test_legacy_strings_are_enabled_and_entries_keep_order(self) -> None:
+        cfg = {"auto_reply": {"enabled": True, "groups": ["10001", {"id": "10002", "enabled": False}, "10003", "10001"]}}
+        entries = auto_reply.group_entries(cfg)
+        self.assertEqual([entry["id"] for entry in entries], ["10001", "10002", "10003"])
+        self.assertFalse(entries[1]["enabled"])
+        self.assertEqual(auto_reply.groups(cfg), {"10001", "10003"})
+
+    def test_group_entries_drop_invalid_ids(self) -> None:
+        cfg = {"auto_reply": {"enabled": True, "groups": ["abc", {"id": ""}, {"id": "10001", "enabled": "false"}]}}
+        entries = auto_reply.group_entries(cfg)
+        self.assertEqual(entries, [{"id": "10001", "enabled": False}])
+
+    def test_enabled_master_switch_still_wins(self) -> None:
+        cfg = {"auto_reply": {"enabled": False, "groups": [{"id": str(GROUP_ID), "enabled": True}]}}
+        self.assertFalse(auto_reply.allowed(cfg, GROUP_ID))
+
+
 class AutoReplyAdminValidationTests(unittest.TestCase):
     def _save(self, payload: dict[str, Any]) -> dict[str, Any]:
         current = copy.deepcopy(aiagent_config.DEFAULT_CONFIG)
@@ -194,7 +225,7 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
             result["auto_reply"],
             {
                 "enabled": True,
-                "groups": ["123456"],
+                "groups": [{"id": "123456", "enabled": True}],
                 "cooldown_seconds": 9,
                 "context_messages": 4,
                 "context_max_chars": 600,
@@ -210,7 +241,45 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(result["auto_reply"]["groups"], ["123456", "789012", "345678"])
+        self.assertEqual(
+            result["auto_reply"]["groups"],
+            [
+                {"id": "123456", "enabled": True},
+                {"id": "789012", "enabled": True},
+                {"id": "345678", "enabled": True},
+            ],
+        )
+
+    def test_per_group_switch_round_trip(self) -> None:
+        result = self._save(
+            {
+                "auto_reply": {
+                    "enabled": True,
+                    "groups": [
+                        {"id": "123456", "enabled": False},
+                        {"id": "789012", "enabled": True},
+                    ],
+                }
+            }
+        )
+        self.assertEqual(
+            result["auto_reply"]["groups"],
+            [
+                {"id": "123456", "enabled": False},
+                {"id": "789012", "enabled": True},
+            ],
+        )
+
+    def test_enabling_with_all_groups_disabled_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._save(
+                {
+                    "auto_reply": {
+                        "enabled": True,
+                        "groups": [{"id": "123456", "enabled": False}],
+                    }
+                }
+            )
 
     def test_keeps_existing_whitelist_when_form_omits_it(self) -> None:
         current = copy.deepcopy(aiagent_config.DEFAULT_CONFIG)
@@ -225,7 +294,7 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
             patch.object(admin_settings, "save_aiagent_config", Mock(side_effect=lambda data: data)),
         ):
             result = admin_settings._update_aiagent_config({})
-        self.assertEqual(result["auto_reply"]["groups"], ["123456"])
+        self.assertEqual(result["auto_reply"]["groups"], [{"id": "123456", "enabled": True}])
         self.assertTrue(result["auto_reply"]["enabled"])
 
 

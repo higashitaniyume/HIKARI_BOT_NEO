@@ -366,7 +366,7 @@ function buildAiAgentPayload() {
     },
     auto_reply: {
       enabled: $("#aiagentAutoReplyEnabled").checked,
-      groups: parseAiAgentGroupIds($("#aiagentAutoReplyGroups").value),
+      groups: collectAiAgentAutoReplyGroups(),
       cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
       context_messages: Number($("#aiagentAutoReplyContextMessages").value || 10),
       context_max_chars: Number($("#aiagentAutoReplyContextChars").value || 1200),
@@ -384,20 +384,6 @@ function parseAiAgentGroupIds(value) {
         .filter((item) => /^\d+$/.test(item))
     )
   );
-}
-
-// 自动回复白名单是多行输入：显示当前识别到多少个群号，并提示被忽略的非数字项。
-function updateAiAgentAutoReplyGroupCount() {
-  const textarea = $("#aiagentAutoReplyGroups");
-  const label = $("#aiagentAutoReplyGroupCount");
-  if (!textarea || !label) return;
-  const tokens = String(textarea.value || "")
-    .split(/[\s,，]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const groups = parseAiAgentGroupIds(textarea.value);
-  const invalid = tokens.filter((item) => !/^\d+$/.test(item)).length;
-  label.textContent = `当前 ${groups.length} 个群号` + (invalid ? `（忽略 ${invalid} 个非数字项）` : "");
 }
 
 async function saveAiAgentConfig(event) {

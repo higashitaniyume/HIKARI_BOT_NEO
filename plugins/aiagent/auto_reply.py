@@ -1,13 +1,14 @@
-"""群聊自动回复白名单与同群冷却。
+"""群聊主动接话（自动回复）的群列表与同群冷却。
 
-自动回复是「没被 @ 也回复」：只有显式列在 `auto_reply.groups` 里的群才会触发，
-且同一个群两次回复之间至少间隔 `cooldown_seconds` 秒。白名单不设数量上限。
+主动接话是「没被 @ 也回复」：只有群列表里单独开启的群才会触发，
+且同一个群两次回复之间至少间隔 `cooldown_seconds` 秒。群列表不设数量上限。
 
 冷却只记在进程内存里：重启后清零，避免旧状态阻止机器人上线后正常接话。
 """
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -31,23 +32,48 @@ def enabled(cfg: dict[str, Any]) -> bool:
     return safe_bool(section(cfg).get("enabled"), False)
 
 
-def groups(cfg: dict[str, Any]) -> set[str]:
-    """白名单群号集合；非数字项直接忽略，不设数量上限。"""
+def group_entries(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """规范化主动接话群列表（保持配置顺序）：`[{"id": "123", "enabled": true}]`。
+
+    兼容旧配置：纯群号字符串按「已开启」处理；非数字项忽略；同一个群号
+    后出现的条目覆盖前面的条目。
+    """
     raw = section(cfg).get("groups")
     if isinstance(raw, str):
-        raw = raw.replace("，", ",").split(",")
+        raw = re.split(r"[\s,，]+", raw)
     if not isinstance(raw, list):
-        return set()
-    result: set[str] = set()
+        return []
+
+    entries: list[dict[str, Any]] = []
+    index: dict[str, int] = {}
     for item in raw:
-        group_id = str(item).strip()
-        if group_id.isdigit():
-            result.add(group_id)
-    return result
+        if isinstance(item, dict):
+            group_id = str(item.get("id") or "").strip()
+            enabled = safe_bool(item.get("enabled"), True)
+        else:
+            group_id = str(item).strip()
+            enabled = True
+        if not group_id.isdigit():
+            continue
+        entry = {"id": group_id, "enabled": enabled}
+        if group_id in index:
+            entries[index[group_id]] = entry
+        else:
+            index[group_id] = len(entries)
+            entries.append(entry)
+    return entries
+
+
+def groups(cfg: dict[str, Any]) -> set[str]:
+    """已开启主动接话的群号集合；不设数量上限。"""
+    return {entry["id"] for entry in group_entries(cfg) if entry["enabled"]}
 
 
 def allowed(cfg: dict[str, Any], group_id: Any) -> bool:
-    return enabled(cfg) and str(group_id) in groups(cfg)
+    if not enabled(cfg):
+        return False
+    key = str(group_id).strip()
+    return any(entry["id"] == key and entry["enabled"] for entry in group_entries(cfg))
 
 
 def cooldown_seconds(cfg: dict[str, Any]) -> int:

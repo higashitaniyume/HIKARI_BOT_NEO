@@ -23,6 +23,7 @@ from plugins.tts_speaker.config import get_config as get_tts_config
 from plugins.tts_speaker.config import save_config as save_tts_config
 
 from .parsing import (
+    _parse_auto_reply_groups,
     _parse_bool,
     _parse_fish_backup_model,
     _parse_fish_format,
@@ -489,7 +490,9 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         # 自动回复白名单：只有列在这里的群才会“没 @ 也回复”，不设数量上限。
         "auto_reply": {
             "enabled": _parse_bool(input_auto_reply.get("enabled", current_auto_reply.get("enabled", False))),
-            "groups": _parse_group_ids(input_auto_reply.get("groups", current_auto_reply.get("groups", []))),
+            "groups": _parse_auto_reply_groups(
+                input_auto_reply.get("groups", current_auto_reply.get("groups", []))
+            ),
             "cooldown_seconds": _parse_int(
                 input_auto_reply.get("cooldown_seconds", current_auto_reply.get("cooldown_seconds", 5)),
                 5,
@@ -584,8 +587,11 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
         },
     }
     resolve_aiagent_persona_path(next_config["persona"]["skill_path"])
-    if next_config["auto_reply"]["enabled"] and not next_config["auto_reply"]["groups"]:
-        raise ValueError("启用群聊自动回复时，至少要填写一个白名单群号。")
+    auto_reply_groups = next_config["auto_reply"]["groups"]
+    if next_config["auto_reply"]["enabled"] and not any(
+        bool(entry.get("enabled")) for entry in auto_reply_groups if isinstance(entry, dict)
+    ):
+        raise ValueError("启用群聊主动接话时，至少要开启一个群。")
     # 保留配额配置（本页面不含 quota 字段，由「AI 配额」页面单独管理）
     next_config["quota"] = current.get("quota", {})
     # 只在指定了配置文件时传第二个参数，保持旧调用签名可用。

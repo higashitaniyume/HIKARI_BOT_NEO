@@ -1,0 +1,26 @@
+    <dialog id="aiagentAutoReplyPickerDialog" class="pack-picker-dialog">
+      <div class="pack-picker">
+        <div class="pack-picker-head">
+          <div>
+            <h3>从机器人所在群选择</h3>
+            <p id="aiagentAutoReplyPickerSummary">正在读取群列表...</p>
+          </div>
+          <button type="button" id="aiagentAutoReplyPickerClose" class="icon-button" aria-label="关闭">×</button>
+        </div>
+
+        <label class="pack-picker-search">
+          <span>搜索群名或群号</span>
+          <input id="aiagentAutoReplyPickerSearch" autocomplete="off" placeholder="输入关键词">
+        </label>
+
+        <div class="pack-picker-section">
+          <h4>全部群</h4>
+          <div id="aiagentAutoReplyPickerList" class="pack-picker-list"></div>
+        </div>
+
+        <div class="aiagent-group-picker-foot">
+          <button type="button" id="aiagentAutoReplyPickerConfirm" class="primary">添加选中</button>
+          <p id="aiagentAutoReplyPickerStatus" class="aiagent-group-picker-status"></p>
+        </div>
+      </div>
+    </dialog>

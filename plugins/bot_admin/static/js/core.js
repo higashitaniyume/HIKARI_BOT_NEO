@@ -22,6 +22,7 @@ const state = {
   aiagentActiveProfile: "",
   aiagentEditingProfile: "",
   aiagentBindings: { group: {}, private: {} },
+  aiagentAutoReplyGroups: [],
   aiagentBindingTab: "group",
   aiagentQuota: null,
   quotaTab: "group",

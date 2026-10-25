@@ -547,12 +547,17 @@
                   <input id="aiagentAutoReplyEnabled" type="checkbox">
                   <span>启用群聊自动回复</span>
                 </label>
-                <label class="wide-field">
-                  <span>白名单群号（必填）</span>
-                  <textarea id="aiagentAutoReplyGroups" rows="6" spellcheck="false" placeholder="一行一个群号，例如：&#10;123456789&#10;987654321"></textarea>
-                  <small id="aiagentAutoReplyGroupCount">当前 0 个群号</small>
-                  <small>一行一个，也支持逗号/空格分隔；留空 = 不自动回复任何群；不设数量上限</small>
-                </label>
+                <div class="wide-field aiagent-group-block">
+                  <span>主动接话的群（每个群可单独开关）</span>
+                  <div id="aiagentAutoReplyGroupList" class="aiagent-group-list"></div>
+                  <div class="aiagent-group-add">
+                    <input id="aiagentAutoReplyGroupInput" inputmode="numeric" maxlength="20" placeholder="输入群号，例如 123456789">
+                    <button type="button" id="aiagentAutoReplyAddBtn" class="ghost">添加群号</button>
+                    <button type="button" id="aiagentAutoReplyPickBtn" class="ghost">从机器人所在群选择</button>
+                  </div>
+                  <small id="aiagentAutoReplyGroupCount">当前 0 个群，0 个开启</small>
+                  <small>只有开启的群才会在没被 @ 时主动接话；关掉上面的总开关不影响这份列表</small>
+                </div>
                 <label>
                   <span>同群冷却（秒）</span>
                   <input id="aiagentAutoReplyCooldown" type="number" min="0" max="3600" step="1">

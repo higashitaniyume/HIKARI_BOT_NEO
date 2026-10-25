@@ -58,6 +58,7 @@ ROUTE_DEFS: list[RouteEntry] = [
     RouteEntry({"GET"}, "/api/voice-state", "api_voice_state", "_handle_voice_state"),
     RouteEntry({"GET"}, "/api/tts-config", "api_tts_config_get", "_handle_tts_config_get"),
     RouteEntry({"GET"}, "/api/aiagent-config", "api_aiagent_config_get", "_handle_aiagent_config_get"),
+    RouteEntry({"GET"}, "/api/groups", "api_groups", "_handle_groups"),
     RouteEntry({"GET"}, "/api/aiagent-memory", "api_aiagent_memory", "_handle_aiagent_memory"),
     RouteEntry({"GET"}, "/api/aiagent-quota", "api_aiagent_quota", "_handle_aiagent_quota"),
     RouteEntry({"GET"}, "/api/push-config", "api_push_config_get", "_handle_push_config_get"),
