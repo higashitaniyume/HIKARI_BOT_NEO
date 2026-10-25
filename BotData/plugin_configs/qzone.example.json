@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "default_visible": "public",
+  "max_length": 1000,
+  "feed_count": 8,
+  "moods_count": 5,
+  "timeout": 20,
+  "permissions": {
+    "admin_id": "",
+    "whitelist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    },
+    "blacklist": {
+      "enable": false,
+      "user": [],
+      "group": []
+    }
+  }
+}

@@ -1241,6 +1241,57 @@ async def build_message(ctx: PushContext):
 
 ---
 
+## QQ 空间
+
+**配置文件：** `BotData/plugin_configs/qzone.json`（默认值见 `qzone.example.json`）
+
+用 NapCat 当前登录的 QQ 直接操作 QQ 空间：发说说、删说说、看好友动态、看指定好友说说、点赞与评论。
+
+**登录态：** 不保存 Cookie。每次操作前调用 OneBot `get_cookies`（`domain=user.qzone.qq.com`）向 NapCat 取一次 Cookie，
+由 vendored 的 [qzone-sdk](https://github.com/Eganchiyu/qzone-sdk)（`third_party/qzone_sdk/`，MIT）计算 `g_tk` 并发起 CGI 请求。
+NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登录，无需改配置。
+
+**可用指令：**
+
+| 消息 | 效果 | 权限 |
+|------|------|------|
+| `发说说 [公开\|好友\|私密] <内容>` | 发布纯文本说说，默认可见范围取配置 `default_visible` | 超级用户 |
+| `删说说 <序号\|tid>` | 删除说说；序号来自最近一次 `空间动态` | 超级用户 |
+| `空间动态 [数量]` | 拉取好友动态（feeds3），默认 8 条，自动过滤广告与空内容 | 按黑白名单 |
+| `好友说说 <QQ号> [数量]` | 拉取指定好友（或自己）的说说 | 按黑白名单 |
+| `说说赞 <序号>` | 给 `空间动态` 列表里的某条点赞 | 超级用户 |
+| `说说评论 <序号> <内容>` | 评论 `空间动态` 列表里的某条 | 超级用户 |
+
+`空间动态` 的结果按「会话 + 用户」缓存 10 分钟，`说说赞` / `说说评论` / `删说说` 才能按序号取到 tid；
+缓存过期后需要重新发送 `空间动态`。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 是否启用，默认开 |
+| `default_visible` | 发说说默认可见范围：`public` / `friends` / `private` |
+| `max_length` | 单条说说字数上限，默认 1000 |
+| `feed_count` | `空间动态` 默认条数，默认 8（最大 20） |
+| `moods_count` | `好友说说` 默认条数，默认 5（最大 20） |
+| `timeout` | 单次空间请求超时秒数，默认 20 |
+| `permissions` | 黑白名单，结构同其它插件 |
+
+**AI 工具：**
+
+| 工具 | 说明 |
+|------|------|
+| `qzone_get_feed` | 只读，返回好友动态（昵称、正文、图片数、tid、链接），默认可用 |
+| `qzone_publish` | 发说说，**有副作用且默认关闭**：需在 `aiagent.json` 的 `tools.plugin_tools` 打开 `allow_side_effects` 并把 `qzone_publish` 加进 `enabled_names`，且调用者必须是超级用户 |
+
+**注意：**
+
+- 写操作（发/删/赞/评论）一律限超级用户，避免群里任何人替机器人发空间。
+- 空间接口有频率风控，`-10000` 一般是操作过快，隔几分钟再试；不建议把 `feed_count` 调到 20 以上反复刷新。
+- 图片说说暂未支持（需要先把聊天图片落到本地再上传）；当前版本只发纯文本。
+
+---
+
 ## QQ 个人名片
 
 **配置文件：** `BotData/plugin_configs/contact_card.json`
