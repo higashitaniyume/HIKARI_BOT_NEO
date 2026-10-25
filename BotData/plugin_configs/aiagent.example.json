@@ -47,6 +47,8 @@
         "quote_reply": true,
         "max_history_messages": 10,
         "max_context_chars": 12000,
+        "request_timeout_seconds": 120,
+        "max_concurrent_requests": 8,
         "cooldown_seconds": 3,
         "system_prompt_extra": "",
         "group_shared_context": {
@@ -179,7 +181,9 @@
   "auto_reply": {
     "enabled": false,
     "groups": [],
-    "cooldown_seconds": 5
+    "cooldown_seconds": 5,
+    "context_messages": 10,
+    "context_max_chars": 1200
   },
   "quota": {
     "enabled": false,

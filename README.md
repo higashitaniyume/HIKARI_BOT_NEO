@@ -49,6 +49,14 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **群聊主动接话可逐群开关**：后台「AI Agent」页把原来的「一行一个群号」白名单换成群列表——可手动加群号，也可从机器人所在群搜索后批量添加，每个群单独开关；关掉总开关不影响列表，旧配置的纯群号数组自动视为已开启
+
+- **后台「空间」页**：网页上直接改定时说说的任务/可见范围/AI 开关，随时点「用 AI 生成」拿一条草稿、改完再发布；人格提示词统一取 AI 配置里的 persona skill（不再单独维护），生成和发布都用 NapCat 当前登录态，页面不碰 Cookie
+
+- **QQ 空间操作**：新增 `qzone` 插件，用 NapCat 当前登录的 QQ 直接发/删说说、看好友动态与好友说说、点赞和评论；登录态不落盘，每次操作前向 NapCat `get_cookies`（`domain=user.qzone.qq.com`）取一次 Cookie，换号只需换 NapCat 登录；写操作限超级用户，AI 侧只默认开放只读的 `qzone_get_feed`
+
+- **修复 AI 语音后会话卡死**：AI 文字回复、合并转发、跟随贴纸与语音发送统一加 30 秒超时，NapCat/QQ 不回 `send_msg` 时只放弃当次发送并记 warning，不再永久占住会话锁；已重启清掉卡住状态
+- **AI 主动发语音（TTS）**：`tts_speaker` 新增 `send_voice` 工具，AI Agent 判断需要语音时可直接用 Fish Audio 合成并发送语音消息，支持指定音色；默认关闭，需在后台「AI Agent → Tools 管理」放行副作用工具并勾选，按会话冷却，群聊自动回复默认不语音，单条语音长度可在 TTS 设置页单独限制
 - **AI 双引擎混合搜索与网络搜图**：新增 `web_image_search` 与 `send_images` 工具，模型可根据聊天语境主动搜索网络图片并直接发送（支持 WebP/GIF 转码）；搜索模式新增 `hybrid`（DeepSeek 官方 Search API + 自建 SearXNG 并发检索、URL 规范化去重与摘要合并），兼顾时效与广度；搜图链接经过 SSRF 校验与会话隔离缓存保护
 - **AI 会话隔离文件工作区与聊天文件接收**：废除旧版全局 `UserData` 文件读写，改为按 QQ 用户 / 群组严格隔离的沙箱工作区（`UserData/aiagent_files/...`），支持文件读写、删除、移动、zip/unzip 压缩解压（带 Zip-Slip 防护）以及 `send_file` 发送文件；自动接收用户发来的聊天文件（硬上限 100MB）存入工作区供 AI 阅读与处理
 - **AI 智能长回复与合并转发**：去除 50 字长度枷锁，日常闲聊精简，教程/代码/长文分析可完整输出；单条回复超过阈值（默认 1200 字）自动按自然段落、换行或标点切分并放入单个合并聊天记录发出（带 URL 原子保护），转发失败优雅降级逐条发送；短期上下文自动截断保留，防止撑爆上下文预算
@@ -80,7 +88,8 @@ uv run python bot.py
 | 贴纸 | `tg贴纸 <链接>` / 关键词触发 / `贴纸包` |
 | 合并转发表情导出 | 引用合并聊天记录后回复 `导出表情 [包名]`（递归展开嵌套记录） |
 | 动图/视频互转 | 引用媒体后回复 `转mp4`/`转视频`、`转gif`/`转动图`/`转贴纸` |
-| TTS | `说话 <文本>` |
+| TTS | `说话 <文本>`；AI 也可通过 `send_voice` 自己发语音 |
+| QQ 空间 | `发说说 <内容>` / `空间动态` / `好友说说 <QQ号>` / `说说赞 <序号>` / `空间定时` |
 | AI 聊天 | 私聊文本 / 群聊 @机器人；白名单群可开启自动回复；`额度` 查配额；`AI配置列表` / `切换AI配置` 管理多套配置 |
 | 定时推送 | `推送 状态`；Steam/AI 资讯/知乎/RSS |
 | Wiki 查询 | `星露谷wiki` / `mcwiki` / `塔2wiki` / `osu` |
@@ -112,6 +121,6 @@ HIKARI_BOT_NEO/
 
 本项目使用 [GNU Affero General Public License v3.0 or later](LICENSE) 开源。使用本项目解析、下载或转发第三方平台内容时，请自行确认相关平台服务条款和内容版权要求。
 
-参考与致谢：NoneBot 2、NapCatQQ、drdon1234/astrbot_plugin_media_parser（AGPL）、yt-dlp、imputnet/cobalt、searxng/searxng、valkey-io/valkey、NeteaseCloudMusicApiEnhanced/api-enhanced。
+参考与致谢：NoneBot 2、NapCatQQ、drdon1234/astrbot_plugin_media_parser（AGPL）、Eganchiyu/qzone-sdk（MIT）、yt-dlp、imputnet/cobalt、searxng/searxng、valkey-io/valkey、NeteaseCloudMusicApiEnhanced/api-enhanced。
 
 用户协议与隐私政策模板见 [USER_AGREEMENT.md](USER_AGREEMENT.md) 与 [PRIVACY_POLICY.md](PRIVACY_POLICY.md)。

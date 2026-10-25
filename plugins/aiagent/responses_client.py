@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 
@@ -46,6 +47,10 @@ def endpoint(base_url: Any) -> str:
     if base.endswith("/responses"):
         return base
     return f"{base}/responses"
+
+
+def _is_deepseek_endpoint(base_url: Any) -> bool:
+    return "api.deepseek.com" in str(base_url or "").lower()
 
 
 def _message_item(message: dict[str, Any]) -> dict[str, Any]:
@@ -159,13 +164,16 @@ def _build_payload(
             payload["tool_choice"] = _to_responses_tool_choice(tool_choice)
 
     # 思考模式：Responses API 用 reasoning.effort（而非 Chat Completions 的
-    # thinking 字段）。关闭时直接不传 reasoning，由模型自身默认行为决定。
+    # thinking 字段）。DeepSeek 的「关闭思考」是 reasoning.effort="none"；
+    # 直接省略 reasoning 会回到服务端默认值（默认开启），后台开关就失效了。
     thinking_cfg = cfg.get("thinking") if isinstance(cfg.get("thinking"), dict) else {}
     if thinking_cfg.get("enabled", True):
         effort = str(thinking_cfg.get("reasoning_effort") or "high").strip().lower()
         if effort not in _REASONING_EFFORTS:
             effort = "high"
         payload["reasoning"] = {"effort": effort}
+    elif _is_deepseek_endpoint(model_cfg.get("base_url")):
+        payload["reasoning"] = {"effort": "none"}
 
     extra_body = model_cfg.get("extra_body")
     if isinstance(extra_body, dict):
@@ -200,6 +208,8 @@ async def post_response(
     data = response.json()
     if isinstance(data, dict):
         log_responses_usage(caller, model, data.get("usage"))
+        if data.get("status") in {"incomplete", "failed"}:
+            logger.warning("[AIAgent] Responses 返回未完成: %s", _response_detail(data))
     if not isinstance(data, dict) or not isinstance(data.get("output"), list):
         raise RuntimeError("AI Agent 返回格式无效。")
     return data
@@ -243,6 +253,34 @@ def _output_text(response: dict[str, Any]) -> str:
             parts.append(content)
         return "".join(parts).strip()
     return ""
+
+
+def _response_detail(response: dict[str, Any]) -> str:
+    """空回复时用于日志定位：状态、截断原因、output item 类型。"""
+    output = response.get("output") if isinstance(response.get("output"), list) else []
+    item_types = [str(item.get("type") or "?") for item in output if isinstance(item, dict)]
+    return (
+        f"status={response.get('status')!r} "
+        f"incomplete={response.get('incomplete_details')!r} "
+        f"items={item_types}"
+    )
+
+
+def _empty_retry_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    """空回复重试配置：关闭思考 + 至少翻倍输出预算。
+
+    线上最常见的是 thinking.effort=max 把 max_output_tokens 全部花在思维链上，
+    返回 status=incomplete 且没有 message。重试时先保证能产出最终答案。
+    """
+    retry_cfg = copy.deepcopy(cfg)
+    model_cfg = retry_cfg.get("model") if isinstance(retry_cfg.get("model"), dict) else {}
+    current = safe_int(model_cfg.get("max_tokens"), 8192, minimum=1, maximum=131072)
+    model_cfg["max_tokens"] = min(max(current * 2, 16384), 131072)
+    retry_cfg["model"] = model_cfg
+    thinking_cfg = retry_cfg.get("thinking") if isinstance(retry_cfg.get("thinking"), dict) else {}
+    thinking_cfg["enabled"] = False
+    retry_cfg["thinking"] = thinking_cfg
+    return retry_cfg
 
 
 async def _function_call_output_item(
@@ -290,6 +328,7 @@ async def request_response_completion(
     if tools:
         await _prefetch_wiki_priority_items(cfg, input_items, tools, tool_context)
 
+    empty_retried = False
     for round_index in range(max_rounds + 1):
         try:
             response = await post_response(cfg, instructions, input_items, tools, caller=caller)
@@ -309,6 +348,23 @@ async def request_response_completion(
 
         calls = _function_call_items(response)
         text = _output_text(response)
+        if not calls and not text and not empty_retried:
+            # 线上常见：thinking.effort=max 把 max_output_tokens 全花在思维链上，
+            # 返回 status=incomplete 且没有 message。关闭思考/翻倍预算重试一次，
+            # 比直接把「回复为空」抛给用户更有机会救回来。
+            empty_retried = True
+            logger.warning("[AIAgent] Responses 返回空内容，关闭思考后重试: %s", _response_detail(response))
+            response = await post_response(
+                _empty_retry_cfg(cfg),
+                instructions,
+                input_items,
+                tools,
+                caller=caller,
+            )
+            calls = _function_call_items(response)
+            text = _output_text(response)
+            if not calls and not text:
+                logger.warning("[AIAgent] Responses 空回复重试仍失败: %s", _response_detail(response))
         if not calls:
             if text:
                 return text

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 import logging
 from typing import Any
@@ -69,6 +71,50 @@ def _tool_names(tools: list[dict[str, Any]]) -> set[str]:
     return names
 
 
+def _extract_message_parts(message: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    """解析 assistant message 的 tool_calls / content（含 DSML 降级）。"""
+    tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
+    content = str(message.get("content") or "").strip()
+    # DeepSeek V4 Flash DSML 降级: 思考模式下 API 可能将工具调用以 DSML
+    # 标签形式嵌入 content 而非标准 tool_calls 字段，需手动解析。
+    if not tool_calls and content:
+        dsml_calls = parse_dsml_tool_calls(content)
+        if dsml_calls:
+            logger.debug("[AIAgent] 从 DSML 内容解析到 %d 个工具调用", len(dsml_calls))
+            cleaned_content = strip_dsml_tags(content)
+            message["content"] = cleaned_content or ""
+            message["tool_calls"] = dsml_calls
+            tool_calls = dsml_calls
+            content = str(message["content"]).strip()
+    return tool_calls, content
+
+
+def _empty_retry_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    """空回复重试：关闭思考 + 至少翻倍输出预算。"""
+    retry_cfg = copy.deepcopy(cfg)
+    model_cfg = retry_cfg.get("model") if isinstance(retry_cfg.get("model"), dict) else {}
+    current = safe_int(model_cfg.get("max_tokens"), 8192, minimum=1, maximum=131072)
+    model_cfg["max_tokens"] = min(max(current * 2, 16384), 131072)
+    retry_cfg["model"] = model_cfg
+    thinking_cfg = retry_cfg.get("thinking") if isinstance(retry_cfg.get("thinking"), dict) else {}
+    thinking_cfg["enabled"] = False
+    retry_cfg["thinking"] = thinking_cfg
+    return retry_cfg
+
+
+_MODEL_SEMAPHORES: dict[asyncio.AbstractEventLoop, tuple[int, asyncio.Semaphore]] = {}
+
+
+def _model_semaphore(cfg: dict[str, Any]) -> asyncio.Semaphore:
+    """全局模型并发上限，避免高峰期把上游打到 429。"""
+    chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
+    size = safe_int(chat_cfg.get("max_concurrent_requests"), 8, minimum=1, maximum=64)
+    loop = asyncio.get_running_loop()
+    entry = _MODEL_SEMAPHORES.get(loop)
+    if entry is None or entry[0] != size:
+        entry = (size, asyncio.Semaphore(size))
+        _MODEL_SEMAPHORES[loop] = entry
+    return entry[1]
 
 
 async def post_chat_completion(
@@ -147,6 +193,18 @@ async def request_chat_completion(
     *,
     caller: str = "chat",
 ) -> str:
+    """AI Agent 对话入口：先过全局并发闸门，再按协议分发。"""
+    async with _model_semaphore(cfg):
+        return await _request_chat_completion(cfg, messages, tool_context, caller=caller)
+
+
+async def _request_chat_completion(
+    cfg: dict[str, Any],
+    messages: list[dict[str, str]],
+    tool_context: AIToolContext | None = None,
+    *,
+    caller: str = "chat",
+) -> str:
     """AI Agent 对话入口。
 
     按配置的 API 协议分发：`responses` 走 DeepSeek Responses API，
@@ -169,6 +227,7 @@ async def request_chat_completion(
     if tools:
         await _prefetch_wiki_priority_tools(cfg, request_messages, tools, tool_context)
 
+    empty_retried = False
     for round_index in range(max_rounds + 1):
         try:
             message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
@@ -186,21 +245,17 @@ async def request_chat_completion(
                 message = await post_chat_completion(cfg, request_messages, tools, caller=caller)
             else:
                 raise
-        tool_calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
-        content = str(message.get("content") or "").strip()
-        # DeepSeek V4 Flash DSML 降级: 思考模式下 API 可能将工具调用以 DSML
-        # 标签形式嵌入 content 而非标准 tool_calls 字段，需手动解析。
-        if not tool_calls and content:
-            dsml_calls = parse_dsml_tool_calls(content)
-            if dsml_calls:
-                logger.debug(
-                    "[AIAgent] 从 DSML 内容解析到 %d 个工具调用",
-                    len(dsml_calls),
-                )
-                cleaned_content = strip_dsml_tags(content)
-                message["content"] = cleaned_content or ""
-                message["tool_calls"] = dsml_calls
-                tool_calls = dsml_calls
+        tool_calls, content = _extract_message_parts(message)
+        if not tool_calls and not content and not empty_retried:
+            # 与 Responses 侧一致：思考模式可能把 max_tokens 耗在 reasoning 上。
+            empty_retried = True
+            logger.warning("[AIAgent] Chat Completions 返回空内容，关闭思考后重试")
+            message = await post_chat_completion(
+                _empty_retry_cfg(cfg), request_messages, tools, caller=caller
+            )
+            tool_calls, content = _extract_message_parts(message)
+            if not tool_calls and not content:
+                logger.warning("[AIAgent] Chat Completions 空回复重试仍失败")
         if not tool_calls:
             if not content:
                 raise RuntimeError("AI Agent 回复为空。")

@@ -233,6 +233,11 @@ function buildTtsPayload() {
     receive_timeout: Number($("#ttsReceiveTimeout").value || 60),
     max_chars: Number($("#ttsMaxChars").value || 120),
     cooldown_seconds: Number($("#ttsCooldown").value || 5),
+    ai_tool: {
+      max_chars: Number($("#ttsAiMaxChars").value || 80),
+      cooldown_seconds: Number($("#ttsAiCooldown").value || 10),
+      allow_auto_reply: $("#ttsAiAllowAutoReply").checked,
+    },
     cache_dir: $("#ttsCacheDir").value.trim(),
     cache_ttl_minutes: Number($("#ttsCacheTtl").value || 60),
   };
@@ -252,7 +257,7 @@ function buildAiAgentPayload() {
       model: $("#aiagentModel").value.trim(),
       temperature: Number($("#aiagentTemperature").value || 0.7),
       top_p: Number($("#aiagentTopP").value || 1),
-      max_tokens: Number($("#aiagentMaxTokens").value || 1024),
+      max_tokens: Number($("#aiagentMaxTokens").value || 8192),
       timeout_seconds: Number($("#aiagentTimeout").value || 60),
       proxy: $("#aiagentProxy").value.trim(),
     },
@@ -283,6 +288,8 @@ function buildAiAgentPayload() {
       history_reply_chars: Number($("#aiagentHistoryReplyChars").value || 1200),
       max_history_messages: Number($("#aiagentMaxHistory").value || 10),
       max_context_chars: Number($("#aiagentMaxContextChars").value || 12000),
+      request_timeout_seconds: Number($("#aiagentRequestTimeout").value || 120),
+      max_concurrent_requests: Number($("#aiagentMaxConcurrent").value || 8),
       cooldown_seconds: Number($("#aiagentCooldown").value || 3),
       quote_reply: $("#aiagentQuoteReply").checked,
       system_prompt_extra: $("#aiagentSystemExtra").value.trim(),
@@ -292,9 +299,7 @@ function buildAiAgentPayload() {
       },
       sticker: {
         enabled: $("#aiagentStickerEnabled").checked,
-        packs: $("#aiagentStickerPacksAll").checked
-          ? []
-          : Array.from($("#aiagentStickerPacks").selectedOptions || []).map((o) => o.value),
+        packs: $("#aiagentStickerPacksAll").checked ? [] : selectedAiAgentStickerPacks(),
         probability: Number($("#aiagentStickerProbability").value ?? 1.0),
         max_per_reply: Number($("#aiagentStickerMaxPerReply").value || 1),
         allow_auto_reply: $("#aiagentStickerAllowAutoReply").checked,
@@ -361,8 +366,10 @@ function buildAiAgentPayload() {
     },
     auto_reply: {
       enabled: $("#aiagentAutoReplyEnabled").checked,
-      groups: parseAiAgentGroupIds($("#aiagentAutoReplyGroups").value),
+      groups: collectAiAgentAutoReplyGroups(),
       cooldown_seconds: Number($("#aiagentAutoReplyCooldown").value || 5),
+      context_messages: Number($("#aiagentAutoReplyContextMessages").value || 10),
+      context_max_chars: Number($("#aiagentAutoReplyContextChars").value || 1200),
     },
   };
 }
@@ -379,22 +386,16 @@ function parseAiAgentGroupIds(value) {
   );
 }
 
-// 自动回复白名单是多行输入：显示当前识别到多少个群号，并提示被忽略的非数字项。
-function updateAiAgentAutoReplyGroupCount() {
-  const textarea = $("#aiagentAutoReplyGroups");
-  const label = $("#aiagentAutoReplyGroupCount");
-  if (!textarea || !label) return;
-  const tokens = String(textarea.value || "")
-    .split(/[\s,，]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const groups = parseAiAgentGroupIds(textarea.value);
-  const invalid = tokens.filter((item) => !/^\d+$/.test(item)).length;
-  label.textContent = `当前 ${groups.length} 个群号` + (invalid ? `（忽略 ${invalid} 个非数字项）` : "");
-}
-
 async function saveAiAgentConfig(event) {
   event.preventDefault();
+  if (
+    $("#aiagentStickerEnabled").checked &&
+    !$("#aiagentStickerPacksAll").checked &&
+    !selectedAiAgentStickerPacks().length
+  ) {
+    showToast("请至少选择一个限定贴纸包，或勾选「使用全部贴纸包」。", true);
+    return;
+  }
   const button = event.currentTarget.querySelector("button[type='submit']");
   button.disabled = true;
   try {

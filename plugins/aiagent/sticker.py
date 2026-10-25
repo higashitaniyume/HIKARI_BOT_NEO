@@ -10,18 +10,24 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import random
+import shutil
 from pathlib import Path
 from typing import Any
 
 from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent, MessageSegment
 
+from .reply import send_with_timeout
 from .utils import safe_bool, safe_float, safe_int
 
 logger = logging.getLogger("HikariBot.AIAgent.Sticker")
 
 _RECENT_LIMIT = 5
+# NapCat 是独立容器，只能读 /tmp/hikari_bot 这类共享挂载；bot 容器里的
+# BotData/Gifs 对它是不可见的。发送前统一复制到共享目录，避免 ENOENT。
+SHARED_STICKER_DIR = Path("/tmp/hikari_bot/stickers")
 # 会话去重：session_id -> list[str]（记录文件绝对路径）
 _recent_sent: dict[str, list[str]] = {}
 
@@ -66,6 +72,28 @@ def _get_candidate_stickers(packs: list[str]) -> list[Path]:
     return files
 
 
+def _stage_sticker(path: Path) -> Path | None:
+    """把贴纸复制到 NapCat 可见的共享目录，返回可发送的路径。"""
+    try:
+        source = path.resolve()
+        if not source.is_file():
+            return None
+        SHARED_STICKER_DIR.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.md5(str(source).encode("utf-8")).hexdigest()[:16]
+        target = SHARED_STICKER_DIR / f"{digest}{source.suffix.lower() or '.gif'}"
+        source_stat = source.stat()
+        if (
+            not target.is_file()
+            or target.stat().st_size != source_stat.st_size
+            or target.stat().st_mtime < source_stat.st_mtime
+        ):
+            shutil.copy2(source, target)
+        return target
+    except OSError as e:
+        logger.warning("[AIAgent] 贴纸复制到共享目录失败: %s -> %s", path, e)
+        return None
+
+
 async def maybe_send_sticker(
     bot: Bot,
     event: MessageEvent,
@@ -90,6 +118,12 @@ async def maybe_send_sticker(
     candidates = _get_candidate_stickers(packs)
     if not candidates:
         return False
+    # 贴纸索引可能残留已删除/未同步的文件；发送前过滤，避免每次回复都
+    # 打一条 ENOENT 到 NapCat，也避免占满发送通道。
+    candidates = [path for path in candidates if path.is_file()]
+    if not candidates:
+        logger.warning("[AIAgent] 贴纸包 %s 的文件都不存在，跳过贴纸发送", packs)
+        return False
 
     session_id = _get_session_id(event)
     recent = _recent_sent.get(session_id, [])
@@ -110,10 +144,14 @@ async def maybe_send_sticker(
         recent = recent[-_RECENT_LIMIT:]
     _recent_sent[session_id] = recent
 
+    staged = _stage_sticker(chosen)
+    if staged is None:
+        return False
+
     try:
-        uri = chosen.resolve().as_uri()
-        await bot.send(event, Message(MessageSegment.image(uri)))
-        return True
+        uri = staged.as_uri()
+        # 跟随贴纸是“锦上添花”，发送失败/超时绝不能拖住会话锁。
+        return await send_with_timeout(bot, event, Message(MessageSegment.image(uri)))
     except Exception as e:
         logger.warning("[AIAgent] 发送跟随贴纸失败: %s", e)
         return False

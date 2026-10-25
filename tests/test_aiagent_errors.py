@@ -16,6 +16,7 @@ import plugins.aiagent as aiagent
 from core.bot_messages import get_message as msg
 from plugins.aiagent import memory as memory_mod
 from plugins.aiagent import quota as quota_mod
+from plugins.aiagent import reply as reply_mod
 from plugins.aiagent.client import AIAgentRequestError
 
 
@@ -283,6 +284,33 @@ class QuotaReservationIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(success_replies), 1)
         self.assertEqual(len(blocked_replies), 4)
         self.assertEqual(quota_mod.get_quota_status(cfg, events[0])["daily"]["used"], 1)
+
+    async def test_send_failure_refunds_reserved_quota(self) -> None:
+        cfg = self._quota_cfg()
+        event = make_group_event(group_id="506", user_id="90001")
+
+        class FailingBot:
+            async def send(self, event: Any, message: Message) -> None:
+                raise RuntimeError("NapCat result 120")
+
+        async def ok(*args: Any, **kwargs: Any) -> str:
+            return "你好呀"
+
+        with (
+            patch.object(aiagent, "get_config_for_event", return_value=cfg),
+            patch.object(aiagent, "is_event_allowed", return_value=True),
+            patch.object(aiagent, "request_chat_completion", ok),
+            patch.object(reply_mod, "SEND_RETRY_DELAY_SECONDS", 0),
+        ):
+            await aiagent._handle_chat_event(FailingBot(), event, "你好")
+
+        # 文字没发出去：不能算 delivered，预留下的配额必须退回
+        self.assertEqual(quota_mod.get_quota_status(cfg, event)["daily"]["used"], 0)
+        # 也不能把用户没看到的 assistant 回复写进下一轮上下文
+        self.assertEqual(
+            memory_mod.get_history(aiagent.session_key(event), 10, 12000),
+            [],
+        )
 
 
 class PromptCachePrefixTests(unittest.IsolatedAsyncioTestCase):

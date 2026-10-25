@@ -11,6 +11,7 @@ import unittest
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
 from core.defaults import DEFAULT_MEDIA_PARSER_CONFIG
+from plugins.media_parser.config import MAX_MEDIA_PER_SEND, effective_max_send
 from plugins.media_parser.sender import _chunk_media_messages, send_metadata_result
 
 BASE_CONFIG = {
@@ -159,6 +160,12 @@ class SendStrategyDefaultTests(unittest.TestCase):
         self.assertTrue(strategy["include_text_in_forward"])
         self.assertIs(False, strategy["fallback_to_separate_media"])
         self.assertEqual(300, strategy["forward_timeout_seconds"])
+
+    def test_max_send_is_hard_capped(self) -> None:
+        # 旧配置/手改 JSON 里可能有 80；不能让一条消息真的下载/发送 80 个媒体
+        self.assertEqual(effective_max_send({"max_send": 80}), MAX_MEDIA_PER_SEND)
+        self.assertEqual(effective_max_send({"max_send": 3}), 3)
+        self.assertEqual(effective_max_send({}), 8)
 
 
 class ChunkHelperTests(unittest.TestCase):

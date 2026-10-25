@@ -6,8 +6,14 @@ $("#voiceUploadForm").addEventListener("submit", uploadVoices);
 $("#voiceKeywordForm").addEventListener("submit", addVoiceKeyword);
 $("#ttsConfigForm").addEventListener("submit", saveTtsConfig);
 $("#aiagentConfigForm").addEventListener("submit", saveAiAgentConfig);
-$("#aiagentAutoReplyGroups").addEventListener("input", updateAiAgentAutoReplyGroupCount);
 $("#pushConfigForm").addEventListener("submit", savePushConfig);
+$("#qzoneConfigForm").addEventListener("submit", (event) => event.preventDefault());
+$("#qzoneSaveConfigBtn").addEventListener("click", () => saveQzoneConfig());
+$("#qzoneRefreshBtn").addEventListener("click", () => fetchQzoneConfig().then(() => showToast("空间设置已刷新。")).catch((err) => showToast(err.message, true)));
+$("#qzoneAddJobBtn").addEventListener("click", addQzoneJob);
+$("#qzoneGenerateBtn").addEventListener("click", () => generateQzoneDraft());
+$("#qzonePublishBtn").addEventListener("click", () => publishQzoneDraft());
+$("#qzoneCheckCommentsBtn").addEventListener("click", () => checkQzoneComments());
 $("#rssConfigForm").addEventListener("submit", saveRssConfig);
 $("#accessRulesForm").addEventListener("submit", saveAccessRules);
 for (const form of document.querySelectorAll("[data-guard-plugin]")) {
@@ -87,9 +93,11 @@ $("#aiagentPluginToolsEnabled").addEventListener("change", () => renderAiAgentTo
 $("#aiagentAllowSideEffectTools").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentToolSelectionMode").addEventListener("change", () => renderAiAgentTools(true));
 $("#aiagentStickerPacksAll")?.addEventListener("change", (event) => {
-  const select = $("#aiagentStickerPacks");
-  if (select) select.disabled = event.currentTarget.checked;
+  setAiAgentStickerPacksDisabled(event.currentTarget.checked);
 });
+$("#aiagentStickerPackSearch")?.addEventListener("input", filterAiAgentStickerPacks);
+$("#aiagentStickerPacksSelectAll")?.addEventListener("click", () => setAllAiAgentStickerPacks(true));
+$("#aiagentStickerPacksClear")?.addEventListener("click", () => setAllAiAgentStickerPacks(false));
 $("#file").addEventListener("change", updateFileHint);
 $("#voiceFile").addEventListener("change", updateVoiceFileHint);
 

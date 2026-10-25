@@ -147,7 +147,7 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "max_concurrent": 2,
         "delay_seconds": 0.8,
     },
-    "max_send": 80,
+    "max_send": 12,
     "trigger": {
         "auto_parse": True,
         "keywords": ["视频解析", "解析视频", "媒体解析"],
@@ -261,6 +261,9 @@ DEFAULT_MEDIA_PARSER_CONFIG: dict[str, Any] = {
         "include_text_in_forward": True,
         # 含视频的合并转发要先把文件上传到转发服务（7 个预告片约 2 分钟），超时给足。
         "forward_timeout_seconds": 300,
+        # 全局同时发送的媒体批次数：视频上传很占 NapCat 带宽，限制并发避免
+        # 拖慢其它会话的文字回复；文字发送不受这个限制。
+        "max_concurrent_sends": 2,
     },
 }
 

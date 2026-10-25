@@ -111,16 +111,36 @@ class AutoReplyConfigTests(unittest.TestCase):
         doc = aiagent_config._normalize_document({"enabled": True})
         self.assertEqual(
             doc["auto_reply"],
-            {"enabled": False, "groups": [], "cooldown_seconds": 5},
+            {
+                "enabled": False,
+                "groups": [],
+                "cooldown_seconds": 5,
+                "context_messages": 10,
+                "context_max_chars": 1200,
+            },
         )
 
     def test_normalize_preserves_overrides(self) -> None:
         doc = aiagent_config._normalize_document(
-            {"auto_reply": {"enabled": True, "groups": ["123"], "cooldown_seconds": 9}}
+            {
+                "auto_reply": {
+                    "enabled": True,
+                    "groups": ["123"],
+                    "cooldown_seconds": 9,
+                    "context_messages": 4,
+                    "context_max_chars": 800,
+                }
+            }
         )
         self.assertEqual(
             doc["auto_reply"],
-            {"enabled": True, "groups": ["123"], "cooldown_seconds": 9},
+            {
+                "enabled": True,
+                "groups": ["123"],
+                "cooldown_seconds": 9,
+                "context_messages": 4,
+                "context_max_chars": 800,
+            },
         )
 
     def test_effective_config_keeps_global_auto_reply(self) -> None:
@@ -130,8 +150,45 @@ class AutoReplyConfigTests(unittest.TestCase):
         cfg = aiagent_config._effective_config(doc)
         self.assertEqual(
             cfg["auto_reply"],
-            {"enabled": True, "groups": ["123"], "cooldown_seconds": 7},
+            {
+                "enabled": True,
+                "groups": ["123"],
+                "cooldown_seconds": 7,
+                "context_messages": 10,
+                "context_max_chars": 1200,
+            },
         )
+
+
+    def test_single_group_toggle(self) -> None:
+        cfg = {
+            "auto_reply": {
+                "enabled": True,
+                "groups": [
+                    {"id": str(GROUP_ID), "enabled": False},
+                    {"id": "10002", "enabled": True},
+                ],
+            }
+        }
+        self.assertTrue(auto_reply.allowed(cfg, 10002))
+        self.assertFalse(auto_reply.allowed(cfg, GROUP_ID))
+        self.assertEqual(auto_reply.groups(cfg), {"10002"})
+
+    def test_legacy_strings_are_enabled_and_entries_keep_order(self) -> None:
+        cfg = {"auto_reply": {"enabled": True, "groups": ["10001", {"id": "10002", "enabled": False}, "10003", "10001"]}}
+        entries = auto_reply.group_entries(cfg)
+        self.assertEqual([entry["id"] for entry in entries], ["10001", "10002", "10003"])
+        self.assertFalse(entries[1]["enabled"])
+        self.assertEqual(auto_reply.groups(cfg), {"10001", "10003"})
+
+    def test_group_entries_drop_invalid_ids(self) -> None:
+        cfg = {"auto_reply": {"enabled": True, "groups": ["abc", {"id": ""}, {"id": "10001", "enabled": "false"}]}}
+        entries = auto_reply.group_entries(cfg)
+        self.assertEqual(entries, [{"id": "10001", "enabled": False}])
+
+    def test_enabled_master_switch_still_wins(self) -> None:
+        cfg = {"auto_reply": {"enabled": False, "groups": [{"id": str(GROUP_ID), "enabled": True}]}}
+        self.assertFalse(auto_reply.allowed(cfg, GROUP_ID))
 
 
 class AutoReplyAdminValidationTests(unittest.TestCase):
@@ -154,11 +211,25 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
 
     def test_whitelist_and_cooldown_round_trip(self) -> None:
         result = self._save(
-            {"auto_reply": {"enabled": True, "groups": ["123456"], "cooldown_seconds": 9}}
+            {
+                "auto_reply": {
+                    "enabled": True,
+                    "groups": ["123456"],
+                    "cooldown_seconds": 9,
+                    "context_messages": 4,
+                    "context_max_chars": 600,
+                }
+            }
         )
         self.assertEqual(
             result["auto_reply"],
-            {"enabled": True, "groups": ["123456"], "cooldown_seconds": 9},
+            {
+                "enabled": True,
+                "groups": [{"id": "123456", "enabled": True}],
+                "cooldown_seconds": 9,
+                "context_messages": 4,
+                "context_max_chars": 600,
+            },
         )
 
     def test_multiline_whitelist_is_deduped_and_filtered(self) -> None:
@@ -170,7 +241,45 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
                 }
             }
         )
-        self.assertEqual(result["auto_reply"]["groups"], ["123456", "789012", "345678"])
+        self.assertEqual(
+            result["auto_reply"]["groups"],
+            [
+                {"id": "123456", "enabled": True},
+                {"id": "789012", "enabled": True},
+                {"id": "345678", "enabled": True},
+            ],
+        )
+
+    def test_per_group_switch_round_trip(self) -> None:
+        result = self._save(
+            {
+                "auto_reply": {
+                    "enabled": True,
+                    "groups": [
+                        {"id": "123456", "enabled": False},
+                        {"id": "789012", "enabled": True},
+                    ],
+                }
+            }
+        )
+        self.assertEqual(
+            result["auto_reply"]["groups"],
+            [
+                {"id": "123456", "enabled": False},
+                {"id": "789012", "enabled": True},
+            ],
+        )
+
+    def test_enabling_with_all_groups_disabled_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            self._save(
+                {
+                    "auto_reply": {
+                        "enabled": True,
+                        "groups": [{"id": "123456", "enabled": False}],
+                    }
+                }
+            )
 
     def test_keeps_existing_whitelist_when_form_omits_it(self) -> None:
         current = copy.deepcopy(aiagent_config.DEFAULT_CONFIG)
@@ -185,7 +294,7 @@ class AutoReplyAdminValidationTests(unittest.TestCase):
             patch.object(admin_settings, "save_aiagent_config", Mock(side_effect=lambda data: data)),
         ):
             result = admin_settings._update_aiagent_config({})
-        self.assertEqual(result["auto_reply"]["groups"], ["123456"])
+        self.assertEqual(result["auto_reply"]["groups"], [{"id": "123456", "enabled": True}])
         self.assertTrue(result["auto_reply"]["enabled"])
 
 
@@ -341,6 +450,7 @@ class AutoReplyBehaviorTests(unittest.IsolatedAsyncioTestCase):
             patch.object(aiagent, "get_config_for_event", return_value=cfg),
             patch.object(aiagent, "is_event_allowed", return_value=True),
             patch.object(aiagent, "request_chat_completion", fake_reply),
+            patch.object(aiagent, "read_recent_messages", return_value=[]),
             patch.object(aiagent, "stats_increment", lambda *args, **kwargs: None),
         ):
             await aiagent._handle_chat_event(bot, event, text, auto=auto)
@@ -359,12 +469,35 @@ class AutoReplyBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(called)
         self.assertEqual(sent, ["你好呀"])
 
-    async def test_auto_reply_quotes_trigger_message(self) -> None:
+    async def test_auto_reply_does_not_quote_trigger_message(self) -> None:
         sent, called = await self._run(enabled_cfg(), auto=True)
         self.assertTrue(called)
         self.assertEqual(sent, ["你好呀"])
-        self.assertEqual(self.last_bot.messages[0][0].type, "reply")
-        self.assertEqual(str(self.last_bot.messages[0][0].data["id"]), "1")
+        # 主动接话不能看起来像在针对某条消息回答
+        self.assertNotEqual(self.last_bot.messages[0][0].type, "reply")
+
+    async def test_auto_reply_can_skip_with_no_reply_sentinel(self) -> None:
+        sent, called = await self._run(enabled_cfg(), auto=True, reply="<NO_REPLY>")
+        self.assertTrue(called)
+        self.assertEqual(sent, [])
+
+    def test_auto_prompt_includes_group_context_and_skip_rule(self) -> None:
+        messages = aiagent._build_messages(
+            enabled_cfg(),
+            make_group_event(),
+            "group:10001:user:20001",
+            "【当前时间】2026-10-24 23:00\n你好",
+            auto=True,
+            auto_context="【本群最近聊天】\n[23:00] 群友: 刚刚那条不是对你说的",
+        )
+        system_text = "\n".join(
+            str(message.get("content") or "")
+            for message in messages
+            if message.get("role") == "system"
+        )
+        self.assertIn("主动接话模式", system_text)
+        self.assertIn("<NO_REPLY>", system_text)
+        self.assertIn("不是对你说的", system_text)
 
     async def test_quote_reply_can_be_disabled(self) -> None:
         cfg = enabled_cfg(

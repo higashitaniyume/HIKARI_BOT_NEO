@@ -399,6 +399,27 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         self.assertEqual(saved["tools"]["workspace"]["incoming_max_mb"], 100)
         self.assertEqual(saved["tools"]["workspace"]["max_total_mb"], 5000)
 
+    def test_update_aiagent_config_allows_large_output_budget(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(
+            current,
+            {
+                "model": {"max_tokens": 32768},
+                "chat": {"request_timeout_seconds": 90, "max_concurrent_requests": 4},
+                "tools": {"max_tool_rounds": 50},
+            },
+        )
+        self.assertEqual(saved["model"]["max_tokens"], 32768)
+        self.assertEqual(saved["chat"]["request_timeout_seconds"], 90)
+        self.assertEqual(saved["chat"]["max_concurrent_requests"], 4)
+        # 运行时工具轮次上限是 10，后台不再接受 50 造成“设了但没生效”
+        self.assertEqual(saved["tools"]["max_tool_rounds"], 10)
+
+    def test_update_aiagent_config_normalizes_reasoning_effort(self) -> None:
+        current = self._base_config()
+        saved = self._save_with(current, {"thinking": {"reasoning_effort": "turbo"}})
+        self.assertEqual(saved["thinking"]["reasoning_effort"], "high")
+
 
 if __name__ == "__main__":
     unittest.main()

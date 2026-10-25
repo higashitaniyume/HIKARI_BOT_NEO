@@ -22,6 +22,39 @@ def _parse_int(value: Any, default: int, *, minimum: int, maximum: int) -> int:
     return min(max(parsed, minimum), maximum)
 
 
+def _parse_auto_reply_groups(value: Any) -> list[dict[str, Any]]:
+    """规整主动接话群列表：`[{"id": "123", "enabled": true}]`。
+
+    接受新结构（对象数组）、旧结构（群号数组）以及逗号/空格/换行分隔的字符串；
+    非数字群号忽略，重复群号以后出现的为准，顺序保持输入顺序。
+    """
+    if isinstance(value, str):
+        raw_items: list[Any] = re.split(r"[\s,，]+", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        return []
+
+    entries: list[dict[str, Any]] = []
+    index: dict[str, int] = {}
+    for item in raw_items:
+        if isinstance(item, dict):
+            group_id = str(item.get("id") or "").strip()
+            enabled = _parse_bool(item.get("enabled", True))
+        else:
+            group_id = str(item or "").strip()
+            enabled = True
+        if not group_id.isdigit():
+            continue
+        entry = {"id": group_id, "enabled": enabled}
+        if group_id in index:
+            entries[index[group_id]] = entry
+        else:
+            index[group_id] = len(entries)
+            entries.append(entry)
+    return entries
+
+
 def _parse_fish_model(value: Any, default: str = "s2-pro") -> str:
     model = str(value or default).strip()
     if model in {"s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"}:

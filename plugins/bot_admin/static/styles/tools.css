@@ -454,6 +454,117 @@
   gap: 12px;
 }
 
+/* 限定贴纸包多选：手机端直接点选，不依赖 Ctrl / 长按多选 */
+
+.pack-multi-field {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.pack-multi-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pack-multi-title {
+  color: #3d4557;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.pack-multi-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.pack-multi-actions .ghost {
+  width: auto;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 14px;
+  font-size: 12px;
+}
+
+.pack-multi-list {
+  display: grid;
+  max-height: 240px;
+  overflow: auto;
+  gap: 8px;
+  padding: 2px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pack-multi-item {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.pack-multi-item:hover {
+  border-color: #b3bce9;
+}
+
+.pack-multi-item input {
+  flex: 0 0 auto;
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.pack-multi-item span {
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pack-multi-item.is-selected {
+  border-color: #b9c0f2;
+  background: var(--accent-tint);
+}
+
+.pack-multi-item[hidden] {
+  display: none;
+}
+
+.pack-multi-empty {
+  margin: 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+  color: var(--muted);
+  padding: 12px;
+  font-size: 12px;
+}
+
+.pack-multi-summary {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pack-multi-field.is-disabled .pack-multi-head,
+.pack-multi-field.is-disabled .pack-multi-list,
+.pack-multi-field.is-disabled #aiagentStickerPackSearch {
+  opacity: 0.55;
+}
+
 .aiagent-tool-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -618,4 +729,128 @@
 
 .guard-form textarea[data-guard-field="review.prompt"] {
   font: 13px/1.6 var(--mono);
+}
+
+/* AI Agent 主动接话群列表（逐群开关 + 从机器人所在群挑选） */
+.aiagent-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aiagent-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aiagent-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.aiagent-group-toggle {
+  margin: 0;
+  min-width: 76px;
+}
+
+.aiagent-group-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiagent-group-id {
+  color: var(--muted);
+  font: 12px/1.4 var(--mono);
+}
+
+.aiagent-group-remove {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 72px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.aiagent-group-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aiagent-group-add input {
+  flex: 1 1 200px;
+  min-width: 160px;
+}
+
+.aiagent-group-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.aiagent-group-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.aiagent-group-picker-foot .primary {
+  width: auto;
+  min-width: 120px;
+  flex: 0 0 auto;
+}
+
+.aiagent-group-picker-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.aiagent-group-picker-status.is-error {
+  color: var(--danger, #e74c3c);
+}
+
+.aiagent-group-picker-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiagent-group-picker-item input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  min-height: 17px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.aiagent-group-picker-item .pack-picker-item-title {
+  flex: 1 1 auto;
+  text-align: left;
+  font-size: 14px;
+}
+
+.aiagent-group-picker-item.is-disabled {
+  opacity: 0.55;
+  cursor: default;
 }

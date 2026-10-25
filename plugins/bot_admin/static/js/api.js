@@ -107,6 +107,8 @@ function applyAiAgentConfigPayload(data) {
     group: bindings.group || {},
     private: bindings.private || {},
   };
+  const autoReply = state.aiagentConfig.auto_reply || {};
+  state.aiagentAutoReplyGroups = normalizeAiAgentAutoReplyGroups(autoReply.groups);
 }
 
 async function fetchPushConfig(shouldRender = true) {
@@ -120,6 +122,15 @@ async function fetchPushConfig(shouldRender = true) {
   }
   if (shouldRender) {
     renderPushConfig();
+  }
+}
+
+async function fetchQzoneConfig(shouldRender = true) {
+  const res = await fetch("/api/qzone-config", { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取空间设置失败");
+  state.qzoneState = data;
+  if (shouldRender) {
+    renderQzonePage();
   }
 }
 

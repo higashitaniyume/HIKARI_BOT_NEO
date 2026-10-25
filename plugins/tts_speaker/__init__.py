@@ -374,3 +374,9 @@ async def cmd_switch_voice(ctx: CommandContext) -> None:
     selected_name = str(matched.get("name") or "").strip()
     set_session_voice(session_key(ctx.event), selected_name)
     await ctx.send(Message(msg("tts.switch_success", voice=selected_name)))
+
+
+# 把 TTS 能力以显式工具契约注册给 AI Agent（导入即注册）。
+# 工具默认不启用：需要在后台「AI Agent → Tools 管理」勾选 send_voice
+# 并放行副作用工具后，模型才会拿到它。
+from . import ai_tool as _ai_tool  # noqa: E402, F401

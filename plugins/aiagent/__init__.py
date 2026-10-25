@@ -22,6 +22,7 @@ from core.stats_tracker import increment as stats_increment
 
 from . import auto_reply
 from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
+from .chatlog import read_recent_messages
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
 from .persona import load_persona_prompt
@@ -75,6 +76,19 @@ def _check_cooldown(user_id: str, cooldown_seconds: Any) -> int:
 
 _WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 
+# 主动接话时模型判断「不需要插话」的约定输出。
+AUTO_NO_REPLY = "<NO_REPLY>"
+
+
+def _is_auto_no_reply(reply: str) -> bool:
+    normalized = reply.strip().strip("。.!！?？~～`\"'").strip()
+    upper = normalized.upper()
+    return upper in {
+        AUTO_NO_REPLY,
+        "NO_REPLY",
+        "[NO_REPLY]",
+    } or upper.startswith(AUTO_NO_REPLY)
+
 
 def _time_notice(now: datetime | None = None) -> str:
     """当前时间提示。
@@ -86,12 +100,31 @@ def _time_notice(now: datetime | None = None) -> str:
     return f"【当前时间】{now.strftime('%Y-%m-%d %H:%M')} 星期{_WEEKDAYS[now.weekday()]}"
 
 
+def _format_auto_context(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return ""
+    lines = [
+        f"[{row.get('time') or ''}] {row.get('name') or row.get('user') or '群成员'}: {row.get('text') or ''}"
+        for row in rows
+        if str(row.get("text") or "").strip()
+    ]
+    if not lines:
+        return ""
+    return (
+        "【本群最近聊天】以下只是群聊背景，不一定是发给你的，也不要逐条回答。\n"
+        + "\n".join(lines)
+    )
+
+
 def _build_messages(
     cfg: dict[str, Any],
     event: MessageEvent,
     session: str,
     user_text: str,
     image_blocks: list[dict[str, Any]] | None = None,
+    *,
+    auto: bool = False,
+    auto_context: str = "",
 ) -> list[dict[str, Any]]:
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
 
@@ -123,12 +156,27 @@ def _build_messages(
         "调用 bot_help 工具查询帮助文档后再回答，不要凭记忆编造。\n\n"
         "【工具使用】\n"
         "寒暄、道谢、情绪回应、简短确认不需要调用工具，直接自然回复；\n"
-        "只有确实需要外部信息或群资料时才调用工具。\n\n"
+        "只有确实需要外部信息或群资料时才调用工具。\n"
+        "如果工具列表里有 send_voice，用户想听语音、或一句话用语音说更自然时可以调用；"
+        "语音内容要短、口语化，不要念 Markdown、代码、链接或长段落，调用后文字回复不要再重复语音内容。\n\n"
         "【时间说明】\n"
         "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；\n"
         "回答与日期、时间有关的问题时以它为准，不要复述这个标记。"
         f"{file_image_prompt}"
     )
+
+    if auto:
+        stable_prompt += (
+            "\n\n【主动接话模式】\n"
+            "这是群聊里的一条普通消息，不一定是在对你说话；你是在群里主动接话，不是在回答私聊提问。\n"
+            "先结合本群最近的聊天判断：如果对方是在和别人对话、只是情绪表达/打卡/玩梗，"
+            "或者你插话没有实际信息量，就不要接话，只输出 "
+            f"{AUTO_NO_REPLY}，不要解释。\n"
+            "只有确实能补充有用信息、接住话头或自然参与话题时才回复；"
+            "回复要像群成员自然接话，不要用「你问我」「你的问题」这类表述，"
+            "也不要逐条回答上下文中别人的话。\n"
+            "不要使用引用回复，避免看起来像在针对某个人。"
+        )
 
     messages: list[dict[str, Any]] = [{"role": "system", "content": stable_prompt}]
 
@@ -150,6 +198,8 @@ def _build_messages(
     shared_context = read_shared_context(event, cfg)
     if shared_context:
         messages.append({"role": "system", "content": shared_context})
+    if auto and auto_context:
+        messages.append({"role": "system", "content": auto_context})
 
     # 图片只能挂在 user 消息上（system / assistant 带图会被 API 拒绝）。
     # 当前时间由调用方拼进 user_text，保证「发送内容 = 写入历史的内容」。
@@ -245,9 +295,11 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
     text = normalize_text(text)
     cfg = get_config_for_event(event)
 
-    # 如果当前消息是引用回复，把被引用的消息内容附加到输入中
+    # 如果当前消息是引用回复，把被引用的消息内容附加到输入中。
+    # 主动接话模式下不这样做：那会让模型把「别人之间的引用对话」当成对自己说的，
+    # 群聊背景已经由 auto_context 提供。
     reply = getattr(event, "reply", None)
-    if reply is not None and reply.message:
+    if not auto and reply is not None and reply.message:
         quoted_text = reply.message.extract_plain_text().strip()
         if quoted_text:
             text = f"（用户引用了一条消息：「{quoted_text[:200]}」）\n{text}"
@@ -312,6 +364,7 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         return
 
     delivered = False
+    request_timeout = 120
     try:
         image_blocks = await build_image_blocks(image_urls, cfg)
         if image_blocks:
@@ -328,35 +381,93 @@ async def _handle_chat_event_unlocked(bot: Bot, event: MessageEvent, text: str, 
         # 时间只拼进这一条 user 消息，并原样写入短期历史，保证下一轮的
         # 历史前缀和本轮实际发送的内容逐字节一致。
         prompt_text = f"{_time_notice()}\n{text}"
-        messages = _build_messages(cfg, event, session, prompt_text, image_blocks)
+        auto_context = ""
+        if auto and isinstance(event, GroupMessageEvent):
+            try:
+                rows = await asyncio.to_thread(
+                    read_recent_messages,
+                    cfg,
+                    event.group_id,
+                    limit=auto_reply.context_messages(cfg),
+                    max_chars=auto_reply.context_max_chars(cfg),
+                    exclude_text=text,
+                    exclude_user=event.get_user_id(),
+                )
+                auto_context = _format_auto_context(rows)
+            except Exception as e:  # 上下文读取失败不能影响接话本身
+                logger.debug("[AIAgent] 读取主动接话上下文失败: %s", e)
+        messages = _build_messages(
+            cfg,
+            event,
+            session,
+            prompt_text,
+            image_blocks,
+            auto=auto,
+            auto_context=auto_context,
+        )
 
         user_preview = text[:40].replace("\n", " ")
         profile_name = str(cfg.get("_profile_name") or "")
+        # 单条消息的总预算：模型调用 + 工具轮次都在这段时间内完成。
+        # 没有总预算时，工具循环可能把同一个用户的会话锁占住十几分钟。
+        request_timeout = safe_int(
+            chat_cfg.get("request_timeout_seconds"),
+            120,
+            minimum=15,
+            maximum=600,
+        )
         logger.info("[AIAgent] 使用配置「%s」回复 -> %s", profile_name, session)
         with ActivityScope(
             "aiagent", "replying", "回复用户", description=user_preview, profile=profile_name
         ):
-            reply = await request_chat_completion(cfg, messages, AIToolContext(bot=bot, event=event, agent_config=cfg))
+            reply = await asyncio.wait_for(
+                request_chat_completion(
+                    cfg,
+                    messages,
+                    AIToolContext(bot=bot, event=event, agent_config=cfg, auto=auto),
+                ),
+                timeout=request_timeout,
+            )
         reply = strip_markdown(reply)
-        max_reply_chars = safe_int(chat_cfg.get("max_reply_chars"), 3500, minimum=100, maximum=12000)
-        short_reply_chars = safe_int(chat_cfg.get("short_reply_chars"), 200, minimum=0, maximum=12000)
-        remember(session, prompt_text, reply, cfg)
-        remember_shared(event, text, reply, cfg)
-        append_memory(event, cfg, text, reply)
-        # 额度已在 reserve_quota 时预留，成功回复无需再记账
-        # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
-        if should_summarize(session):
-            asyncio.create_task(summarize_session_memory(cfg, event))
-        mark_activity(session)
+        if auto and _is_auto_no_reply(reply):
+            logger.info("[AIAgent] 主动接话判断为不需要插话，跳过 -> %s", session)
+            return
         from .reply import send_reply
         from .sticker import maybe_send_sticker
 
-        await send_reply(bot, event, reply, cfg)
-        await maybe_send_sticker(bot, event, cfg, is_auto_reply=auto)
-        if isinstance(event, GroupMessageEvent):
-            auto_reply.note_bot_spoke(cfg, event.group_id)
-        delivered = True
-        stats_increment(event, "ai_chat_sessions", 1)
+        sent = await send_reply(
+            bot,
+            event,
+            reply,
+            cfg,
+            quote=False if auto else None,
+        )
+        if sent:
+            # 只有真正送到聊天里才写入短期/持久记忆，否则下一轮会凭空
+            # 多出一条用户从未看到的 assistant 回复。
+            remember(session, prompt_text, reply, cfg)
+            remember_shared(event, text, reply, cfg)
+            append_memory(event, cfg, text, reply)
+            mark_activity(session)
+            # 贴纸是锦上添花：文字都没发出去时不要再发一张空气贴纸。
+            await maybe_send_sticker(bot, event, cfg, is_auto_reply=auto)
+            if isinstance(event, GroupMessageEvent):
+                auto_reply.note_bot_spoke(cfg, event.group_id)
+            delivered = True
+            stats_increment(event, "ai_chat_sessions", 1)
+            # 检测并异步触发上一轮会话记忆自动总结（空闲 ≥10 分钟时）
+            if should_summarize(session):
+                asyncio.create_task(summarize_session_memory(cfg, event))
+        else:
+            logger.warning(
+                "[AIAgent] 回复发送失败，不标记 delivered、退回预留额度 -> %s", session
+            )
+        mark_event_handled(event)
+    except asyncio.TimeoutError:
+        logger.warning("[AIAgent] 单次请求超过总预算 %.1fs，已取消 -> %s", request_timeout, session)
+        if auto:
+            return
+        await bot.send(event, Message(msg("aiagent.timeout")))
         mark_event_handled(event)
     except AIAgentRequestError as e:
         logger.warning("[AIAgent] API 请求失败: %s", e)
