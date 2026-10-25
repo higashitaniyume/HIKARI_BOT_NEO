@@ -10,11 +10,13 @@ from core.access_control import is_event_allowed
 from core.bot_messages import get_message as msg
 from core.command_router import CommandContext, command
 
-from . import ai_tools, service  # noqa: F401  (ai_tools 负责注册 AI 工具)
+from . import ai_tools, schedule, service  # noqa: F401  (ai_tools/schedule 负责注册工具与定时循环)
 from .config import VISIBLE_LABELS, VISIBLE_VALUES, get_config
 from .service import FeedItem
 
 logger = logging.getLogger("HikariBot.QZone")
+
+_WEEKDAY_LABELS = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 # 「空间动态」结果缓存：会话 -> (写入时间, 动态列表)，供后续按序号点赞/评论
 _FEED_TTL_SECONDS = 600.0
@@ -270,7 +272,72 @@ async def handle_comment(ctx: CommandContext) -> None:
     await ctx.send(msg("qzone.comment_ok", nickname=item.nickname))
 
 
+@command(
+    "空间定时",
+    aliases=("空间计划",),
+    description="查看或手动触发空间定时说说",
+    usage="空间定时 [run <任务id>]",
+    detail_key="qzone.schedule_help",
+    category="空间",
+    superuser_only=True,
+)
+async def handle_schedule(ctx: CommandContext) -> None:
+    cfg = get_config()
+    if not cfg["enabled"] or not is_event_allowed(cfg, ctx.event):
+        return
+
+    args = ctx.args.strip()
+    if args.startswith("run ") or args.startswith("跑 "):
+        job_id = args.split(" ", 1)[1].strip()
+        job = schedule.find_job(job_id)
+        if job is None:
+            await ctx.send(msg("qzone.schedule_unknown_job", job_id=job_id or "-"))
+            return
+        try:
+            result = await schedule.run_job(job, cfg=cfg, manual=True)
+        except (service.QzoneLoginError, service.QzoneActionError, RuntimeError) as exc:
+            await _reply_failure(ctx, exc, action="schedule_run")
+            return
+        await ctx.send(
+            msg("qzone.schedule_run_ok", job_id=job_id, tid=result.get("tid") or "-")
+        )
+        return
+
+    snapshot = schedule.status_snapshot()
+    lines = [
+        msg(
+            "qzone.schedule_header",
+            state="开启" if snapshot["enabled"] else "关闭",
+            source="AI 生成" if snapshot["ai_enabled"] else "固定文案",
+            count=len(snapshot["jobs"]),
+        )
+    ]
+    if not snapshot["jobs"]:
+        lines.append(msg("qzone.schedule_empty"))
+    for job in snapshot["jobs"]:
+        lines.append(
+            msg(
+                "qzone.schedule_job_line",
+                id=job["id"],
+                time=job["time"],
+                days=_format_days(job["days"]),
+                visible=job["visible_label"],
+                next_run=job["next_run"],
+                last=job["last_date"] or msg("qzone.schedule_never_sent"),
+                error=f"（{job['error']}）" if job["error"] else "",
+            )
+        )
+    lines.append(msg("qzone.schedule_footer"))
+    await ctx.send("\n".join(lines))
+
+
 # ── 参数与缓存 ─────────────────────────────────────────────
+
+
+def _format_days(days: list[int]) -> str:
+    if not days:
+        return msg("qzone.schedule_every_day")
+    return "、".join(_WEEKDAY_LABELS[day] for day in days if 0 <= day < len(_WEEKDAY_LABELS))
 
 
 def parse_publish_args(args: str, *, default_visible: str = "public") -> tuple[int, str]:

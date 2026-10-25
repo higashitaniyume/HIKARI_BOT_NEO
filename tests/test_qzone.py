@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -15,7 +18,9 @@ from core.ai_tool_registry import get_ai_tool
 from third_party.qzone_sdk.utils.gtk import compute_g_tk
 
 import plugins.qzone as qzone
+import plugins.qzone.schedule as schedule
 from plugins.qzone import service
+from plugins.qzone.config import normalize_schedule
 
 _COOKIE = "uin=o3946388948; skey=abc123; p_skey=xyz789"
 
@@ -381,5 +386,294 @@ class AIToolHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("error", result)
 
 
+_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
+
+
+def _schedule_cfg(state_path: str, **overrides: object) -> dict[str, object]:
+    raw: dict[str, object] = {
+        "enabled": True,
+        "check_interval_seconds": 60,
+        "grace_seconds": 1800,
+        "state_path": state_path,
+        "ai": {"enabled": False},
+        "fallback_texts": ["备用文案喵"],
+        "jobs": [
+            {
+                "id": "morning",
+                "enabled": True,
+                "time": "08:30",
+                "days": [],
+                "visible": "public",
+                "prompt": "早安",
+            }
+        ],
+    }
+    raw.update(overrides)
+    return normalize_schedule(raw)
+
+
+def _full_cfg(schedule_cfg: dict[str, object]) -> dict[str, object]:
+    return {"enabled": True, "timeout": 20, "schedule": schedule_cfg}
+
+
+def _job(**overrides: object) -> dict[str, object]:
+    job: dict[str, object] = {
+        "id": "morning",
+        "enabled": True,
+        "time": "08:30",
+        "hour": 8,
+        "minute": 30,
+        "days": [],
+        "timezone": "Asia/Shanghai",
+        "visible": "public",
+        "visible_label": "公开",
+        "prompt": "早安",
+    }
+    job.update(overrides)
+    return job
+
+
+class ScheduleConfigTests(unittest.TestCase):
+    def test_jobs_are_parsed_and_invalid_dropped(self) -> None:
+        cfg = normalize_schedule(
+            {
+                "jobs": [
+                    {"id": "a", "time": "08:30", "days": ["mon", "周三"]},
+                    {"id": "b", "time": "25:00"},
+                    {"id": "a", "time": "09:00"},
+                    {"id": "", "time": "09:00"},
+                    {"id": "c", "time": "7:5", "visible": "private"},
+                ]
+            }
+        )
+        self.assertEqual([job["id"] for job in cfg["jobs"]], ["a", "c"])
+        self.assertEqual(cfg["jobs"][0]["days"], [0, 2])
+        self.assertEqual(cfg["jobs"][1]["time"], "07:05")
+        self.assertEqual(cfg["jobs"][1]["visible"], "private")
+
+    def test_schedule_defaults_are_off(self) -> None:
+        cfg = normalize_schedule({})
+        self.assertFalse(cfg["enabled"])
+        self.assertTrue(cfg["ai"]["enabled"])
+        self.assertEqual(cfg["state_path"], "UserData/qzone_state.json")
+
+    def test_ai_and_fallback_are_clamped(self) -> None:
+        cfg = normalize_schedule(
+            {"ai": {"max_chars": 99999, "temperature": 9}, "fallback_texts": ["a", "", " b "]}
+        )
+        self.assertEqual(cfg["ai"]["max_chars"], 1000)
+        self.assertEqual(cfg["ai"]["temperature"], 2.0)
+        self.assertEqual(cfg["fallback_texts"], ["a", "b"])
+
+
+class JobDueTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 26, 8, 31, tzinfo=_TZ)
+
+    def test_due_inside_grace_window(self) -> None:
+        self.assertTrue(schedule.job_due(_job(), {"jobs": {}}, now=self.NOW, grace_seconds=1800))
+
+    def test_not_due_before_target(self) -> None:
+        early = self.NOW.replace(hour=8, minute=29)
+        self.assertFalse(schedule.job_due(_job(), {"jobs": {}}, now=early, grace_seconds=1800))
+
+    def test_not_due_after_grace(self) -> None:
+        late = self.NOW.replace(hour=10, minute=0)
+        self.assertFalse(schedule.job_due(_job(), {"jobs": {}}, now=late, grace_seconds=1800))
+
+    def test_not_due_on_other_weekdays(self) -> None:
+        other_day = (self.NOW.weekday() + 1) % 7
+        self.assertFalse(
+            schedule.job_due(_job(days=[other_day]), {"jobs": {}}, now=self.NOW, grace_seconds=1800)
+        )
+
+    def test_not_due_when_already_sent(self) -> None:
+        state = {"jobs": {"morning": {"date": self.NOW.date().isoformat()}}}
+        self.assertFalse(schedule.job_due(_job(), state, now=self.NOW, grace_seconds=1800))
+
+    def test_disabled_job_is_never_due(self) -> None:
+        self.assertFalse(
+            schedule.job_due(_job(enabled=False), {"jobs": {}}, now=self.NOW, grace_seconds=1800)
+        )
+
+    def test_next_run_rolls_to_tomorrow(self) -> None:
+        later = self.NOW.replace(hour=12, minute=0)
+        self.assertRegex(schedule.next_run(_job(), now=later), r"^\d{2}-\d{2} 08:30$")
+        # 08:31 时今天的 08:30 已经过去，下一次要落到明天
+        self.assertEqual(schedule.next_run(_job(), now=self.NOW), "10-27 08:30")
+
+
+class ScheduleTextTests(unittest.IsolatedAsyncioTestCase):
+    def test_generated_text_is_cleaned(self) -> None:
+        self.assertEqual(schedule._clean_generated('"**早安**喵\n第二行"', 120), "早安喵 第二行")
+
+    def test_generated_text_is_truncated(self) -> None:
+        text = schedule._clean_generated("喵" * 50, 10)
+        self.assertEqual(len(text), 10)
+        self.assertTrue(text.endswith("…"))
+
+    async def test_ai_failure_falls_back(self) -> None:
+        cfg = _schedule_cfg("unused.json")
+        with patch.object(schedule, "_generate_with_ai", AsyncMock(side_effect=RuntimeError("boom"))):
+            text, source = await schedule.compose_text(_job(), cfg)
+        self.assertEqual(source, "fallback")
+        self.assertEqual(text, "备用文案喵")
+
+    async def test_missing_fallback_raises(self) -> None:
+        cfg = _schedule_cfg("unused.json", fallback_texts=[])
+        with self.assertRaises(service.QzoneActionError):
+            await schedule.compose_text(_job(), cfg)
+
+
+class ScheduleRunTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        schedule._retry_after.clear()
+        schedule._fail_counts.clear()
+        self._tmp = TemporaryDirectory()
+        self._state = str(Path(self._tmp.name) / "state.json")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+        schedule._retry_after.clear()
+        schedule._fail_counts.clear()
+
+    async def test_run_job_records_state(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state))
+        now = datetime(2026, 10, 26, 8, 31, tzinfo=_TZ)
+        publish = AsyncMock(return_value={"tid": "tid9"})
+        with patch.object(schedule, "_pick_bot", return_value=object()), patch.object(
+            qzone.service, "publish", publish
+        ):
+            result = await schedule.run_job(_job(), cfg=cfg, now=now)
+
+        self.assertEqual(result["tid"], "tid9")
+        self.assertEqual(publish.await_args.kwargs["visible"], 1)
+        state = schedule.load_state(Path(self._state))
+        self.assertEqual(state["jobs"]["morning"]["date"], "2026-10-26")
+        self.assertEqual(state["jobs"]["morning"]["tid"], "tid9")
+
+    async def test_prompt_keeps_generation_under_limit(self) -> None:
+        cfg = _schedule_cfg("unused.json", ai={"enabled": True, "max_chars": 120})
+        prompt = schedule._build_prompt(_job(), cfg["ai"], cfg)
+        self.assertIn("80~110 字", prompt)
+        self.assertIn("早安", prompt)
+
+    async def test_ai_request_disables_thinking_and_cleans_reply(self) -> None:
+        cfg = _schedule_cfg("unused.json", ai={"enabled": True, "max_chars": 20})
+        message = {"content": "**早安喵**（摇尾巴）今天也要好好吃饭哦"}
+        fake = AsyncMock(return_value=message)
+        with patch("plugins.aiagent.client.post_chat_completion", fake):
+            text = await schedule._generate_with_ai(_job(), cfg["ai"], cfg)
+
+        self.assertLessEqual(len(text), 20)
+        self.assertTrue(text.startswith("早安喵"))
+        request_cfg = fake.await_args.args[0]
+        self.assertEqual(request_cfg["thinking"], {"enabled": False})
+        self.assertEqual(request_cfg["tools"], {"max_tool_rounds": 0})
+
+    async def test_run_job_without_bot_raises(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state))
+        with patch.object(schedule, "_pick_bot", return_value=None):
+            with self.assertRaises(RuntimeError):
+                await schedule.run_job(_job(), cfg=cfg)
+
+    async def test_tick_publishes_once_per_day(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state))
+        now = datetime(2026, 10, 26, 8, 31, tzinfo=_TZ)
+        publish = AsyncMock(return_value={"tid": "tid1"})
+        with patch.object(schedule, "get_config", return_value=cfg), patch.object(
+            schedule, "_pick_bot", return_value=object()
+        ), patch.object(qzone.service, "publish", publish):
+            first = await schedule.tick(now=now)
+            second = await schedule.tick(now=now)
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
+        self.assertEqual(publish.await_count, 1)
+
+    async def test_tick_skips_when_disabled(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state, enabled=False))
+        with patch.object(schedule, "get_config", return_value=cfg), patch.object(
+            qzone.service, "publish", AsyncMock()
+        ) as publish:
+            self.assertEqual(await schedule.tick(now=datetime(2026, 10, 26, 8, 31, tzinfo=_TZ)), [])
+        publish.assert_not_awaited()
+
+    async def test_tick_survives_publish_failure(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state))
+        now = datetime(2026, 10, 26, 8, 31, tzinfo=_TZ)
+        with patch.object(schedule, "get_config", return_value=cfg), patch.object(
+            schedule, "_pick_bot", return_value=object()
+        ), patch.object(qzone.service, "publish", AsyncMock(side_effect=service.QzoneActionError("风控"))):
+            self.assertEqual(await schedule.tick(now=now), [])
+
+        self.assertIn("morning", schedule._retry_after)
+        self.assertEqual(schedule.load_state(Path(self._state))["jobs"], {})
+
+    def test_status_snapshot_lists_jobs(self) -> None:
+        cfg = _full_cfg(_schedule_cfg(self._state))
+        with patch.object(schedule, "get_config", return_value=cfg):
+            snapshot = schedule.status_snapshot()
+        self.assertTrue(snapshot["enabled"])
+        self.assertEqual(snapshot["jobs"][0]["id"], "morning")
+        self.assertRegex(snapshot["jobs"][0]["next_run"], r"^\d{2}-\d{2} 08:30$")
+
+
+class ScheduleCommandTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self._cfg = _full_cfg(_schedule_cfg(str(Path(self._tmp.name) / "state.json")))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    async def test_status_command_lists_jobs(self) -> None:
+        ctx = _FakeContext("")
+        snapshot = {
+            "enabled": True,
+            "ai_enabled": True,
+            "jobs": [
+                {
+                    "id": "morning",
+                    "enabled": True,
+                    "time": "08:30",
+                    "days": [],
+                    "visible_label": "公开",
+                    "next_run": "10-26 08:30",
+                    "last_date": "",
+                    "last_tid": "",
+                    "error": "",
+                }
+            ],
+            "state_path": "x",
+        }
+        with patch.object(qzone, "get_config", return_value=self._cfg), patch.object(
+            qzone.schedule, "status_snapshot", return_value=snapshot
+        ):
+            await qzone.handle_schedule(ctx)
+
+        self.assertIn("morning", ctx.sent[-1])
+        self.assertIn("08:30", ctx.sent[-1])
+
+    async def test_manual_run_command(self) -> None:
+        ctx = _FakeContext("run morning")
+        with patch.object(qzone, "get_config", return_value=self._cfg), patch.object(
+            qzone.schedule, "run_job", AsyncMock(return_value={"tid": "tid7"})
+        ) as run:
+            await qzone.handle_schedule(ctx)
+
+        run.assert_awaited_once()
+        self.assertIn("tid7", ctx.sent[-1])
+
+    async def test_unknown_manual_job(self) -> None:
+        ctx = _FakeContext("run nope")
+        with patch.object(qzone, "get_config", return_value=self._cfg), patch.object(
+            qzone.schedule, "find_job", return_value=None
+        ):
+            await qzone.handle_schedule(ctx)
+
+        self.assertIn("nope", ctx.sent[-1])
+
+
 if __name__ == "__main__":
     unittest.main()
+

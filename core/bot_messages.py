@@ -170,7 +170,8 @@ DEFAULT_MESSAGES: dict[str, Any] = {
             "空间动态 [数量]：查看好友空间动态，默认 8 条。\n"
             "好友说说 <QQ号> [数量]：查看指定好友的说说。\n"
             "说说赞 <序号>：给「空间动态」里的某条说说点赞（仅超管）。\n"
-            "说说评论 <序号> <内容>：评论「空间动态」里的某条说说（仅超管）。"
+            "说说评论 <序号> <内容>：评论「空间动态」里的某条说说（仅超管）。\n"
+            "空间定时：查看定时说说任务，空间定时 run <任务id> 立刻发一条（仅超管）。"
         ),
         "publish_usage": "用法：发说说 [公开|好友|私密] <内容>",
         "publish_ok": "已发布到 QQ 空间（{visible}）：{tid}",
@@ -195,6 +196,19 @@ DEFAULT_MESSAGES: dict[str, Any] = {
         "comment_ok": "已评论：{nickname}",
         "login_failed": "读取 QQ 登录态失败：{detail}",
         "action_failed": "空间操作失败：{detail}",
+        "schedule_help": (
+            "空间定时：查看定时说说任务，默认关闭。\n"
+            "空间定时 run <任务id>：立刻执行一次指定任务。\n"
+            "在 BotData/plugin_configs/qzone.json 的 schedule 段里配置任务时间、文案来源与人设。"
+        ),
+        "schedule_header": "空间定时：{state}｜文案：{source}｜任务 {count} 个",
+        "schedule_empty": "还没有配置定时任务。",
+        "schedule_job_line": "· {id} {time}（{days}，{visible}）下次 {next_run}｜上次 {last}{error}",
+        "schedule_footer": "发送「空间定时 run <任务id>」可立刻发一条。",
+        "schedule_every_day": "每天",
+        "schedule_never_sent": "未发过",
+        "schedule_unknown_job": "没有这个定时任务：{job_id}",
+        "schedule_run_ok": "已发送定时任务 {job_id}：{tid}",
     },
     "pixiv": {
         "r18_blocked": "Pixiv 作品 {illust_id} 被标记为 R-18/R-18G，当前配置不允许发送。",

@@ -1290,6 +1290,57 @@ NapCat 登录的号就是空间操作使用的号，换号只需换 NapCat 登�
 - 空间接口有频率风控，`-10000` 一般是操作过快，隔几分钟再试；不建议把 `feed_count` 调到 20 以上反复刷新。
 - 图片说说暂未支持（需要先把聊天图片落到本地再上传）；当前版本只发纯文本。
 
+### 定时说说
+
+`schedule` 段默认关闭（`enabled: false`），打开后按任务时间自动发人设短文：
+
+```json
+"schedule": {
+  "enabled": true,
+  "check_interval_seconds": 60,
+  "grace_seconds": 1800,
+  "state_path": "UserData/qzone_state.json",
+  "ai": {
+    "enabled": true,
+    "temperature": 1.0,
+    "max_tokens": 400,
+    "max_chars": 120,
+    "persona": "你是住在 DeepSeek 数据海洋的小鲸鱼娘……"
+  },
+  "fallback_texts": ["哼，今天也在海里摸鱼喵～（摇尾巴）"],
+  "jobs": [
+    {
+      "id": "morning",
+      "enabled": true,
+      "time": "08:30",
+      "days": [],
+      "timezone": "Asia/Shanghai",
+      "visible": "public",
+      "prompt": "刚睡醒，写一句早安或今天想做的小事"
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 定时总开关，默认 `false`（不开就不会自动发） |
+| `check_interval_seconds` | 轮询间隔，默认 60 秒 |
+| `grace_seconds` | 到点后允许补发的时间窗，默认 1800 秒；机器人当时没在线就跳过当天 |
+| `state_path` | 每天去重状态文件，默认 `UserData/qzone_state.json` |
+| `ai.enabled` | 用 AI 生成文案；关掉则只用 `fallback_texts` |
+| `ai.max_chars` | 单条文案字数上限，默认 120 |
+| `ai.persona` | 生成文案的人设提示词，可随时改 |
+| `jobs[].days` | 空数组=每天；也可以写 `["mon","wed"]` 或 `["周一","周三"]` |
+| `jobs[].visible` | `public` / `friends` / `private` |
+
+行为约定：
+
+- 每条任务每天最多发一次，重启不会重复（状态落盘）；`空间定时` 可查看下次时间与上次 tid。
+- `空间定时 run <任务id>` 立即执行一次（仅超管），用于试文案。
+- AI 失败会自动用 `fallback_texts` 兜底；连续失败 3 次当天放弃，只写日志不发错误消息。
+- 生成文案会带上最近 3 条已发内容做去重提示，避免每天说同一句。
+
 ---
 
 ## QQ 个人名片
