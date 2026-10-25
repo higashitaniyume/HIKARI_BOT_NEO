@@ -99,6 +99,9 @@ function setView(view) {
   if (target === "aiagent" && !Object.keys(state.aiagentConfig || {}).length) {
     fetchAiAgentConfig().catch((err) => showToast(err.message, true));
   }
+  if (target === "aiagent" && typeof fillAiAgentAutoReplyGroupNames === "function") {
+    fillAiAgentAutoReplyGroupNames();
+  }
   if (target === "push" && !Object.keys(state.pushConfig || {}).length) {
     fetchPushConfig().catch((err) => showToast(err.message, true));
   }

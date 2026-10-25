@@ -9,6 +9,8 @@ const _aiagentGroupPicker = {
   fetchedAt: 0,
 };
 
+let _aiagentGroupNamesRequested = false;
+
 function normalizeAiAgentAutoReplyGroups(value) {
   let raw = value;
   if (typeof raw === "string") {
@@ -103,6 +105,33 @@ function renderAiAgentAutoReplyGroups() {
   }
 
   updateAiAgentAutoReplyCount();
+  fillAiAgentAutoReplyGroupNames();
+}
+
+// 配置里只有群号：顺手从机器人所在群补一次群名，让列表更好认（只尝试一次）。
+function fillAiAgentAutoReplyGroupNames() {
+  if (_aiagentGroupNamesRequested) return;
+  const panel = document.querySelector('[data-view="aiagent"]');
+  if (!panel || panel.hidden) return;
+  const entries = aiagentAutoReplyEntries();
+  if (!entries.some((entry) => !entry.name)) return;
+  _aiagentGroupNamesRequested = true;
+  loadAiAgentGroupDirectory()
+    .then(() => {
+      const byId = new Map(_aiagentGroupPicker.groups.map((group) => [group.id, group]));
+      let changed = false;
+      for (const entry of aiagentAutoReplyEntries()) {
+        const group = byId.get(entry.id);
+        if (!entry.name && group) {
+          entry.name = group.name;
+          changed = true;
+        }
+      }
+      if (changed) renderAiAgentAutoReplyGroups();
+    })
+    .catch(() => {
+      // 群名只是展示用，失败不影响开关与保存。
+    });
 }
 
 function updateAiAgentAutoReplyCount() {
