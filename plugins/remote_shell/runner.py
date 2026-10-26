@@ -161,21 +161,28 @@ def build_job_launcher(
     status_path: str,
     pid_path: str,
     shell: str = "/bin/bash",
-    timeout_bin: str = "/usr/bin/timeout",
 ) -> str:
     """生成后台任务的启动脚本（由 setsid 拉成独立会话）。
 
-    脚本自己写 pid 和退出码，父进程只负责把它甩到后台。
+    不用 coreutils `timeout`：它会把自己再拉进一个新的进程组，导致终止任务时
+    按 pgid 杀不到它。这里用一个同组的 sleep 看守进程，到点写 124 并杀整个组。
     """
 
+    quoted_status = shlex.quote(status_path)
     return "\n".join(
         [
             "#!/bin/bash",
             f"echo $$ > {shlex.quote(pid_path)}",
-            f"cd -- {shlex.quote(cwd)} 2>/dev/null || {{ echo 97 > {shlex.quote(status_path)}; exit 97; }}",
-            f"{timeout_bin} -k 10 {int(max_runtime)} {shlex.quote(shell)} -c {shlex.quote(command)}",
+            f"cd -- {shlex.quote(cwd)} 2>/dev/null || {{ echo 97 > {quoted_status}; exit 97; }}",
+            (
+                f"( sleep {int(max_runtime)}; echo 124 > {quoted_status}; "
+                "kill -TERM -- -$$ 2>/dev/null; sleep 5; kill -KILL -- -$$ 2>/dev/null ) &"
+            ),
+            "watchdog=$!",
+            f"{shlex.quote(shell)} -c {shlex.quote(command)}",
             "code=$?",
-            f"echo \"$code\" > {shlex.quote(status_path)}",
+            'kill "$watchdog" 2>/dev/null || true',
+            f"echo \"$code\" > {quoted_status}",
         ]
     )
 
@@ -204,7 +211,8 @@ def build_job_status_command(job_dir: str) -> str:
         [
             f"d={quoted}",
             f"printf '{MARKER}SIZE:%s\\n' \"$(wc -c < \"$d/output.log\" 2>/dev/null || echo 0)\"",
-            f"if [ -f \"$d/status\" ]; then printf '{MARKER}EXIT:%s\\n' \"$(cat \"$d/status\" 2>/dev/null)\"; fi",
+            f"if [ -f \"$d/status\" ]; then printf '{MARKER}EXIT:%s\\n' \"$(cat \"$d/status\" 2>/dev/null)\"; "
+            f"printf '{MARKER}FINISHED:%s\\n' \"$(stat -c %Y \"$d/status\" 2>/dev/null || echo 0)\"; fi",
             "p=$(cat \"$d/.pid\" 2>/dev/null || true)",
             f"if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then printf '{MARKER}ALIVE:1'; "
             f"else printf '{MARKER}ALIVE:0'; fi",
@@ -234,7 +242,7 @@ def build_job_kill_command(job_dir: str) -> str:
 def parse_job_status(output: str) -> dict[str, object]:
     """解析 job 状态脚本输出。"""
 
-    result: dict[str, object] = {"size": 0, "exit": None, "alive": False}
+    result: dict[str, object] = {"size": 0, "exit": None, "alive": False, "finished": None}
     for line in output.splitlines():
         line = line.strip().lstrip(MARKER)
         if line.startswith("SIZE:"):
@@ -247,6 +255,11 @@ def parse_job_status(output: str) -> dict[str, object]:
                 result["exit"] = int(line[5:].strip())
             except ValueError:
                 result["exit"] = None
+        elif line.startswith("FINISHED:"):
+            try:
+                result["finished"] = int(line[9:].strip() or 0)
+            except ValueError:
+                result["finished"] = None
         elif line.startswith("ALIVE:"):
             result["alive"] = line[6:].strip() == "1"
     return result

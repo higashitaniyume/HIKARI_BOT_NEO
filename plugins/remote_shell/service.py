@@ -781,7 +781,7 @@ class RemoteShellService:
             if new_status != "running" and job.get("status") == "running":
                 job["status"] = "exited"
                 job["exit_code"] = int(exit_code) if exit_code is not None else None
-                job["finished_at"] = now
+                job["finished_at"] = int(parsed.get("finished") or now)
             job["read_offset"] = offset + len(data)
             await self._mutate_jobs(cfg, lambda jobs: jobs.__setitem__(job_id, job))
 
@@ -794,7 +794,10 @@ class RemoteShellService:
                 "truncated": truncated,
                 "log_size": size,
                 "next_offset": job["read_offset"],
-                "elapsed_seconds": max(0, now - int(job.get("started_at") or now)),
+                "elapsed_seconds": max(
+                    0,
+                    int(job.get("finished_at") or now) - int(job.get("started_at") or now),
+                ),
                 "command": job.get("command") or "",
             }
 
@@ -834,7 +837,7 @@ class RemoteShellService:
             code = parsed.get("exit")
             job["status"] = "killed"
             job["exit_code"] = int(code) if code is not None else 143
-            job["finished_at"] = int(time.time())
+            job["finished_at"] = int(parsed.get("finished") or time.time())
             await self._mutate_jobs(cfg, lambda jobs: jobs.__setitem__(job_id, job))
             self._audit(
                 cfg,
@@ -865,7 +868,10 @@ class RemoteShellService:
                 "command": job.get("command") or "",
                 "cwd": job.get("cwd") or "",
                 "started_at": job.get("started_at"),
-                "elapsed_seconds": max(0, int(time.time()) - int(job.get("started_at") or 0)),
+                "elapsed_seconds": max(
+                    0,
+                    int(job.get("finished_at") or time.time()) - int(job.get("started_at") or 0),
+                ),
             }
             for job_id, job in jobs.items()
             if job.get("session") == ref.key

@@ -131,12 +131,17 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertIn("echo $$ > /home/qqg_1/job/.pid", script)
         self.assertIn("cd -- /home/qqg_1/work", script)
-        self.assertIn("/usr/bin/timeout -k 10 120 /bin/bash -c 'make -j4 && echo done'", script)
+        self.assertIn("sleep 120;", script)
+        self.assertIn("kill -TERM -- -$$", script)
+        self.assertIn("/bin/bash -c 'make -j4 && echo done'", script)
         self.assertIn('echo "$code" > /home/qqg_1/job/status', script)
 
-        parsed = parse_job_status(f"{MARKER}SIZE:123\n{MARKER}EXIT:0\n{MARKER}ALIVE:0")
+        parsed = parse_job_status(
+            f"{MARKER}SIZE:123\n{MARKER}EXIT:0\n{MARKER}FINISHED:1700000000\n{MARKER}ALIVE:0"
+        )
         self.assertEqual(parsed["size"], 123)
         self.assertEqual(parsed["exit"], 0)
+        self.assertEqual(parsed["finished"], 1700000000)
         self.assertFalse(parsed["alive"])
 
     def test_split_cwd_marker(self) -> None:
@@ -580,7 +585,7 @@ class JobTests(unittest.IsolatedAsyncioTestCase):
         launcher = next(
             payload
             for _command, payload in backend.calls
-            if isinstance(payload, (bytes, bytearray)) and b"/usr/bin/timeout -k 10 3600" in payload
+            if isinstance(payload, (bytes, bytearray)) and b"sleep 3600;" in payload
         )
         self.assertIn(b"/home/qqg_123/.remote_shell/jobs/", launcher)
 
