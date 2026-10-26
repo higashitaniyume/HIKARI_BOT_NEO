@@ -6,6 +6,8 @@ const TERMINAL_ACTION_LABELS = {
   write: "写文件",
   edit: "改文件",
   fetch: "拉取文件",
+  job_start: "启动后台任务",
+  job_kill: "终止后台任务",
   provision: "开通账号",
 };
 
@@ -146,6 +148,8 @@ function renderTerminalOverview(data) {
       if (record.truncated) resultText += " · 截断";
     } else if (record.action === "write" || record.action === "fetch") {
       resultText = `${record.bytes ?? 0} 字节`;
+    } else if (record.action === "job_kill") {
+      resultText = `exit ${record.exit_code ?? "?"}`;
     } else if (record.action === "edit") {
       resultText = `${record.replacements ?? 0} 处替换`;
     }

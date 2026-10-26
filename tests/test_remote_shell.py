@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -18,10 +19,12 @@ from plugins.remote_shell.provision import (
 )
 from plugins.remote_shell.runner import (
     MARKER,
+    build_job_launcher,
     build_remote_command,
     build_script,
     build_user_cat_command,
     normalize_path,
+    parse_job_status,
     split_cwd_marker,
     strip_ansi,
     truncate_output,
@@ -117,6 +120,24 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(command.startswith("/usr/sbin/runuser -u qqg_123 --"))
         self.assertIn("/bin/cat -- '/home/qqg_123/a b.txt'", command)
         self.assertNotIn("CWD:", command)
+
+    def test_job_launcher_and_status_parser(self) -> None:
+        script = build_job_launcher(
+            command="make -j4 && echo done",
+            cwd="/home/qqg_1/work",
+            max_runtime=120,
+            status_path="/home/qqg_1/job/status",
+            pid_path="/home/qqg_1/job/.pid",
+        )
+        self.assertIn("echo $$ > /home/qqg_1/job/.pid", script)
+        self.assertIn("cd -- /home/qqg_1/work", script)
+        self.assertIn("/usr/bin/timeout -k 10 120 /bin/bash -c 'make -j4 && echo done'", script)
+        self.assertIn('echo "$code" > /home/qqg_1/job/status', script)
+
+        parsed = parse_job_status(f"{MARKER}SIZE:123\n{MARKER}EXIT:0\n{MARKER}ALIVE:0")
+        self.assertEqual(parsed["size"], 123)
+        self.assertEqual(parsed["exit"], 0)
+        self.assertFalse(parsed["alive"])
 
     def test_split_cwd_marker(self) -> None:
         output = f"hello\n{MARKER}CWD:/home/qqg_123/sub"
@@ -371,6 +392,10 @@ class ToolRegistrationTests(unittest.TestCase):
             "terminal_list",
             "terminal_edit",
             "terminal_fetch",
+            "terminal_job_start",
+            "terminal_job_output",
+            "terminal_job_kill",
+            "terminal_job_list",
         ):
             spec = get_ai_tool(name)
             self.assertIsNotNone(spec, name)
@@ -495,6 +520,136 @@ class FetchFileTests(unittest.IsolatedAsyncioTestCase):
             cfg["state_path"] = str(Path(tmp) / "state.json")
             with self.assertRaises(ValueError):
                 await service.fetch_file(cfg, GROUP_REF, "/etc/hostname")
+
+
+class JobTests(unittest.IsolatedAsyncioTestCase):
+    def _seed(self, tmp: str, *, status: str = "running") -> dict:
+        now = int(time.time())
+        state = {
+            "version": 1,
+            "groups": {
+                "g123": {
+                    "user": "qqg_123",
+                    "home": "/home/qqg_123",
+                    "cwd": "/home/qqg_123",
+                    "provisioned": True,
+                    "created_at": now,
+                    "last_used": now,
+                    "daily": {"date": time.strftime("%Y-%m-%d"), "count": 0},
+                }
+            },
+            "jobs": {
+                "j1": {
+                    "job_id": "j1",
+                    "session": "g123",
+                    "user": "qqg_123",
+                    "command": "make",
+                    "cwd": "/home/qqg_123",
+                    "dir": "/home/qqg_123/.remote_shell/jobs/j1",
+                    "pid": 4242,
+                    "status": status,
+                    "exit_code": None,
+                    "started_at": now - 5,
+                    "finished_at": None,
+                    "read_offset": 0,
+                }
+            },
+        }
+        Path(tmp, "state.json").write_text(json.dumps(state), encoding="utf-8")
+        return state
+
+    async def test_job_start_records_launcher(self) -> None:
+        mapping = {
+            "cat > ": ExecResult(exit_code=0, output=""),
+            "setsid ./run.sh": ExecResult(exit_code=0, output="4242"),
+        }
+        service, backend, cfg = make_service(mapping)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            result = await service.job_start(cfg, GROUP_REF, "make -j4")
+
+            self.assertTrue(result["job_id"].startswith("j"))
+            self.assertEqual(result["pid"], 4242)
+
+            state = json.loads(Path(cfg["state_path"]).read_text(encoding="utf-8"))
+            job = state["jobs"][result["job_id"]]
+            self.assertEqual(job["status"], "running")
+            self.assertEqual(job["user"], "qqg_123")
+
+        launcher = next(
+            payload
+            for _command, payload in backend.calls
+            if isinstance(payload, (bytes, bytearray)) and b"/usr/bin/timeout -k 10 3600" in payload
+        )
+        self.assertIn(b"/home/qqg_123/.remote_shell/jobs/", launcher)
+
+    async def test_job_output_reads_new_bytes_and_exit(self) -> None:
+        mapping = {
+            f"{MARKER}SIZE:": ExecResult(
+                exit_code=0,
+                output=f"{MARKER}SIZE:5\n{MARKER}EXIT:0\n{MARKER}ALIVE:0",
+            )
+        }
+        service, _backend, cfg = make_service(mapping, download_result=(0, b"done\n", False))
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            result = await service.job_output(cfg, GROUP_REF, "j1")
+
+            self.assertEqual(result["status"], "exited")
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("done", result["output"])
+            self.assertEqual(result["next_offset"], 5)
+
+            state = json.loads(Path(cfg["state_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(state["jobs"]["j1"]["status"], "exited")
+
+    async def test_job_kill_marks_killed(self) -> None:
+        mapping = {
+            "kill -TERM --": ExecResult(exit_code=0, output="done"),
+            f"{MARKER}SIZE:": ExecResult(
+                exit_code=0,
+                output=f"{MARKER}SIZE:0\n{MARKER}EXIT:143\n{MARKER}ALIVE:0",
+            ),
+        }
+        service, _backend, cfg = make_service(mapping)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            result = await service.job_kill(cfg, GROUP_REF, "j1")
+            self.assertEqual(result["status"], "killed")
+            self.assertEqual(result["exit_code"], 143)
+
+            state = json.loads(Path(cfg["state_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(state["jobs"]["j1"]["status"], "killed")
+
+    async def test_job_limit_per_session(self) -> None:
+        service, _backend, cfg = make_service()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            cfg["jobs"]["max_per_session"] = 1
+            with self.assertRaises(RemoteShellError):
+                await service.job_start(cfg, GROUP_REF, "sleep 10")
+
+    async def test_job_isolation_between_sessions(self) -> None:
+        service, _backend, cfg = make_service()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            other = SessionRef(key="g999", raw_id="999", prefix="qqg_", is_group=True)
+            with self.assertRaises(RemoteShellError):
+                await service.job_output(cfg, other, "j1")
+
+    async def test_job_list(self) -> None:
+        service, _backend, cfg = make_service()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            self._seed(tmp)
+            result = await service.job_list(cfg, GROUP_REF)
+            self.assertEqual(result["count"], 1)
+            self.assertEqual(result["jobs"][0]["job_id"], "j1")
 
 
 if __name__ == "__main__":

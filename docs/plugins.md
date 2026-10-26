@@ -1662,6 +1662,10 @@ jm 123456
 | `terminal_list` | 结构化列目录（名称/类型/大小/时间） |
 | `terminal_edit` | 精确字符串替换，默认要求原文唯一 |
 | `terminal_fetch` | 把远端文件拉回当前会话的 AI 工作区（`downloads/`），随后用 `send_file` 发到 QQ |
+| `terminal_job_start` | 启动后台任务，立即返回 `job_id`（编译/下载/长测试用） |
+| `terminal_job_output` | 增量读取后台任务输出，返回 status / exit_code / 耗时 |
+| `terminal_job_kill` | 终止整个任务进程组（TERM，1 秒后 KILL） |
+| `terminal_job_list` | 列出本会话的后台任务 |
 | `terminal_root_exec` | 仅机器人超级管理员：以 root 身份执行系统级命令（不降权） |
 
 **工作目录：** 每条命令结束时由 `trap EXIT` 回传 `$PWD`，插件持久化到 `UserData/remote_shell/state.json`，所以 `cd` 会跨调用保持；目录被删掉时自动回到 home。root 模式的 cwd 单独记录在 `root_sessions` 里。
@@ -1672,6 +1676,15 @@ jm 123456
 2. `send_file(path="downloads/20261026-143000-app.zip")` —— 由现有工作区能力做大小校验、暂存到 `/tmp/hikari_bot/aiagent_out` 并调用 NapCat 上传（受 `tools.workspace.allow_send` 与 `max_send_mb` 限制）。
 
 纯文本小文件不必绕这一圈，`terminal_read` 直接读；目录先在远端 `tar`/`zip` 打包再拉取。
+
+**后台任务：** 超过一两分钟的命令不要卡着 `terminal_exec`，用 `terminal_job_start` 起独立会话：
+
+- 任务在 `~/.remote_shell/jobs/<job_id>/` 下运行，脚本、`output.log`、`status`、`.pid` 都在里面；`setsid` 脱离 SSH 会话，断开连接也不会死；
+- 每个会话最多 3 个并发任务（`jobs.max_per_session`），默认最长 3600 秒（`jobs.max_runtime_seconds`，到点 `timeout` 直接终止）；
+- `terminal_job_output` 每次返回**自上次查询以来的新输出**（约 8000 字符），带 `status`（running / exited / killed）、`exit_code`、`elapsed_seconds`；`wait_seconds` 可先等最多 30 秒；
+- `terminal_job_kill` 对进程组发 TERM，1 秒后还在就 KILL；`terminal_job_list` 只列本会话任务；
+- 后台任务**不会主动通知完成**，模型需要自己轮询；任务开始/终止会写审计，后台「终端」页可查；
+- 输出日志超过 `jobs.max_log_mb`（默认 20MB）时读取会报错，提示先终止任务。
 
 **后台「终端」页：** 管理后台左侧「终端」可以看到当前有多少个终端账号（群/私聊分开统计）、每个账号的 Linux 用户/家目录/当前目录/创建与最后使用时间、今日与累计调用次数，以及最近的调用历史（时间、会话、账号、动作、命令、退出码、耗时）。`exec` / `root_exec` 记录可以点「查看输出」直接读当次完整 stdout/stderr。页面每 5 秒自动刷新，支持按会话/用户/命令搜索和动作筛选。
 
@@ -1694,6 +1707,10 @@ jm 123456
 | `exec.allow_auto_reply_calls` | 主动接话（未 @ 机器人）时是否允许调用终端，默认 `false` |
 | `files.max_fetch_mb` | `terminal_fetch` 单文件上限，默认 96MB |
 | `files.fetch_home_only` | 是否只允许拉取家目录内的文件，默认 `true` |
+| `jobs.enabled` | 是否启用后台任务工具，默认 `true` |
+| `jobs.max_per_session` | 每个会话同时运行的任务上限，默认 3 |
+| `jobs.max_runtime_seconds` | 后台任务最长运行秒数，默认 3600（到点强制终止） |
+| `jobs.max_log_mb` | 单个任务输出日志超过该值时拒绝继续读取，默认 20MB |
 | `limits.hourly_commands` / `daily_commands` | 单群每小时 / 每天调用上限 |
 | `limits.disk_soft_limit_mb` | 群家目录软上限，超过后拒绝写入 |
 | `groups.blocked` | 禁用终端的群号列表 |

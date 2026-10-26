@@ -36,6 +36,15 @@
     "default_timeout": 60,
     "max_timeout": 300
   },
+  "jobs": {
+    "enabled": true,
+    "max_per_session": 3,
+    "max_runtime_seconds": 3600,
+    "max_log_mb": 20,
+    "output_chunk_bytes": 12000,
+    "max_output_chars": 8000,
+    "keep_hours": 24
+  },
   "files": {
     "enabled": true,
     "max_read_chars": 20000,

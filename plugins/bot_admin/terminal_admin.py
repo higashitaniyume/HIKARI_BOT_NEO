@@ -21,7 +21,7 @@ from plugins.remote_shell.store import StateStore
 
 logger = logging.getLogger("HikariBot.BotAdmin.Terminal")
 
-_ACTIONS = {"exec", "root_exec", "write", "edit", "provision", "fetch"}
+_ACTIONS = {"exec", "root_exec", "write", "edit", "provision", "fetch", "job_start", "job_kill"}
 _SESSION_RE = re.compile(r"^[gp]\d{1,20}$")
 _LOG_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.log$")
 _RECORD_TAIL_LINES = 1200

@@ -86,6 +86,16 @@
   color: #9a5b00;
 }
 
+.terminal-action-job_start {
+  background: #e8f4ff;
+  color: #1c6fb4;
+}
+
+.terminal-action-job_kill {
+  background: #fdecea;
+  color: #b42318;
+}
+
 .terminal-action-provision {
   background: #f4f1fb;
   color: #6b4bb7;

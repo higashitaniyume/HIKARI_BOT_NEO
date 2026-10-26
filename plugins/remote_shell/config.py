@@ -56,6 +56,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "default_timeout": 60,
         "max_timeout": 300,
     },
+    # 后台任务（terminal_job_*）：每条命令在独立会话里跑，输出落用户家目录。
+    "jobs": {
+        "enabled": True,
+        "max_per_session": 3,
+        "max_runtime_seconds": 3600,
+        "max_log_mb": 20,
+        "output_chunk_bytes": 12000,
+        "max_output_chars": 8000,
+        "keep_hours": 24,
+    },
     "files": {
         "enabled": True,
         "max_read_chars": 20000,

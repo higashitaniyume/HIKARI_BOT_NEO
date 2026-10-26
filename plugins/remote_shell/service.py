@@ -10,6 +10,7 @@ import asyncio
 import logging
 import posixpath
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from typing import Any
@@ -25,11 +26,17 @@ from .provision import (
 )
 from .runner import (
     MARKER,
+    build_job_kill_command,
+    build_job_launch_command,
+    build_job_launcher,
+    build_job_status_command,
     build_remote_command,
     build_root_command,
     build_script,
     build_user_cat_command,
+    build_user_raw_command,
     normalize_path,
+    parse_job_status,
     split_cwd_marker,
     strip_ansi,
     truncate_output,
@@ -566,6 +573,337 @@ class RemoteShellService:
                 "data": data,
                 "bytes": len(data),
             }
+
+    # ── 后台任务（job）────────────────────────────────────────────────────
+
+    async def job_start(
+        self,
+        cfg: dict[str, Any],
+        ref: SessionRef,
+        command: str,
+        *,
+        cwd: str | None = None,
+        max_runtime_seconds: int | float | None = None,
+    ) -> dict[str, Any]:
+        jobs_cfg = section(cfg, "jobs")
+        if not as_bool(jobs_cfg.get("enabled"), True):
+            raise RemoteShellError("后台任务未启用（remote_shell.jobs.enabled = false）")
+
+        exec_cfg = section(cfg, "exec")
+        text = str(command or "")
+        if not text.strip():
+            raise RemoteShellError("命令为空")
+        max_command = as_int(exec_cfg.get("max_command_chars"), 4000, minimum=64)
+        if len(text) > max_command:
+            raise RemoteShellError(f"命令太长（{len(text)} 字符，上限 {max_command}）")
+
+        runtime_cap = as_int(jobs_cfg.get("max_runtime_seconds"), 3600, minimum=30, maximum=86400)
+        runtime = min(
+            runtime_cap,
+            as_int(max_runtime_seconds, runtime_cap, minimum=30, maximum=86400),
+        )
+        max_per_session = as_int(jobs_cfg.get("max_per_session"), 3, minimum=1, maximum=20)
+
+        async with self._lock_for(ref.key):
+            session = await self._require_session(cfg, ref)
+            running_now = [
+                item
+                for item in self._load_jobs(cfg).values()
+                if item.get("session") == ref.key and item.get("status") == "running"
+            ]
+            if len(running_now) >= max_per_session:
+                raise RemoteShellError(
+                    f"本会话已有 {len(running_now)} 个后台任务在跑（上限 {max_per_session}），"
+                    "请先 terminal_job_kill 或等待完成"
+                )
+            target_cwd = (
+                normalize_path(cwd, cwd=session.cwd, home=session.home)
+                if cwd
+                else session.cwd
+            )
+            job_id = f"j{uuid.uuid4().hex[:10]}"
+            job_dir = f"{session.home}/.remote_shell/jobs/{job_id}"
+            launcher = build_job_launcher(
+                command=text,
+                cwd=target_cwd,
+                max_runtime=runtime,
+                status_path=f"{job_dir}/status",
+                pid_path=f"{job_dir}/.pid",
+            )
+
+            write = await self._run_user(
+                cfg,
+                session,
+                f"mkdir -p -- {_q(job_dir)} && cat > {_q(job_dir + '/run.sh')}",
+                timeout=30,
+                stdin_data=launcher.encode("utf-8"),
+            )
+            if write.exit_code != 0:
+                raise RemoteShellError(_failure("创建后台任务失败", write))
+
+            launch = await self._run_user(
+                cfg,
+                session,
+                build_job_launch_command(job_dir),
+                timeout=30,
+            )
+            if launch.exit_code != 0:
+                raise RemoteShellError(_failure("启动后台任务失败", launch))
+            raw_pid = launch.output.strip().splitlines()[-1] if launch.output.strip() else "0"
+            pid = int(raw_pid) if raw_pid.isdigit() else 0
+
+            now = int(time.time())
+            record = {
+                "job_id": job_id,
+                "session": ref.key,
+                "user": session.user,
+                "command": text[:500],
+                "cwd": target_cwd,
+                "dir": job_dir,
+                "pid": pid,
+                "status": "running",
+                "exit_code": None,
+                "started_at": now,
+                "finished_at": None,
+                "read_offset": 0,
+            }
+
+            def _add(jobs: dict[str, Any]) -> None:
+                self._prune_jobs(jobs, jobs_cfg)
+                running = [
+                    item
+                    for item in jobs.values()
+                    if item.get("session") == ref.key and item.get("status") == "running"
+                ]
+                if len(running) >= max_per_session:
+                    raise RemoteShellError(
+                        f"本会话已有 {len(running)} 个后台任务在跑（上限 {max_per_session}），"
+                        "请先 terminal_job_kill 或等待完成"
+                    )
+                jobs[job_id] = record
+
+            await self._mutate_jobs(cfg, _add)
+            self._audit(
+                cfg,
+                ref,
+                {
+                    "action": "job_start",
+                    "user": session.user,
+                    "command": text[:500],
+                    "path": job_dir,
+                },
+            )
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "pid": pid,
+                "status": "running",
+                "cwd": target_cwd,
+                "max_runtime_seconds": runtime,
+                "hint": f"任务已在后台启动；用 terminal_job_output(job_id=\"{job_id}\") 查看进度",
+            }
+
+    async def job_output(
+        self,
+        cfg: dict[str, Any],
+        ref: SessionRef,
+        job_id: str,
+        *,
+        wait_seconds: int | float | None = None,
+    ) -> dict[str, Any]:
+        jobs_cfg = section(cfg, "jobs")
+        job_id = str(job_id or "").strip()
+        if not job_id:
+            raise RemoteShellError("job_id 不能为空")
+
+        wait = as_int(wait_seconds, 0, minimum=0, maximum=30)
+        if wait:
+            await asyncio.sleep(wait)
+
+        async with self._lock_for(ref.key):
+            session = await self._require_session(cfg, ref)
+            job = self._get_job(cfg, ref, job_id)
+            job_dir = str(job["dir"])
+
+            status_result = await self._run_user(
+                cfg,
+                session,
+                build_job_status_command(job_dir),
+                timeout=20,
+            )
+            parsed = parse_job_status(status_result.output)
+            size = int(parsed.get("size") or 0)
+            exit_code = parsed.get("exit")
+            alive = bool(parsed.get("alive"))
+
+            max_log_bytes = as_int(jobs_cfg.get("max_log_mb"), 20, minimum=1) * 1024 * 1024
+            if size > max_log_bytes:
+                raise RemoteShellError(
+                    f"任务输出已超过 {max_log_bytes // 1024 // 1024}MB，"
+                    f"请尽快 terminal_job_kill(job_id=\"{job_id}\") 并改用文件/日志方式"
+                )
+
+            offset = int(job.get("read_offset") or 0)
+            if size < offset:
+                offset = 0
+            chunk = as_int(jobs_cfg.get("output_chunk_bytes"), 12000, minimum=1024, maximum=65536)
+            data = b""
+            if size > offset:
+                read_cmd = build_user_raw_command(
+                    user=session.user,
+                    home=session.home,
+                    script=(
+                        f"tail -c +{offset + 1} -- {_q(job_dir + '/output.log')} "
+                        f"| head -c {chunk}"
+                    ),
+                )
+                async with self._semaphore_for(cfg):
+                    read_exit, data, _truncated = await self.backend.download(
+                        cfg,
+                        read_cmd,
+                        max_bytes=chunk + 1,
+                        timeout=30,
+                    )
+                if read_exit != 0:
+                    data = b""
+
+            text = data.decode("utf-8", errors="replace")
+            max_chars = as_int(jobs_cfg.get("max_output_chars"), 8000, minimum=500, maximum=40000)
+            text, truncated = truncate_output(text, max_chars)
+
+            now = int(time.time())
+            if exit_code is not None:
+                new_status = "exited"
+            elif not alive:
+                new_status = "exited"
+            else:
+                new_status = "running"
+            if new_status != "running" and job.get("status") == "running":
+                job["status"] = "exited"
+                job["exit_code"] = int(exit_code) if exit_code is not None else None
+                job["finished_at"] = now
+            job["read_offset"] = offset + len(data)
+            await self._mutate_jobs(cfg, lambda jobs: jobs.__setitem__(job_id, job))
+
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": job.get("status") or new_status,
+                "exit_code": job.get("exit_code"),
+                "output": text,
+                "truncated": truncated,
+                "log_size": size,
+                "next_offset": job["read_offset"],
+                "elapsed_seconds": max(0, now - int(job.get("started_at") or now)),
+                "command": job.get("command") or "",
+            }
+
+    async def job_kill(self, cfg: dict[str, Any], ref: SessionRef, job_id: str) -> dict[str, Any]:
+        job_id = str(job_id or "").strip()
+        if not job_id:
+            raise RemoteShellError("job_id 不能为空")
+
+        async with self._lock_for(ref.key):
+            session = await self._require_session(cfg, ref)
+            job = self._get_job(cfg, ref, job_id)
+            if job.get("status") != "running":
+                return {
+                    "ok": True,
+                    "job_id": job_id,
+                    "status": job.get("status") or "exited",
+                    "exit_code": job.get("exit_code"),
+                    "already_finished": True,
+                }
+
+            kill_result = await self._run_user(
+                cfg,
+                session,
+                build_job_kill_command(str(job["dir"])),
+                timeout=30,
+            )
+            if kill_result.exit_code != 0:
+                raise RemoteShellError(_failure("终止后台任务失败", kill_result))
+
+            status_result = await self._run_user(
+                cfg,
+                session,
+                build_job_status_command(str(job["dir"])),
+                timeout=20,
+            )
+            parsed = parse_job_status(status_result.output)
+            code = parsed.get("exit")
+            job["status"] = "killed"
+            job["exit_code"] = int(code) if code is not None else 143
+            job["finished_at"] = int(time.time())
+            await self._mutate_jobs(cfg, lambda jobs: jobs.__setitem__(job_id, job))
+            self._audit(
+                cfg,
+                ref,
+                {
+                    "action": "job_kill",
+                    "user": session.user,
+                    "path": str(job.get("dir") or ""),
+                    "exit_code": job["exit_code"],
+                },
+            )
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": "killed",
+                "exit_code": job["exit_code"],
+            }
+
+    async def job_list(self, cfg: dict[str, Any], ref: SessionRef) -> dict[str, Any]:
+        jobs_cfg = section(cfg, "jobs")
+        jobs = self._load_jobs(cfg)
+        self._prune_jobs(jobs, jobs_cfg)
+        items = [
+            {
+                "job_id": job_id,
+                "status": job.get("status") or "running",
+                "exit_code": job.get("exit_code"),
+                "command": job.get("command") or "",
+                "cwd": job.get("cwd") or "",
+                "started_at": job.get("started_at"),
+                "elapsed_seconds": max(0, int(time.time()) - int(job.get("started_at") or 0)),
+            }
+            for job_id, job in jobs.items()
+            if job.get("session") == ref.key
+        ]
+        items.sort(key=lambda item: item.get("started_at") or 0, reverse=True)
+        return {"ok": True, "jobs": items, "count": len(items)}
+
+    # ── 任务状态辅助 ─────────────────────────────────────────────────────
+
+    def _load_jobs(self, cfg: dict[str, Any]) -> dict[str, Any]:
+        data = self._store(cfg).load()
+        jobs = data.get("jobs")
+        return dict(jobs) if isinstance(jobs, dict) else {}
+
+    async def _mutate_jobs(self, cfg: dict[str, Any], mutate) -> None:
+        async with self._state_lock:
+            store = self._store(cfg)
+            data = store.load()
+            jobs = data.get("jobs") if isinstance(data.get("jobs"), dict) else {}
+            mutate(jobs)
+            data["jobs"] = jobs
+            store.save(data)
+
+    def _get_job(self, cfg: dict[str, Any], ref: SessionRef, job_id: str) -> dict[str, Any]:
+        job = self._load_jobs(cfg).get(job_id)
+        if not isinstance(job, dict) or job.get("session") != ref.key:
+            raise RemoteShellError(f"任务不存在或不属于当前会话: {job_id}")
+        return job
+
+    def _prune_jobs(self, jobs: dict[str, Any], jobs_cfg: dict[str, Any]) -> None:
+        keep_hours = as_int(jobs_cfg.get("keep_hours"), 24, minimum=1, maximum=720)
+        cutoff = int(time.time()) - keep_hours * 3600
+        for job_id in [
+            key
+            for key, job in jobs.items()
+            if job.get("status") != "running" and int(job.get("finished_at") or 0) < cutoff
+        ]:
+            jobs.pop(job_id, None)
 
     # ── 会话与开通 ───────────────────────────────────────────────────────
 

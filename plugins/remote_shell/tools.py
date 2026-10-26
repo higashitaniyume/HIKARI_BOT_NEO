@@ -231,6 +231,68 @@ async def _handle_fetch(context: AIToolContext, args: dict[str, Any]) -> dict[st
         return _error(f"拉取文件失败: {type(e).__name__}: {e}")
 
 
+async def _handle_job_start(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cfg, ref = _prepare(context)
+        if not as_bool(section(cfg, "jobs").get("enabled"), True):
+            return _error("后台任务未启用")
+        cwd = args.get("cwd")
+        return await get_service().job_start(
+            cfg,
+            ref,
+            str(args.get("command") or ""),
+            cwd=str(cwd) if cwd else None,
+            max_runtime_seconds=args.get("max_runtime_seconds"),
+        )
+    except RemoteShellError as e:
+        return _error(str(e))
+    except ValueError as e:
+        return _error(f"参数不合法: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_job_start 失败")
+        return _error(f"启动后台任务失败: {type(e).__name__}: {e}")
+
+
+async def _handle_job_output(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cfg, ref = _prepare(context)
+        return await get_service().job_output(
+            cfg,
+            ref,
+            str(args.get("job_id") or ""),
+            wait_seconds=args.get("wait_seconds"),
+        )
+    except RemoteShellError as e:
+        return _error(str(e))
+    except ValueError as e:
+        return _error(f"参数不合法: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_job_output 失败")
+        return _error(f"读取后台任务失败: {type(e).__name__}: {e}")
+
+
+async def _handle_job_kill(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cfg, ref = _prepare(context)
+        return await get_service().job_kill(cfg, ref, str(args.get("job_id") or ""))
+    except RemoteShellError as e:
+        return _error(str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_job_kill 失败")
+        return _error(f"终止后台任务失败: {type(e).__name__}: {e}")
+
+
+async def _handle_job_list(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cfg, ref = _prepare(context)
+        return await get_service().job_list(cfg, ref)
+    except RemoteShellError as e:
+        return _error(str(e))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_job_list 失败")
+        return _error(f"列出后台任务失败: {type(e).__name__}: {e}")
+
+
 async def _handle_read(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
     try:
         cfg, ref = _prepare(context)
@@ -496,3 +558,92 @@ register_ai_tool(
     readonly=False,
     enabled_by_default=False,
 )(_handle_fetch)
+
+register_ai_tool(
+    "terminal_job_start",
+    description=(
+        "启动一个后台任务：命令在该会话的 Linux 账号下用独立会话运行，立即返回 job_id，"
+        "不会卡住本次回复。适合编译、下载、跑测试等几分钟以上的任务。"
+        "每个会话最多同时 3 个；默认最长 3600 秒（max_runtime_seconds），到点会被终止；"
+        "输出写入用户家目录的日志。之后用 terminal_job_output 轮询、terminal_job_kill 终止。"
+        "注意：后台任务不会自动通知完成，需要主动查询。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "要在后台执行的 shell 命令"},
+            "cwd": {"type": "string", "description": "可选工作目录，默认当前目录"},
+            "max_runtime_seconds": {
+                "type": "integer",
+                "description": "可选最长运行秒数，默认 3600，最大 86400",
+                "minimum": 30,
+                "maximum": 86400,
+            },
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    enabled_by_default=False,
+)(_handle_job_start)
+
+register_ai_tool(
+    "terminal_job_output",
+    description=(
+        "读取后台任务自上次查询以来的新输出（每次最多约 8000 字符），返回 status"
+        "（running / exited / killed）、exit_code、elapsed_seconds、next_offset。"
+        "传 wait_seconds 可以最多等 30 秒再取，适合等待构建/下载进展。"
+        "任务结束但看不到结尾时，可用 terminal_exec 读取日志文件（terminal_job_start 返回里有目录）。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string", "description": "terminal_job_start 返回的任务 ID"},
+            "wait_seconds": {
+                "type": "integer",
+                "description": "可选，先等待多少秒再读取，默认 0，最大 30",
+                "minimum": 0,
+                "maximum": 30,
+            },
+        },
+        "required": ["job_id"],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    enabled_by_default=False,
+)(_handle_job_output)
+
+register_ai_tool(
+    "terminal_job_kill",
+    description=(
+        "终止后台任务：向整个进程组发 TERM，1 秒后仍在则 KILL。"
+        "任务已结束时返回 already_finished。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string", "description": "要终止的任务 ID"},
+        },
+        "required": ["job_id"],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    enabled_by_default=False,
+)(_handle_job_kill)
+
+register_ai_tool(
+    "terminal_job_list",
+    description="列出当前会话的后台任务及状态（运行中/已结束/已终止），不含其他会话的任务。",
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    enabled_by_default=False,
+)(_handle_job_list)

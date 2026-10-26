@@ -124,6 +124,134 @@ def build_user_cat_command(
     )
 
 
+def build_user_raw_command(
+    *,
+    user: str,
+    home: str,
+    script: str,
+    shell: str = "/bin/bash",
+    runuser_bin: str = "/usr/sbin/runuser",
+) -> str:
+    """以群用户身份执行脚本，不加 cwd/ulimit/标记（用于二进制流）。"""
+
+    env_items = [
+        f"HOME={shlex.quote(home)}",
+        f"USER={shlex.quote(user)}",
+        f"LOGNAME={shlex.quote(user)}",
+        f"SHELL={shlex.quote(shell)}",
+        "TERM=dumb",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        f"PATH={shlex.quote(path_env(home))}",
+    ]
+    return (
+        f"{runuser_bin} -u {shlex.quote(user)} -- "
+        f"env -i {' '.join(env_items)} {shlex.quote(shell)} -c {shlex.quote(script)}"
+    )
+
+
+# ── 后台任务（job）────────────────────────────────────────────────────────
+
+
+def build_job_launcher(
+    *,
+    command: str,
+    cwd: str,
+    max_runtime: int,
+    status_path: str,
+    pid_path: str,
+    shell: str = "/bin/bash",
+    timeout_bin: str = "/usr/bin/timeout",
+) -> str:
+    """生成后台任务的启动脚本（由 setsid 拉成独立会话）。
+
+    脚本自己写 pid 和退出码，父进程只负责把它甩到后台。
+    """
+
+    return "\n".join(
+        [
+            "#!/bin/bash",
+            f"echo $$ > {shlex.quote(pid_path)}",
+            f"cd -- {shlex.quote(cwd)} 2>/dev/null || {{ echo 97 > {shlex.quote(status_path)}; exit 97; }}",
+            f"{timeout_bin} -k 10 {int(max_runtime)} {shlex.quote(shell)} -c {shlex.quote(command)}",
+            "code=$?",
+            f"echo \"$code\" > {shlex.quote(status_path)}",
+        ]
+    )
+
+
+def build_job_launch_command(job_dir: str) -> str:
+    """在 job 目录里拉起 run.sh，等它写出 .pid 后打印出来。"""
+
+    quoted = shlex.quote(job_dir)
+    return "\n".join(
+        [
+            f"cd -- {quoted} || exit 90",
+            "chmod 700 run.sh 2>/dev/null || true",
+            "setsid ./run.sh > output.log 2>&1 < /dev/null &",
+            "for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do",
+            "  [ -s .pid ] && break",
+            "  sleep 0.2",
+            "done",
+            "cat .pid 2>/dev/null || echo 0",
+        ]
+    )
+
+
+def build_job_status_command(job_dir: str) -> str:
+    quoted = shlex.quote(job_dir)
+    return "\n".join(
+        [
+            f"d={quoted}",
+            f"printf '{MARKER}SIZE:%s\\n' \"$(wc -c < \"$d/output.log\" 2>/dev/null || echo 0)\"",
+            f"if [ -f \"$d/status\" ]; then printf '{MARKER}EXIT:%s\\n' \"$(cat \"$d/status\" 2>/dev/null)\"; fi",
+            "p=$(cat \"$d/.pid\" 2>/dev/null || true)",
+            f"if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then printf '{MARKER}ALIVE:1'; "
+            f"else printf '{MARKER}ALIVE:0'; fi",
+        ]
+    )
+
+
+def build_job_kill_command(job_dir: str) -> str:
+    quoted = shlex.quote(job_dir)
+    return "\n".join(
+        [
+            f"d={quoted}",
+            "p=$(cat \"$d/.pid\" 2>/dev/null || true)",
+            "if [ -n \"$p\" ]; then",
+            "  kill -TERM -- \"-$p\" 2>/dev/null || kill -TERM \"$p\" 2>/dev/null || true",
+            "fi",
+            "sleep 1",
+            "if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then",
+            "  kill -KILL -- \"-$p\" 2>/dev/null || true",
+            "fi",
+            "[ -f \"$d/status\" ] || echo 143 > \"$d/status\"",
+            "echo done",
+        ]
+    )
+
+
+def parse_job_status(output: str) -> dict[str, object]:
+    """解析 job 状态脚本输出。"""
+
+    result: dict[str, object] = {"size": 0, "exit": None, "alive": False}
+    for line in output.splitlines():
+        line = line.strip().lstrip(MARKER)
+        if line.startswith("SIZE:"):
+            try:
+                result["size"] = int(line[5:].strip() or 0)
+            except ValueError:
+                result["size"] = 0
+        elif line.startswith("EXIT:"):
+            try:
+                result["exit"] = int(line[5:].strip())
+            except ValueError:
+                result["exit"] = None
+        elif line.startswith("ALIVE:"):
+            result["alive"] = line[6:].strip() == "1"
+    return result
+
+
 def build_root_command(
     *,
     script: str,
