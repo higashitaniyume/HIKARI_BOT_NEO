@@ -1,7 +1,9 @@
 """AI Agent 的网络搜图与发图工具（`web_image_search` 与 `send_images`）。
 
 数据来源：
-- 图片搜索只走 SearXNG 的 `categories=images`（format=json）。
+- 默认先搜 Pixiv（复用 `pixiv_parser` 的 Cookie / 代理）。Pixiv 结果排在前面，
+  命中不足时用 SearXNG 补齐剩余名额；也可以指定只搜 Pixiv 或只搜网页。
+- 网页图片搜索走 SearXNG 的 `categories=images`（format=json）。
 - DeepSeek 官方 Search API 没有图片搜索能力，因此图片搜索不依赖 DeepSeek Key。
 
 安全防护：
@@ -10,6 +12,8 @@
   防止模型拿任意 URL 触发内网下载或 SSRF。
 - 图片下载做 SSRF 防护：拒绝 localhost / 私有 IP / 回环 / 保留地址，逐跳校验重定向；
   但允许配置里的 SearXNG 主机名通过图片代理。
+- Pixiv 图片位于 `i.pximg.net`，下载时必须带 `Referer: https://www.pixiv.net/`，
+  否则会被防盗链返回 403。
 - WebP 或超大图片转码为 PNG/JPEG，GIF 保留动画。
 """
 
@@ -31,6 +35,7 @@ import httpx
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
 from ..utils import safe_bool, safe_int
+from . import pixiv_images
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools.Images")
 
@@ -43,6 +48,8 @@ _TEMP_IMAGE_DIR = Path("/tmp/hikari_bot/aiagent/images")
 
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 _MAX_REDIRECTS = 3
+# Pixiv 搜索的整段预算：留出时间给 SearXNG 补齐，避免两边串行把工具超时吃满
+_PIXIV_SEARCH_BUDGET_SECONDS = 10.0
 
 # 会话缓存：session_id -> list of {"image_url": str, "title": str, "cached_at": float}
 _session_image_cache: dict[str, list[dict[str, Any]]] = {}
@@ -120,9 +127,13 @@ def _search_definition() -> dict[str, Any]:
         "function": {
             "name": WEB_IMAGE_SEARCH,
             "description": (
-                "Search for images on the web using SearXNG. Returns image titles, page URLs, "
-                "direct image URLs, thumbnail URLs, resolutions, and formats. "
-                "Results are cached for the current session. "
+                "Search for images for the current chat. Pixiv is searched first by default "
+                "(illustrations, higher priority); if Pixiv returns fewer than requested results, "
+                "the remaining slots are filled from the web image search engine. "
+                "Use source=web for photos/real-world images or when Pixiv results are unsuitable; "
+                "use source=pixiv only when the user explicitly wants Pixiv artwork. "
+                "Returns image titles, page URLs, direct image URLs, thumbnail URLs, resolutions, "
+                "and formats. Results are cached for the current session. "
                 "To send one or more images to the chat, call send_images with the image_url."
             ),
             "parameters": {
@@ -130,7 +141,15 @@ def _search_definition() -> dict[str, Any]:
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Image search query.",
+                        "description": "Image search query / Pixiv tag keyword.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Where to search: auto = Pixiv first then fill from web (default); "
+                            "pixiv = Pixiv only; web = SearXNG only."
+                        ),
+                        "enum": ["auto", "pixiv", "web"],
                     },
                     "max_results": {
                         "type": "integer",
@@ -146,7 +165,7 @@ def _search_definition() -> dict[str, Any]:
                     },
                     "time_range": {
                         "type": "string",
-                        "description": "Optional time filter: day, week, month, or year.",
+                        "description": "Optional web-search time filter: day, week, month, or year.",
                         "enum": ["day", "week", "month", "year"],
                     },
                 },
@@ -325,6 +344,24 @@ async def _download_single_image(
     return None
 
 
+async def _download_pixiv_image(
+    url: str, max_bytes: int, timeout_seconds: int
+) -> tuple[bytes, str] | None:
+    """下载 Pixiv 图片：i.pximg.net 只认 Referer，必须带上才能绕开防盗链。"""
+    headers, proxy = pixiv_images.download_options()
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds),
+            headers=headers,
+            proxy=proxy,
+            follow_redirects=False,
+        ) as client:
+            return await _download_single_image(client, url, max_bytes)
+    except Exception as e:
+        logger.warning("[AIAgent] Pixiv 图片下载失败 %.80s: %s", url, e)
+        return None
+
+
 def _detect_format(data: bytes) -> str:
     if data.startswith(b"\xff\xd8\xff"):
         return "jpeg"
@@ -415,8 +452,6 @@ async def _execute_search(
     context: Any = None,
 ) -> str:
     img_cfg = config(cfg)
-    tools_cfg = _tools_cfg(cfg)
-    search_cfg = tools_cfg.get("search") if isinstance(tools_cfg.get("search"), dict) else {}
 
     query = str(arguments.get("query") or "").strip()
     if not query:
@@ -426,6 +461,94 @@ async def _execute_search(
     max_results = safe_int(arguments.get("max_results"), configured_max, minimum=1, maximum=10)
     safesearch = safe_int(arguments.get("safesearch"), safe_int(img_cfg.get("safesearch"), 1, minimum=0, maximum=2), minimum=0, maximum=2)
     time_range = str(arguments.get("time_range") or "").strip()
+    source = str(arguments.get("source") or "auto").strip().lower()
+    if source not in {"auto", "pixiv", "web"}:
+        source = "auto"
+
+    results: list[dict[str, Any]] = []
+    used_sources: list[str] = []
+    errors: dict[str, str] = {}
+    notes: list[str] = []
+
+    # 1. Pixiv 优先（权重更高）：先按 pixiv.max_results 取，网页搜索只补剩余名额
+    if source in {"auto", "pixiv"}:
+        if not pixiv_images.enabled(cfg):
+            if source == "pixiv":
+                errors["pixiv"] = "Pixiv 搜图已在配置中关闭"
+        else:
+            pixiv_limit = min(max_results, pixiv_images.max_results(cfg))
+            try:
+                pixiv_payload = await asyncio.wait_for(
+                    pixiv_images.search(cfg, query, pixiv_limit, safesearch),
+                    timeout=_PIXIV_SEARCH_BUDGET_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[AIAgent] Pixiv 搜图超过 %.0fs，回退搜索引擎", _PIXIV_SEARCH_BUDGET_SECONDS)
+                pixiv_payload = {"results": [], "error": "Pixiv 搜图超时"}
+            pixiv_results = pixiv_payload.get("results")
+            if isinstance(pixiv_results, list) and pixiv_results:
+                results.extend(pixiv_results)
+                used_sources.append("pixiv")
+            if pixiv_payload.get("error"):
+                errors["pixiv"] = str(pixiv_payload["error"])
+            if pixiv_payload.get("note"):
+                notes.append(str(pixiv_payload["note"]))
+
+    # 2. 网页搜索补齐：auto 只在 Pixiv 不足时补；web 则只走网页
+    want_web = source == "web" or (source == "auto" and pixiv_images.fallback_web(cfg))
+    if want_web and len(results) < max_results:
+        web_results, web_error = await _search_searxng(
+            cfg,
+            query,
+            max_results=max_results - len(results),
+            safesearch=safesearch,
+            time_range=time_range,
+        )
+        if web_results:
+            results.extend(web_results)
+            used_sources.append("web")
+        if web_error:
+            errors["web"] = web_error
+
+    sid = get_session_id(context)
+    record_session_images(sid, results)
+
+    payload: dict[str, Any] = {
+        "query": query,
+        "results": results,
+        "source": "+".join(used_sources) or "none",
+        "count": len(results),
+        "notice": (
+            "Pixiv 结果排在前面；图片链接只对本次会话有效，发图请调用 send_images。"
+            if "pixiv" in used_sources
+            else "图片链接只对本次会话有效；发图请调用 send_images"
+        ),
+    }
+    if errors:
+        payload["errors"] = errors
+    if notes:
+        payload["notes"] = notes
+    if not results:
+        payload["error"] = "没有搜索到图片"
+        if errors:
+            payload["error"] += "：" + "；".join(f"{key}: {value}" for key, value in errors.items())
+        elif notes:
+            payload["error"] += "：" + "；".join(notes)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+async def _search_searxng(
+    cfg: dict[str, Any],
+    query: str,
+    *,
+    max_results: int,
+    safesearch: int,
+    time_range: str = "",
+) -> tuple[list[dict[str, Any]], str | None]:
+    """搜 SearXNG 图片；返回 `(结果, 错误)`，错误只用于日志/提示，不抛异常。"""
+    img_cfg = config(cfg)
+    tools_cfg = _tools_cfg(cfg)
+    search_cfg = tools_cfg.get("search") if isinstance(tools_cfg.get("search"), dict) else {}
 
     base_url = str(search_cfg.get("base_url") or "http://searxng-core:8080").strip().rstrip("/")
     if not base_url:
@@ -450,19 +573,16 @@ async def _execute_search(
             response = await client.get(url, params=params)
     except Exception as e:
         logger.warning("[AIAgent] SearXNG 图片搜索请求失败: %s", e)
-        return json.dumps({"query": query, "error": f"image search request failed: {e}"}, ensure_ascii=False)
+        return [], f"image search request failed: {e}"
 
     if response.status_code >= 400:
         logger.warning("[AIAgent] SearXNG 图片搜索 HTTP %d", response.status_code)
-        return json.dumps(
-            {"query": query, "error": f"SearXNG image search HTTP {response.status_code}", "detail": response.text[:300]},
-            ensure_ascii=False,
-        )
+        return [], f"SearXNG image search HTTP {response.status_code}: {response.text[:300]}"
 
     try:
         data = response.json()
     except Exception:
-        return json.dumps({"query": query, "error": "SearXNG returned invalid JSON"}, ensure_ascii=False)
+        return [], "SearXNG returned invalid JSON"
 
     raw_results = data.get("results") if isinstance(data, dict) else []
     results: list[dict[str, Any]] = []
@@ -495,15 +615,7 @@ async def _execute_search(
             if len(results) >= max_results:
                 break
 
-    sid = get_session_id(context)
-    record_session_images(sid, results)
-
-    payload = {
-        "query": query,
-        "results": results,
-        "notice": "图片链接只对本次会话有效；发图请调用 send_images",
-    }
-    return json.dumps(payload, ensure_ascii=False)
+    return results, None
 
 
 async def _execute_send(
@@ -571,7 +683,10 @@ async def _execute_send(
                     failed.append({"target": url, "error": "URL not found in session image search cache"})
                     continue
 
-                res = await _download_single_image(client, url, max_bytes, allowed_host=allowed_searxng)
+                if pixiv_images.is_pixiv_image_url(url):
+                    res = await _download_pixiv_image(url, max_bytes, timeout_seconds)
+                else:
+                    res = await _download_single_image(client, url, max_bytes, allowed_host=allowed_searxng)
                 if res is None:
                     failed.append({"target": url, "error": "download failed or blocked by security check"})
                     continue

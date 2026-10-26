@@ -594,3 +594,12 @@ async def execute(
     if name == GROUP_USER_MESSAGES:
         return await _tool_group_user_messages(cfg, arguments, context)
     return _error(f"unknown group tool: {name}")
+
+
+# ── 供同包其它工具模块复用（group_actions 等） ────────────────────────────
+# 这里只做别名，成员解析 / 群成员接口的实现保持单一来源，避免两套匹配规则跑偏。
+fetch_members = _fetch_members
+fetch_member_info = _fetch_member_info
+resolve_member = _resolve_member
+member_view = _member_view
+group_id_of = _group_id

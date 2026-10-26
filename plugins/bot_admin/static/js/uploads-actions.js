@@ -321,6 +321,11 @@ function buildAiAgentPayload() {
         safesearch: Number($("#aiagentImagesSafesearch").value ?? 1),
         max_download_mb: Number($("#aiagentImagesMaxDownloadMb").value || 15),
         download_timeout_seconds: Number($("#aiagentImagesTimeout").value || 20),
+        pixiv: {
+          enabled: $("#aiagentImagesPixivEnabled").checked,
+          max_results: Number($("#aiagentImagesPixivMax").value || 3),
+          fallback_web: $("#aiagentImagesPixivFallback").checked,
+        },
       },
       workspace: {
         enabled: $("#aiagentWorkspaceEnabled").checked,
@@ -350,6 +355,23 @@ function buildAiAgentPayload() {
         max_messages: Number($("#aiagentUserMessagesMax").value || 50),
         max_chars: Number($("#aiagentUserMessagesChars").value || 4000),
         allow_live_history: $("#aiagentUserMessagesLive").checked,
+      },
+      group_mute: {
+        enabled: $("#aiagentGroupMuteEnabled").checked,
+        require_requester_admin: $("#aiagentGroupActionRequireAdmin").checked,
+        max_minutes: Number($("#aiagentGroupMuteMaxMinutes").value || 43200),
+      },
+      group_kick: {
+        enabled: $("#aiagentGroupKickEnabled").checked,
+        require_requester_admin: $("#aiagentGroupActionRequireAdmin").checked,
+      },
+      group_poke: {
+        enabled: $("#aiagentGroupPokeEnabled").checked,
+        max_per_hour: Number($("#aiagentGroupPokeMaxPerHour").value || 20),
+      },
+      group_mention: {
+        enabled: $("#aiagentGroupMentionEnabled").checked,
+        max_per_reply: Number($("#aiagentGroupMentionMax").value || 3),
       },
       wiki_prefetch: {
         enabled: $("#aiagentWikiPrefetch").checked,

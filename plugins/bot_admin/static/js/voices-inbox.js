@@ -720,6 +720,19 @@ function renderAiAgentConfig() {
   $("#aiagentUserMessagesMax").value = userMessages.max_messages ?? 50;
   $("#aiagentUserMessagesChars").value = userMessages.max_chars ?? 4000;
   $("#aiagentUserMessagesLive").checked = userMessages.allow_live_history !== false;
+  const groupMute = tools.group_mute || {};
+  const groupKick = tools.group_kick || {};
+  const groupPoke = tools.group_poke || {};
+  const groupMention = tools.group_mention || {};
+  $("#aiagentGroupMuteEnabled").checked = groupMute.enabled !== false;
+  $("#aiagentGroupMuteMaxMinutes").value = groupMute.max_minutes ?? 43200;
+  $("#aiagentGroupKickEnabled").checked = groupKick.enabled !== false;
+  $("#aiagentGroupActionRequireAdmin").checked =
+    groupMute.require_requester_admin !== false && groupKick.require_requester_admin !== false;
+  $("#aiagentGroupPokeEnabled").checked = groupPoke.enabled !== false;
+  $("#aiagentGroupPokeMaxPerHour").value = groupPoke.max_per_hour ?? 20;
+  $("#aiagentGroupMentionEnabled").checked = groupMention.enabled !== false;
+  $("#aiagentGroupMentionMax").value = groupMention.max_per_reply ?? 3;
   const chatlog = cfg.chatlog || {};
   $("#aiagentChatlogEnabled").checked = chatlog.enabled !== false;
   $("#aiagentChatlogRetentionDays").value = chatlog.retention_days ?? 7;
@@ -747,6 +760,10 @@ function renderAiAgentConfig() {
   $("#aiagentImagesSafesearch").value = String(images.safesearch ?? 1);
   $("#aiagentImagesMaxDownloadMb").value = images.max_download_mb ?? 15;
   $("#aiagentImagesTimeout").value = images.download_timeout_seconds ?? 20;
+  const imagesPixiv = images.pixiv || {};
+  $("#aiagentImagesPixivEnabled").checked = imagesPixiv.enabled !== false;
+  $("#aiagentImagesPixivMax").value = imagesPixiv.max_results ?? 3;
+  $("#aiagentImagesPixivFallback").checked = imagesPixiv.fallback_web !== false;
 
   const workspace = tools.workspace || {};
   $("#aiagentWorkspaceEnabled").checked = workspace.enabled !== false;
