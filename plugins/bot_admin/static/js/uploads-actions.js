@@ -351,6 +351,23 @@ function buildAiAgentPayload() {
         max_chars: Number($("#aiagentUserMessagesChars").value || 4000),
         allow_live_history: $("#aiagentUserMessagesLive").checked,
       },
+      group_mute: {
+        enabled: $("#aiagentGroupMuteEnabled").checked,
+        require_requester_admin: $("#aiagentGroupActionRequireAdmin").checked,
+        max_minutes: Number($("#aiagentGroupMuteMaxMinutes").value || 43200),
+      },
+      group_kick: {
+        enabled: $("#aiagentGroupKickEnabled").checked,
+        require_requester_admin: $("#aiagentGroupActionRequireAdmin").checked,
+      },
+      group_poke: {
+        enabled: $("#aiagentGroupPokeEnabled").checked,
+        max_per_hour: Number($("#aiagentGroupPokeMaxPerHour").value || 20),
+      },
+      group_mention: {
+        enabled: $("#aiagentGroupMentionEnabled").checked,
+        max_per_reply: Number($("#aiagentGroupMentionMax").value || 3),
+      },
       wiki_prefetch: {
         enabled: $("#aiagentWikiPrefetch").checked,
         web_search: $("#aiagentWikiPrefetchSearch").checked,

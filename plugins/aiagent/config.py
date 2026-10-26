@@ -258,6 +258,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # 本地记录不足时，是否用 NapCat 的实时群历史窗口补齐（只覆盖最近一小段）
             "allow_live_history": True,
         },
+        # 群管理工具（禁言 / 踢人）：真实副作用操作，默认开启但有三重校验——
+        # ① 机器人必须是群管理员/群主；② 发起人必须是群管理/群主或机器人超级用户；
+        # ③ 群聊主动接话模式下永不下发、不执行。后台「AI Agent」页可单独关闭。
+        "group_mute": {
+            "enabled": True,
+            "require_requester_admin": True,
+            # 默认禁言时长（分钟，0 = 只解除禁言）
+            "default_minutes": 10,
+            # 单次禁言上限（分钟），43200 = 30 天（QQ 单人禁言上限）
+            "max_minutes": 43200,
+        },
+        "group_kick": {
+            "enabled": True,
+            "require_requester_admin": True,
+        },
+        # 戳一戳：轻量互动，按群做每小时限流，0 = 不限
+        "group_poke": {
+            "enabled": True,
+            "max_per_hour": 20,
+        },
+        # @ 群成员：模型拿到 [[at:QQ号]] 标记后写进回复，由回复管线渲染成真正的 @
+        "group_mention": {
+            "enabled": True,
+            # 单条回复里最多渲染几个 @，多余的标记会被丢弃
+            "max_per_reply": 3,
+        },
         "plugin_tools": {
             "enabled": True,
             "allow_side_effects": False,

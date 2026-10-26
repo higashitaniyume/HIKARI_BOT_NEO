@@ -337,6 +337,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_group_members = current_tools.get("group_members") if isinstance(current_tools.get("group_members"), dict) else {}
     current_member_profile = current_tools.get("member_profile") if isinstance(current_tools.get("member_profile"), dict) else {}
     current_user_messages = current_tools.get("user_messages") if isinstance(current_tools.get("user_messages"), dict) else {}
+    current_group_mute = current_tools.get("group_mute") if isinstance(current_tools.get("group_mute"), dict) else {}
+    current_group_kick = current_tools.get("group_kick") if isinstance(current_tools.get("group_kick"), dict) else {}
+    current_group_poke = current_tools.get("group_poke") if isinstance(current_tools.get("group_poke"), dict) else {}
+    current_group_mention = current_tools.get("group_mention") if isinstance(current_tools.get("group_mention"), dict) else {}
     current_chatlog = current.get("chatlog") if isinstance(current.get("chatlog"), dict) else {}
     current_auto_reply = current.get("auto_reply") if isinstance(current.get("auto_reply"), dict) else {}
     input_api = data.get("api") if isinstance(data.get("api"), dict) else {}
@@ -358,6 +362,10 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_group_members = input_tools.get("group_members") if isinstance(input_tools.get("group_members"), dict) else {}
     input_member_profile = input_tools.get("member_profile") if isinstance(input_tools.get("member_profile"), dict) else {}
     input_user_messages = input_tools.get("user_messages") if isinstance(input_tools.get("user_messages"), dict) else {}
+    input_group_mute = input_tools.get("group_mute") if isinstance(input_tools.get("group_mute"), dict) else {}
+    input_group_kick = input_tools.get("group_kick") if isinstance(input_tools.get("group_kick"), dict) else {}
+    input_group_poke = input_tools.get("group_poke") if isinstance(input_tools.get("group_poke"), dict) else {}
+    input_group_mention = input_tools.get("group_mention") if isinstance(input_tools.get("group_mention"), dict) else {}
     input_chatlog = data.get("chatlog") if isinstance(data.get("chatlog"), dict) else {}
     input_auto_reply = data.get("auto_reply") if isinstance(data.get("auto_reply"), dict) else {}
 
@@ -572,6 +580,25 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "max_messages": _parse_int(input_user_messages.get("max_messages", current_user_messages.get("max_messages", 50)), 50, minimum=1, maximum=200),
                 "max_chars": _parse_int(input_user_messages.get("max_chars", current_user_messages.get("max_chars", 4000)), 4000, minimum=500, maximum=20000),
                 "allow_live_history": _parse_bool(input_user_messages.get("allow_live_history", current_user_messages.get("allow_live_history", True))),
+            },
+            # 群管理 / 群互动（副作用，只在群聊、非主动接话时可用）
+            "group_mute": {
+                "enabled": _parse_bool(input_group_mute.get("enabled", current_group_mute.get("enabled", True))),
+                "require_requester_admin": _parse_bool(input_group_mute.get("require_requester_admin", current_group_mute.get("require_requester_admin", True))),
+                "default_minutes": _parse_int(input_group_mute.get("default_minutes", current_group_mute.get("default_minutes", 10)), 10, minimum=0, maximum=43200),
+                "max_minutes": _parse_int(input_group_mute.get("max_minutes", current_group_mute.get("max_minutes", 43200)), 43200, minimum=1, maximum=43200),
+            },
+            "group_kick": {
+                "enabled": _parse_bool(input_group_kick.get("enabled", current_group_kick.get("enabled", True))),
+                "require_requester_admin": _parse_bool(input_group_kick.get("require_requester_admin", current_group_kick.get("require_requester_admin", True))),
+            },
+            "group_poke": {
+                "enabled": _parse_bool(input_group_poke.get("enabled", current_group_poke.get("enabled", True))),
+                "max_per_hour": _parse_int(input_group_poke.get("max_per_hour", current_group_poke.get("max_per_hour", 20)), 20, minimum=0, maximum=200),
+            },
+            "group_mention": {
+                "enabled": _parse_bool(input_group_mention.get("enabled", current_group_mention.get("enabled", True))),
+                "max_per_reply": _parse_int(input_group_mention.get("max_per_reply", current_group_mention.get("max_per_reply", 3)), 3, minimum=0, maximum=10),
             },
             "max_tool_rounds": _parse_int(input_tools.get("max_tool_rounds", current_tools.get("max_tool_rounds", 4)), 4, minimum=0, maximum=10),
             "wiki_prefetch": {

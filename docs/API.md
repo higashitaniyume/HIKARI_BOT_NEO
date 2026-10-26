@@ -968,6 +968,13 @@ multipart/form-data
 | `tools.images` | object | 网络搜图与发图配置，含 `enabled`、`allow_send`、`max_results`、`max_images_per_send`、`safesearch`、`max_download_mb`、`download_timeout_seconds` |
 | `tools.workspace` | object | 会话隔离文件工作区配置，含 `enabled`、`allow_writes`、`allow_delete`、`allow_send`、`allow_in_auto_reply`、`ingest_incoming`、`include_quoted_files`、`incoming_max_mb` 等 |
 | `tools.files` | object | 人格资源文件工具配置（`enabled`、`max_read_chars`） |
+| `tools.group_members` | object | 枚举本群成员（`enabled`、`max_members`） |
+| `tools.member_profile` | object | 查询群成员资料（`enabled`） |
+| `tools.user_messages` | object | 查询群成员历史发言（`enabled`、`max_messages`、`max_chars`、`allow_live_history`） |
+| `tools.group_mute` | object | AI 禁言 / 解禁（`enabled`、`require_requester_admin`、`default_minutes`、`max_minutes`；机器人须为群管理员） |
+| `tools.group_kick` | object | AI 踢人（`enabled`、`require_requester_admin`；不能踢群主/管理员） |
+| `tools.group_poke` | object | AI 戳一戳（`enabled`、`max_per_hour`；按群限流） |
+| `tools.group_mention` | object | AI 回复 @ 群成员（`enabled`、`max_per_reply`） |
 | `tools.plugin_tools` | object | 插件工具开关和名单 |
 | `tools.max_tool_rounds` | number | 0-10（运行时上限 10；建议 3-4） |
 | `auto_reply.enabled` | boolean | 群聊自动回复总开关（全局段，默认 false） |

@@ -343,6 +343,46 @@
                   <small>NapCat 不存历史，实时窗口只覆盖最近一小段</small>
                 </label>
                 <label class="checkbox-field">
+                  <input id="aiagentGroupMuteEnabled" type="checkbox">
+                  <span>允许 AI 禁言 / 解禁群成员</span>
+                  <small>破坏性操作：机器人须为本群管理员，且只有群管理或机器人超级用户能让它执行；主动接话时禁用</small>
+                </label>
+                <label>
+                  <span>最长禁言时长（分钟）</span>
+                  <input id="aiagentGroupMuteMaxMinutes" type="number" min="1" max="43200" step="1">
+                  <small>43200 = 30 天（QQ 单人禁言上限）</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupKickEnabled" type="checkbox">
+                  <span>允许 AI 踢出群成员</span>
+                  <small>破坏性操作：不能踢群主或机器人自己；踢管理员仅限群主，主动接话时禁用</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupActionRequireAdmin" type="checkbox">
+                  <span>禁言 / 踢人仅限群管理</span>
+                  <small>关闭后本群任何成员都能让 AI 动手，风险很高，不建议关闭</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupPokeEnabled" type="checkbox">
+                  <span>允许 AI 戳一戳</span>
+                  <small>可以戳群成员，也可以戳机器人自己；按群限流防刷屏</small>
+                </label>
+                <label>
+                  <span>每群每小时最多戳一戳</span>
+                  <input id="aiagentGroupPokeMaxPerHour" type="number" min="0" max="200" step="1">
+                  <small>0 = 不限</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupMentionEnabled" type="checkbox">
+                  <span>允许 AI 在回复里 @ 群成员</span>
+                  <small>AI 先查群成员拿到 QQ 号，回复里的标记会渲染成真正的 @</small>
+                </label>
+                <label>
+                  <span>单条回复最多 @ 人数</span>
+                  <input id="aiagentGroupMentionMax" type="number" min="0" max="10" step="1">
+                  <small>超出的 @ 会被丢弃，避免刷屏</small>
+                </label>
+                <label class="checkbox-field">
                   <input id="aiagentChatlogEnabled" type="checkbox">
                   <span>本地记录群消息（chatlog）</span>
                   <small>只记纯文本，按 群/日期 存 UserData；关闭后「历史发言」只剩实时窗口</small>

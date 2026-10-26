@@ -127,6 +127,24 @@
           "max_chars": 4000,
           "allow_live_history": true
         },
+        "group_mute": {
+          "enabled": true,
+          "require_requester_admin": true,
+          "default_minutes": 10,
+          "max_minutes": 43200
+        },
+        "group_kick": {
+          "enabled": true,
+          "require_requester_admin": true
+        },
+        "group_poke": {
+          "enabled": true,
+          "max_per_hour": 20
+        },
+        "group_mention": {
+          "enabled": true,
+          "max_per_reply": 3
+        },
         "plugin_tools": {
           "enabled": true,
           "allow_side_effects": false,

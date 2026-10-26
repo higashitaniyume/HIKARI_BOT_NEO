@@ -17,6 +17,7 @@ from typing import Any
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
 
 from core.bot_identity import get_bot_name
+from . import mention
 from .utils import safe_bool, safe_int
 
 logger = logging.getLogger("HikariBot.AIAgent.Reply")
@@ -90,7 +91,8 @@ def build_reply_message(
     `quote` 显式传入时覆盖配置；主动接话传 False，避免看起来像在针对某个人。
     """
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
-    msg = Message(text)
+    # 模型用 [[at:QQ号]] 标记表示 @，这里替换成真正的 at 段；私聊里标记只被去掉。
+    msg = mention.build_message(text, cfg, group=_is_group_event(event))
     enabled = _quote_reply_enabled(chat_cfg) if quote is None else bool(quote)
     if not enabled:
         return msg
@@ -98,6 +100,10 @@ def build_reply_message(
     if message_id is None or not str(message_id).strip():
         return msg
     return Message(MessageSegment.reply(message_id)) + msg
+
+
+def _is_group_event(event: MessageEvent) -> bool:
+    return isinstance(event, GroupMessageEvent) or getattr(event, "group_id", None) is not None
 
 
 def _find_best_cut(text: str, max_chars: int) -> int:
@@ -264,11 +270,12 @@ async def send_reply(
 
     bot_name = get_bot_name()
     bot_uid = int(bot.self_id)
+    is_group = _is_group_event(event)
     nodes = [
         MessageSegment.node_custom(
             user_id=bot_uid,
             nickname=bot_name,
-            content=Message(seg_text),
+            content=mention.build_message(seg_text, cfg, group=is_group),
         )
         for seg_text in nodes_text
     ]
@@ -298,7 +305,9 @@ async def send_reply(
         logger.warning("[AIAgent] 合并转发发送失败，降级为逐条普通消息发送: %s", e)
         sent_any = False
         for seg_text in nodes_text:
-            if not await send_with_timeout(bot, event, Message(seg_text)):
+            if not await send_with_timeout(
+                bot, event, mention.build_message(seg_text, cfg, group=is_group)
+            ):
                 break
             sent_any = True
             await asyncio.sleep(0.3)

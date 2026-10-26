@@ -22,6 +22,7 @@ from core.stats_tracker import increment as stats_increment
 
 from . import auto_reply
 from . import chatlog  # noqa: F401 - 导入即注册被动聊天记录 matcher
+from . import mention
 from .chatlog import read_recent_messages
 from .client import AIAgentRequestError, request_chat_completion
 from .config import get_config, get_config_for_event
@@ -43,6 +44,7 @@ from .memory import (
     summarize_session_memory,
 )
 from .tools import available_tools, execute_tool_call
+from .tools import group_actions
 from .utils import normalize_text, safe_bool, safe_int, strip_markdown
 from .vision import build_image_blocks, collect_image_urls, request_model, text_block
 
@@ -116,6 +118,42 @@ def _format_auto_context(rows: list[dict[str, Any]]) -> str:
     )
 
 
+def _group_tools_prompt(
+    cfg: dict[str, Any], event: MessageEvent, *, auto: bool = False
+) -> str:
+    """群管理 / 互动工具的使用约束（只在群聊、且工具开启时追加）。
+
+    只影响 system prompt 的一段固定文本：同一套配置下逐字节稳定，不破坏前缀缓存。
+    主动接话时这些工具不会下发，提示词也一并省略。
+    """
+    if auto or not isinstance(event, GroupMessageEvent):
+        return ""
+
+    blocks: list[str] = []
+    if group_actions.moderation_enabled(cfg):
+        blocks.append(
+            "【群管理】\n"
+            "禁言、踢人是有真实后果的破坏性操作：只有用户明确、直接要求你对某位成员执行时才调用，"
+            "绝不要因为玩笑、讽刺或你自己的判断就动手；不能对群主、管理员、机器人自己或发起人执行。"
+            "机器人不是管理员时，如实告诉用户先把机器人设为管理员。"
+        )
+    if group_actions.poke_enabled(cfg):
+        blocks.append(
+            "【戳一戳】\n"
+            "用户让你戳某人、或想用戳一戳互动时，调用 group_poke；不要反复戳同一个人，"
+            "被限流时如实告诉用户稍后再试。"
+        )
+    if group_actions.mention_enabled(cfg):
+        blocks.append(
+            "【@ 群成员】\n"
+            "需要在回复里真正 @ 某位群成员时，先调用 group_mention 拿到 marker（形如 [[at:QQ号]]），"
+            "再把这个 marker 原样写进回复；不要自己编造 marker，不要 @ 全体成员，也不要 @ 机器人自己。"
+        )
+    if not blocks:
+        return ""
+    return "\n\n" + "\n".join(blocks)
+
+
 def _build_messages(
     cfg: dict[str, Any],
     event: MessageEvent,
@@ -163,6 +201,7 @@ def _build_messages(
         "用户消息开头的【当前时间】是系统自动附加的，不是用户原话；\n"
         "回答与日期、时间有关的问题时以它为准，不要复述这个标记。"
         f"{file_image_prompt}"
+        f"{_group_tools_prompt(cfg, event, auto=auto)}"
     )
 
     if auto:
@@ -247,7 +286,9 @@ def _quote_reply_enabled(chat_cfg: dict[str, Any]) -> bool:
 
 def _build_reply_message(event: MessageEvent, text: str, cfg: dict[str, Any]) -> Message:
     """构造 AI 回复消息：默认以引用回复的方式挂在触发消息下。"""
-    message = Message(text)
+    message = mention.build_message(
+        text, cfg, group=isinstance(event, GroupMessageEvent)
+    )
     chat_cfg = cfg.get("chat") if isinstance(cfg.get("chat"), dict) else {}
     if not _quote_reply_enabled(chat_cfg):
         return message
