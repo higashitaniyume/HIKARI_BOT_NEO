@@ -349,6 +349,75 @@ class ToolRegistrationTests(unittest.TestCase):
             self.assertFalse(spec.enabled_by_default)
             self.assertEqual(spec.parameters["type"], "object")
 
+    def test_root_tool_requires_superuser(self) -> None:
+        from core.ai_tool_registry import get_ai_tool
+
+        spec = get_ai_tool("terminal_root_exec")
+        self.assertIsNotNone(spec)
+        self.assertTrue(spec.requires_superuser)
+        self.assertFalse(spec.readonly)
+        self.assertFalse(spec.enabled_by_default)
+
+
+class PrivateAndRootTests(unittest.IsolatedAsyncioTestCase):
+    async def test_private_session_uses_qqp_prefix(self) -> None:
+        mapping = {
+            "useradd -m -U": ExecResult(exit_code=0, output=""),
+            f"{MARKER}GROUPS": ExecResult(
+                exit_code=0, output=VERIFY_OUTPUT.replace("qqg_123", "qqp_123")
+            ),
+        }
+        service, backend, cfg = make_service(mapping)
+        private_ref = SessionRef(key="p123", raw_id="123", prefix="qqp_", is_group=False)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            cfg["users"]["allow_private"] = True
+            await service.execute(cfg, private_ref, "true")
+
+            state = json.loads(Path(cfg["state_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(state["groups"]["p123"]["user"], "qqp_123")
+
+        executed = backend.calls[-1][0]
+        self.assertIn("-u qqp_123", executed)
+
+    async def test_root_exec_disabled_by_default(self) -> None:
+        service, _backend, cfg = make_service()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            with self.assertRaises(RemoteShellError):
+                await service.execute_root(cfg, GROUP_REF, "id -un")
+
+    async def test_root_exec_runs_without_runuser(self) -> None:
+        mapping = {"id -un": ExecResult(exit_code=0, output=f"root\n{MARKER}CWD:/root")}
+        service, backend, cfg = make_service(mapping)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            cfg["root"]["enabled"] = True
+            result = await service.execute_root(cfg, GROUP_REF, "id -un")
+
+            self.assertEqual(result["mode"], "root")
+            self.assertEqual(result["output"], "root")
+            self.assertEqual(result["cwd"], "/root")
+
+            state = json.loads(Path(cfg["state_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(state["root_sessions"]["g123"]["cwd"], "/root")
+
+        executed = backend.calls[-1][0]
+        self.assertNotIn("runuser", executed)
+        self.assertIn("env -i HOME=/root", executed)
+        self.assertIn("/usr/bin/timeout -k 5 60", executed)
+
+    async def test_root_exec_hourly_limit(self) -> None:
+        service, _backend, cfg = make_service()
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            cfg["root"]["enabled"] = True
+            cfg["root"]["hourly_commands"] = 1
+            await service.execute_root(cfg, GROUP_REF, "true")
+            with self.assertRaises(RemoteShellError):
+                await service.execute_root(cfg, GROUP_REF, "true")
+
 
 if __name__ == "__main__":
     unittest.main()

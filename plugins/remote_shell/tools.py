@@ -37,7 +37,7 @@ async def close_service() -> None:
 # ── 上下文与开关 ─────────────────────────────────────────────────────────
 
 
-def _session_ref(context: AIToolContext, cfg: dict[str, Any]) -> SessionRef:
+def _ref_for_event(context: AIToolContext, cfg: dict[str, Any]) -> SessionRef:
     event = getattr(context, "event", None)
     if event is None:
         raise RemoteShellError("缺少消息上下文，无法确定会话")
@@ -47,13 +47,30 @@ def _session_ref(context: AIToolContext, cfg: dict[str, Any]) -> SessionRef:
         prefix = str(section(cfg, "users").get("prefix") or "qqg_")
         return SessionRef(key=f"g{group_id}", raw_id=str(group_id), prefix=prefix, is_group=True)
 
-    if not as_bool(section(cfg, "users").get("allow_private"), False):
-        raise RemoteShellError("私聊暂未开放终端；请在群里使用")
-
     user_id = getattr(event, "user_id", None)
     if user_id is None:
         user_id = event.get_user_id()
     return SessionRef(key=f"p{user_id}", raw_id=str(user_id), prefix="qqp_", is_group=False)
+
+
+def _session_ref(context: AIToolContext, cfg: dict[str, Any]) -> SessionRef:
+    ref = _ref_for_event(context, cfg)
+    if not ref.is_group and not as_bool(section(cfg, "users").get("allow_private"), False):
+        raise RemoteShellError("私聊暂未开放终端；请在群里使用")
+    return ref
+
+
+def _is_superuser(context: AIToolContext) -> bool:
+    event = getattr(context, "event", None)
+    if event is None:
+        return False
+    try:
+        from core.config_loader import load_main_config
+
+        superuser_id = str(load_main_config().get("bot", {}).get("superuser_id") or "").strip()
+        return bool(superuser_id) and str(event.get_user_id()).strip() == superuser_id
+    except Exception:  # noqa: BLE001 - 配置读取失败时按非超级管理员处理
+        return False
 
 
 def _guard(context: AIToolContext, cfg: dict[str, Any], ref: SessionRef) -> None:
@@ -107,6 +124,45 @@ async def _handle_exec(context: AIToolContext, args: dict[str, Any]) -> dict[str
     except Exception as e:  # noqa: BLE001 - 工具层不向模型抛栈
         logger.exception("terminal_exec 失败")
         return _error(f"终端执行异常: {type(e).__name__}: {e}")
+
+
+async def _handle_root_exec(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    """仅超级管理员：以 root 身份执行系统命令。"""
+
+    try:
+        cfg = load_config()
+        if not _is_superuser(context):
+            return _error("只有机器人超级管理员可以调用 root 命令")
+        if context.auto:
+            return _error("主动接话时不能执行 root 命令；请直接对机器人提需求")
+        if not as_bool(cfg.get("enabled"), False):
+            return _error("终端功能未启用（remote_shell.enabled = false）")
+        if not as_bool(section(cfg, "root").get("enabled"), False):
+            return _error("root 终端未启用（remote_shell.root.enabled = false）")
+
+        ref = _ref_for_event(context, cfg)
+        if ref.is_group:
+            if not as_bool(section(cfg, "root").get("allow_in_groups"), False):
+                return _error("root 命令默认只允许私聊执行（root.allow_in_groups = false）")
+            blocked = section(cfg, "groups").get("blocked") or []
+            if ref.raw_id in {str(item).strip() for item in blocked}:
+                return _error("本群已被禁用终端功能")
+
+        cwd = args.get("cwd")
+        return await get_service().execute_root(
+            cfg,
+            ref,
+            str(args.get("command") or ""),
+            cwd=str(cwd) if cwd else None,
+            timeout=args.get("timeout_seconds"),
+        )
+    except RemoteShellError as e:
+        return _error(str(e))
+    except ValueError as e:
+        return _error(f"参数不合法: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_root_exec 失败")
+        return _error(f"root 命令执行异常: {type(e).__name__}: {e}")
 
 
 async def _handle_read(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -319,3 +375,36 @@ register_ai_tool(
     readonly=False,
     enabled_by_default=False,
 )(_handle_edit)
+
+register_ai_tool(
+    "terminal_root_exec",
+    description=(
+        "仅机器人超级管理员可用：以 root 身份在远端宿主机执行命令（不降权、不限家目录）。"
+        "适合装系统包、改 systemd 服务、看系统日志等必须 root 的操作；"
+        "普通写代码/跑脚本请用 terminal_exec，不要用这个。"
+        "默认只允许私聊触发（root.allow_in_groups=false），每次调用都会记录审计；"
+        "命令无标准输入、默认 60 秒超时、输出会截断。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "要以 root 身份执行的 shell 命令"},
+            "cwd": {
+                "type": "string",
+                "description": "可选工作目录，默认 /root（绝对路径或相对当前目录）",
+            },
+            "timeout_seconds": {
+                "type": "integer",
+                "description": "可选超时秒数，默认 60，最大 300",
+                "minimum": 1,
+                "maximum": 300,
+            },
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    requires_superuser=True,
+    enabled_by_default=False,
+)(_handle_root_exec)

@@ -1642,12 +1642,13 @@ jm 123456
 **配置文件：** `BotData/plugin_configs/remote_shell.json`
 **依赖：** 独立开发机（Debian 宿主，需 root SSH、`useradd`、`runuser`、`timeout`）；本插件通过 `asyncssh` 连接，容器内无需安装 ssh 客户端
 
-给 AI Agent 增加一组终端工具，让模型能像写代码一样「执行 → 看报错 → 改文件 → 再执行」。每个 QQ 群共享一个专属 Linux 账号，账号在第一次使用时自动创建：
+给 AI Agent 增加一组终端工具，让模型能像写代码一样「执行 → 看报错 → 改文件 → 再执行」。每个 QQ 群共享一个专属 Linux 账号（私聊可选按 QQ 号单独开号），账号在第一次使用时自动创建：
 
 | 项 | 值 |
 |----|----|
-| 用户名 | `qqg_<纯数字群号>`（超长时截断到 32 字符） |
-| 家目录 | `/home/qqg_<群号>`，权限 `700` |
+| 群账号 | `qqg_<纯数字群号>`（超长时截断到 32 字符） |
+| 私聊账号 | `qqp_<QQ号>`（`users.allow_private` 打开后生效） |
+| 家目录 | `/home/<用户名>`，权限 `700` |
 | shell | `/bin/bash`，密码锁定（`passwd -l`） |
 | 权限 | 只在自身主组；不进 `sudo`/`wheel`/`adm`/`docker`；`sudo -n true` 必须失败 |
 
@@ -1660,8 +1661,11 @@ jm 123456
 | `terminal_write` | 写入/追加文件，内容走 stdin 传输（不受 shell 引号影响），仅限家目录 |
 | `terminal_list` | 结构化列目录（名称/类型/大小/时间） |
 | `terminal_edit` | 精确字符串替换，默认要求原文唯一 |
+| `terminal_root_exec` | 仅机器人超级管理员：以 root 身份执行系统级命令（不降权） |
 
-**工作目录：** 每条命令结束时由 `trap EXIT` 回传 `$PWD`，插件持久化到 `UserData/remote_shell/state.json`，所以 `cd` 会跨调用保持；目录被删掉时自动回到 home。
+**工作目录：** 每条命令结束时由 `trap EXIT` 回传 `$PWD`，插件持久化到 `UserData/remote_shell/state.json`，所以 `cd` 会跨调用保持；目录被删掉时自动回到 home。root 模式的 cwd 单独记录在 `root_sessions` 里。
+
+**后台「终端」页：** 管理后台左侧「终端」可以看到当前有多少个终端账号（群/私聊分开统计）、每个账号的 Linux 用户/家目录/当前目录/创建与最后使用时间、今日与累计调用次数，以及最近的调用历史（时间、会话、账号、动作、命令、退出码、耗时）。`exec` / `root_exec` 记录可以点「查看输出」直接读当次完整 stdout/stderr。页面每 5 秒自动刷新，支持按会话/用户/命令搜索和动作筛选。
 
 **关键配置：**
 
@@ -1673,6 +1677,9 @@ jm 123456
 | `ssh.known_hosts` | 主机公钥文件；不存在时首次连接 TOFU 写入，之后严格校验 |
 | `users.auto_provision` | 首次调用时自动建号，默认 `true`；关掉后只允许手工预建 |
 | `users.allow_private` | 私聊是否也开终端（按 QQ 号建 `qqp_` 账号），默认关闭 |
+| `root.enabled` | 是否启用超级管理员 root 模式（`terminal_root_exec`），默认 `false` |
+| `root.allow_in_groups` | root 命令是否允许在群里执行，默认 `false`（只允许私聊） |
+| `root.hourly_commands` | root 命令每小时上限，默认 60 |
 | `exec.default_timeout` / `max_timeout` | 单次命令默认 60 秒、上限 300 秒 |
 | `exec.max_output_chars` | 回传给模型的输出上限（默认 6000），完整输出落 `UserData/remote_shell/logs/` |
 | `exec.max_concurrent` | 全局并发 SSH 通道数，默认 3；同群永远串行 |
@@ -1694,12 +1701,14 @@ jm 123456
 
 2. 私钥留在 `BotData/ssh/id_ed25519`（容器内为 `/app/BotData/ssh/id_ed25519`，权限 600）；该目录已 gitignore，不进仓库，也不参与部署覆盖；
 3. `BotData/plugin_configs/remote_shell.json` 里把 `enabled` 改成 `true`，并确认 `ssh.host` / `ssh.port` 指向开发机；
-4. 后台「AI Agent」页打开「允许副作用工具」，并在插件工具列表里勾选 `terminal_*`；
-5. 视需要把 `tools.max_tool_rounds` 调大（代码上限已放宽到 24，默认 4）。
+4. 后台「AI Agent」页打开「允许副作用工具」，并在插件工具列表里勾选 `terminal_*`（`terminal_root_exec` 只对超级管理员生效，需要单独勾选）；
+5. 视需要把 `tools.max_tool_rounds` 调大（代码上限已放宽到 24，默认 4）；
+6. 私聊：把 `users.allow_private` 设为 `true`；root 模式：把 `root.enabled` 设为 `true`（默认只允许超级管理员私聊触发）。
 
 **安全边界（务必知悉）：**
 
 - 隔离是**文件系统级**的：群账号能读全机 world-readable 文件、能探测内网服务，只是不能提权到 root；
 - **同群共享一个账号**，群内没有个人隔离，互相能删文件、顶进程；
 - AI 读到的网页/文件内容可能反过来指挥它执行命令（提示注入），真正的边界是那个非 root 账号，所以目标机上不要放密钥、Cookie 或其他群的数据；
-- 所有调用都会写入 `UserData/remote_shell/audit.jsonl`（群号、账号、命令、退出码、耗时），便于事后排查。
+- **`terminal_root_exec` 就是宿主机 root**：不受家目录/降权限制，只有 `bot.superuser_id` 本人能看到并调用，且默认只允许私聊、不能由主动接话触发；打开前请确认这台机器上没有其他不可丢的数据；
+- 所有调用都会写入 `UserData/remote_shell/audit.jsonl`（群号、账号、命令、退出码、耗时），后台「终端」页可查，`exec`/`root_exec` 还能看完整输出。

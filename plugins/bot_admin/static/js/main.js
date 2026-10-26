@@ -27,6 +27,22 @@ $("#quotaConfigForm").addEventListener("submit", saveAiAgentQuota);
 $("#quotaAddOverrideBtn").addEventListener("click", addQuotaOverrideRow);
 $("#quotaRefreshBtn").addEventListener("click", () => fetchAiAgentQuota().then(() => showToast("已刷新。")).catch((err) => showToast(err.message, true)));
 $("#quotaResetAllBtn").addEventListener("click", () => resetAllQuota().catch((err) => showToast(err.message, true)));
+$("#terminalRefreshBtn").addEventListener("click", () => fetchTerminalOverview().catch((err) => showToast(err.message, true)));
+$("#terminalSearch").addEventListener("input", onTerminalSearchInput);
+$("#terminalActionFilter").addEventListener("change", (event) => {
+  state.terminalAction = event.currentTarget.value;
+  fetchTerminalOverview(true).catch((err) => showToast(err.message, true));
+});
+$("#terminalLimit").addEventListener("change", (event) => {
+  state.terminalLimit = Number(event.currentTarget.value) || 100;
+  fetchTerminalOverview(true).catch((err) => showToast(err.message, true));
+});
+$("#terminalLogClose").addEventListener("click", () => $("#terminalLogDialog").close());
+$("#terminalLogDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) {
+    $("#terminalLogDialog").close();
+  }
+});
 for (const btn of document.querySelectorAll("[data-quota-tab]")) {
   btn.addEventListener("click", () => switchQuotaTab(btn));
 }

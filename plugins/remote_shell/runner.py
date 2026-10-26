@@ -22,6 +22,7 @@ CHDIR_FAILED_MARKER = f"{MARKER}CHDIR_FAILED"
 _PATH_ENV_TAIL = (
     "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
+_ROOT_PATH = _PATH_ENV_TAIL
 
 _ANSI_RE = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]"  # CSI
@@ -92,6 +93,31 @@ def build_remote_command(
     ]
     return (
         f"{runuser_bin} -u {shlex.quote(user)} -- "
+        f"env -i {' '.join(env_items)} "
+        f"{timeout_bin} -k 5 {int(timeout)} {shlex.quote(shell)} -c {shlex.quote(script)}"
+    )
+
+
+def build_root_command(
+    *,
+    script: str,
+    timeout: int,
+    shell: str = "/bin/bash",
+    timeout_bin: str = "/usr/bin/timeout",
+) -> str:
+    """超级管理员模式：以 root 身份直接执行（不降权），仅限显式授权场景。"""
+
+    env_items = [
+        "HOME=/root",
+        "USER=root",
+        "LOGNAME=root",
+        f"SHELL={shlex.quote(shell)}",
+        "TERM=dumb",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        f"PATH={shlex.quote(_ROOT_PATH)}",
+    ]
+    return (
         f"env -i {' '.join(env_items)} "
         f"{timeout_bin} -k 5 {int(timeout)} {shlex.quote(shell)} -c {shlex.quote(script)}"
     )

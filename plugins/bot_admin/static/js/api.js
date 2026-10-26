@@ -671,3 +671,23 @@ async function fetchPluginPages() {
   }
   renderPluginPagesNav();
 }
+
+async function fetchTerminalOverview(silent = false) {
+  const params = new URLSearchParams();
+  params.set("limit", String(state.terminalLimit || 100));
+  if (state.terminalQuery) params.set("q", state.terminalQuery);
+  if (state.terminalAction) params.set("action", state.terminalAction);
+  const res = await fetch(`/api/terminal/overview?${params.toString()}`, { cache: "no-store" });
+  const data = await readJsonResponse(res, "读取终端记录失败");
+  state.terminalOverview = data;
+  renderTerminalOverview(data);
+  if (!silent) {
+    showToast("终端记录已刷新。");
+  }
+}
+
+async function fetchTerminalLog(session, name) {
+  const params = new URLSearchParams({ session, name });
+  const res = await fetch(`/api/terminal/log?${params.toString()}`, { cache: "no-store" });
+  return readJsonResponse(res, "读取命令输出失败");
+}

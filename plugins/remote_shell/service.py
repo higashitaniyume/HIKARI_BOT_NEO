@@ -26,6 +26,7 @@ from .provision import (
 from .runner import (
     MARKER,
     build_remote_command,
+    build_root_command,
     build_script,
     normalize_path,
     split_cwd_marker,
@@ -135,6 +136,7 @@ class RemoteShellService:
                     "exit_code": result.exit_code,
                     "duration_ms": duration_ms,
                     "truncated": truncated,
+                    "log": log_path,
                 },
             )
 
@@ -152,6 +154,115 @@ class RemoteShellService:
                 "output": output,
                 "truncated": truncated,
                 "cwd": session.cwd,
+                "duration_ms": duration_ms,
+                "log": log_path,
+                "hint": "；".join(hints) if hints else "",
+            }
+
+    async def execute_root(
+        self,
+        cfg: dict[str, Any],
+        ref: SessionRef,
+        command: str,
+        *,
+        cwd: str | None = None,
+        timeout: int | float | None = None,
+    ) -> dict[str, Any]:
+        """超级管理员模式：以 root 身份执行（不降权）。
+
+        调用方（tools 层）必须先校验当前用户是 bot 超级管理员；这里只负责
+        执行、限流、cwd 记录与审计，避免权限判断散落在多处。
+        """
+
+        root_cfg = section(cfg, "root")
+        if not as_bool(root_cfg.get("enabled"), False):
+            raise RemoteShellError("root 终端未启用（remote_shell.root.enabled = false）")
+
+        exec_cfg = section(cfg, "exec")
+        text = str(command or "")
+        if not text.strip():
+            raise RemoteShellError("命令为空")
+        max_command = as_int(exec_cfg.get("max_command_chars"), 4000, minimum=64)
+        if len(text) > max_command:
+            raise RemoteShellError(f"命令太长（{len(text)} 字符，上限 {max_command}）")
+
+        timeout_value = self._root_timeout(cfg, timeout)
+
+        async with self._lock_for(f"root:{ref.key}"):
+            self._check_root_rate(cfg, ref)
+
+            entry = self._root_session(cfg, ref)
+            current_cwd = str(entry.get("cwd") or root_cfg.get("cwd") or "/root")
+            workdir = (
+                normalize_path(cwd, cwd=current_cwd, home="/root")
+                if cwd
+                else current_cwd
+            )
+
+            script = build_script(
+                text,
+                cwd=workdir,
+                max_processes=as_int(exec_cfg.get("max_processes"), 256, minimum=8),
+                max_file_size_mb=as_int(exec_cfg.get("max_file_size_mb"), 2048, minimum=1),
+            )
+            remote = build_root_command(
+                script=script,
+                timeout=timeout_value,
+                shell=str(section(cfg, "users").get("shell") or "/bin/bash"),
+            )
+
+            started = time.monotonic()
+            async with self._semaphore_for(cfg):
+                result = await self.backend.run(cfg, remote, timeout=timeout_value)
+            duration_ms = int((time.monotonic() - started) * 1000)
+
+            clean, new_cwd, chdir_failed = split_cwd_marker(result.output)
+            clean = strip_ansi(clean)
+            if chdir_failed:
+                workdir = "/root"
+            elif new_cwd and new_cwd.startswith("/"):
+                workdir = new_cwd
+            await self._save_root_session(cfg, ref, workdir)
+
+            max_chars = as_int(exec_cfg.get("max_output_chars"), 6000, minimum=500, maximum=40000)
+            output, truncated = truncate_output(clean.rstrip("\n"), max_chars)
+
+            log_path = write_command_log(
+                section(cfg, "logs").get("root", "UserData/remote_shell/logs"),
+                ref.key,
+                command=f"[root] {text}",
+                output=clean,
+                exit_code=result.exit_code,
+                keep=as_int(section(cfg, "logs").get("keep"), 100, minimum=0),
+            )
+
+            self._audit(
+                cfg,
+                ref,
+                {
+                    "action": "root_exec",
+                    "user": "root",
+                    "command": text[:500],
+                    "exit_code": result.exit_code,
+                    "duration_ms": duration_ms,
+                    "truncated": truncated,
+                    "log": log_path,
+                },
+            )
+
+            hints: list[str] = []
+            if result.timed_out or result.exit_code == 124:
+                hints.append(f"root 命令超过 {timeout_value}s 被终止")
+            if chdir_failed:
+                hints.append("原工作目录不可用，已回到 /root")
+
+            return {
+                "ok": True,
+                "mode": "root",
+                "exit_code": result.exit_code,
+                "output": output,
+                "truncated": truncated,
+                "cwd": workdir,
                 "duration_ms": duration_ms,
                 "log": log_path,
                 "hint": "；".join(hints) if hints else "",
@@ -398,7 +509,7 @@ class RemoteShellService:
 
         users_cfg = section(cfg, "users")
         shell = str(users_cfg.get("shell") or "/bin/bash")
-        user = linux_user(ref.raw_id, str(users_cfg.get("prefix") or "qqg_"))
+        user = linux_user(ref.raw_id, ref.prefix or str(users_cfg.get("prefix") or "qqg_"))
         home = home_for(user, str(users_cfg.get("home_base") or "/home"))
 
         provision = await self._root_run(
@@ -545,6 +656,50 @@ class RemoteShellService:
     async def _root_run(self, cfg: dict[str, Any], command: str, *, timeout: int = 60) -> ExecResult:
         async with self._semaphore_for(cfg):
             return await self.backend.run(cfg, command, timeout=timeout)
+
+    def _root_timeout(self, cfg: dict[str, Any], value: int | float | None) -> int:
+        root_cfg = section(cfg, "root")
+        default = as_int(root_cfg.get("default_timeout"), 60, minimum=1, maximum=3600)
+        maximum = as_int(root_cfg.get("max_timeout"), 300, minimum=1, maximum=3600)
+        if value is None:
+            return min(default, maximum)
+        try:
+            wanted = int(value)
+        except (TypeError, ValueError):
+            return min(default, maximum)
+        return max(1, min(wanted, maximum))
+
+    def _check_root_rate(self, cfg: dict[str, Any], ref: SessionRef) -> None:
+        limit = as_int(section(cfg, "root").get("hourly_commands"), 60, minimum=0)
+        if limit <= 0:
+            return
+        key = f"root:{ref.key}"
+        now = time.monotonic()
+        bucket = self._hourly.setdefault(key, deque())
+        while bucket and now - bucket[0] > 3600:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            raise RemoteShellError(f"root 命令过于频繁：每小时上限 {limit} 次")
+        bucket.append(now)
+
+    def _root_session(self, cfg: dict[str, Any], ref: SessionRef) -> dict[str, Any]:
+        data = self._store(cfg).load()
+        sessions = data.get("root_sessions")
+        if not isinstance(sessions, dict):
+            return {}
+        entry = sessions.get(ref.key)
+        return entry if isinstance(entry, dict) else {}
+
+    async def _save_root_session(self, cfg: dict[str, Any], ref: SessionRef, cwd: str) -> None:
+        async with self._state_lock:
+            store = self._store(cfg)
+            data = store.load()
+            sessions = data.get("root_sessions")
+            if not isinstance(sessions, dict):
+                sessions = {}
+                data["root_sessions"] = sessions
+            sessions[ref.key] = {"cwd": cwd, "updated_at": int(time.time())}
+            store.save(data)
 
     def _timeout(self, cfg: dict[str, Any], value: int | float | None) -> int:
         exec_cfg = section(cfg, "exec")

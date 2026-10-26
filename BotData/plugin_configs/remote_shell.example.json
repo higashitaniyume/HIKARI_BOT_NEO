@@ -29,6 +29,13 @@
     "max_concurrent": 3,
     "allow_auto_reply_calls": false
   },
+  "root": {
+    "enabled": false,
+    "allow_in_groups": false,
+    "hourly_commands": 60,
+    "default_timeout": 60,
+    "max_timeout": 300
+  },
   "files": {
     "enabled": true,
     "max_read_chars": 20000,

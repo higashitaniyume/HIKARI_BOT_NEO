@@ -48,6 +48,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # 避免随便一句闲聊就把命令执行出去。
         "allow_auto_reply_calls": False,
     },
+    # 超级管理员 root 模式：仅 bot.superuser_id 本人可见/可用，默认关闭。
+    "root": {
+        "enabled": False,
+        "allow_in_groups": False,
+        "hourly_commands": 60,
+        "default_timeout": 60,
+        "max_timeout": 300,
+    },
     "files": {
         "enabled": True,
         "max_read_chars": 20000,

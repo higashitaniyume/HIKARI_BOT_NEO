@@ -66,6 +66,7 @@ from .handlers_stickers import StickerHandlerMixin
 from .handlers_admin import AdminHandlerMixin
 from .handlers_plugin import PluginPageHandlerMixin
 from .handlers_qzone import QzoneHandlerMixin
+from .handlers_terminal import TerminalHandlerMixin
 
 logger = logging.getLogger("HikariBot.BotAdmin")
 _API_TOKEN_HEADERS = ("X-Admin-Token", "X-Hikari-Admin-Token", "Token")
@@ -78,6 +79,7 @@ class BotAdminHandler(
     StickerHandlerMixin,
     AdminHandlerMixin,
     PluginPageHandlerMixin,
+    TerminalHandlerMixin,
     BaseHTTPRequestHandler,
 ):
     server_version = "HikariBotAdmin/1.0"
