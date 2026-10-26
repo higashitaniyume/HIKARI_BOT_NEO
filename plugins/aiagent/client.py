@@ -219,7 +219,7 @@ async def _request_chat_completion(
     plain_request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     request_messages: list[dict[str, Any]] = [dict(message) for message in messages]
     all_tools = available_tools(cfg, tool_context)
-    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=10)
+    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=24)
     # 工具集合必须逐请求稳定：寒暄不下发 tools、普通消息下发，会让同一会话的
     # 请求前缀在「有工具 / 无工具」之间来回切换，整段缓存都失效。
     # 是否真的调用工具交给 system prompt 约束和模型判断。

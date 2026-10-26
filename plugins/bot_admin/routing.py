@@ -61,6 +61,8 @@ ROUTE_DEFS: list[RouteEntry] = [
     RouteEntry({"GET"}, "/api/groups", "api_groups", "_handle_groups"),
     RouteEntry({"GET"}, "/api/aiagent-memory", "api_aiagent_memory", "_handle_aiagent_memory"),
     RouteEntry({"GET"}, "/api/aiagent-quota", "api_aiagent_quota", "_handle_aiagent_quota"),
+    RouteEntry({"GET"}, "/api/terminal/overview", "api_terminal_overview", "_handle_terminal_overview"),
+    RouteEntry({"GET"}, "/api/terminal/log", "api_terminal_log", "_handle_terminal_log"),
     RouteEntry({"GET"}, "/api/push-config", "api_push_config_get", "_handle_push_config_get"),
     RouteEntry({"GET"}, "/api/rss-config", "api_rss_config_get", "_handle_rss_config_get"),
     RouteEntry({"GET"}, "/api/qzone-config", "api_qzone_config_get", "_handle_qzone_config"),
