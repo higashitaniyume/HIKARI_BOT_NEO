@@ -28,6 +28,7 @@ from .runner import (
     build_remote_command,
     build_root_command,
     build_script,
+    build_user_cat_command,
     normalize_path,
     split_cwd_marker,
     strip_ansi,
@@ -475,6 +476,96 @@ class RemoteShellService:
                 },
             )
             return {"ok": True, "path": target, "replacements": expected, "bytes": len(payload)}
+
+    async def fetch_file(
+        self,
+        cfg: dict[str, Any],
+        ref: SessionRef,
+        path: str,
+        *,
+        timeout: int | float | None = None,
+    ) -> dict[str, Any]:
+        """把远端文件按群用户权限读成字节，交给上层写入 AI 工作区。"""
+
+        files_cfg = section(cfg, "files")
+        if not as_bool(files_cfg.get("enabled"), True):
+            raise RemoteShellError("文件工具未启用")
+
+        max_mb = as_int(files_cfg.get("max_fetch_mb"), 96, minimum=1, maximum=500)
+        max_bytes = max_mb * 1024 * 1024
+        timeout_value = min(300, max(30, as_int(timeout, 120, minimum=1, maximum=600)))
+
+        async with self._lock_for(ref.key):
+            session = await self._require_session(cfg, ref)
+            target = normalize_path(
+                path,
+                cwd=session.cwd,
+                home=session.home,
+                require_home=as_bool(files_cfg.get("fetch_home_only"), True),
+            )
+
+            meta = await self._run_user(
+                cfg,
+                session,
+                f"if [ -f {_q(target)} ]; then stat -c %s -- {_q(target)}; "
+                f"elif [ -d {_q(target)} ]; then printf '{MARKER}ISDIR'; "
+                f"else printf '{MARKER}NOFILE'; fi",
+                timeout=20,
+            )
+            raw_meta = meta.output.strip()
+            if f"{MARKER}NOFILE" in raw_meta:
+                raise RemoteShellError(f"文件不存在: {target}")
+            if f"{MARKER}ISDIR" in raw_meta:
+                raise RemoteShellError(f"{target} 是目录；请先打包（如 tar czf）再拉取")
+            try:
+                size = int(raw_meta.splitlines()[-1])
+            except (ValueError, IndexError):
+                raise RemoteShellError(f"无法获取文件大小: {raw_meta[:200]}") from None
+
+            if size > max_bytes:
+                raise RemoteShellError(
+                    f"文件约 {size / 1024 / 1024:.1f}MB，超过拉取上限 {max_mb}MB"
+                )
+
+            if size == 0:
+                data = b""
+            else:
+                cat_command = build_user_cat_command(
+                    user=session.user,
+                    home=session.home,
+                    path=target,
+                )
+                async with self._semaphore_for(cfg):
+                    exit_code, data, truncated = await self.backend.download(
+                        cfg,
+                        cat_command,
+                        max_bytes=max_bytes + 1,
+                        timeout=timeout_value,
+                    )
+                if exit_code != 0:
+                    detail = data.decode("utf-8", errors="replace").strip()[-400:]
+                    raise RemoteShellError(f"读取文件失败（exit {exit_code}）：{detail or '无输出'}")
+                if truncated or len(data) != size:
+                    raise RemoteShellError("文件在读取过程中发生变化或被截断，请重试")
+
+            name = posixpath.basename(target) or "file.bin"
+            self._audit(
+                cfg,
+                ref,
+                {
+                    "action": "fetch",
+                    "user": session.user,
+                    "path": target,
+                    "bytes": len(data),
+                },
+            )
+            return {
+                "ok": True,
+                "path": target,
+                "name": name,
+                "data": data,
+                "bytes": len(data),
+            }
 
     # ── 会话与开通 ───────────────────────────────────────────────────────
 

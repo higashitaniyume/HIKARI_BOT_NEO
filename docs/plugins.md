@@ -1661,9 +1661,17 @@ jm 123456
 | `terminal_write` | 写入/追加文件，内容走 stdin 传输（不受 shell 引号影响），仅限家目录 |
 | `terminal_list` | 结构化列目录（名称/类型/大小/时间） |
 | `terminal_edit` | 精确字符串替换，默认要求原文唯一 |
+| `terminal_fetch` | 把远端文件拉回当前会话的 AI 工作区（`downloads/`），随后用 `send_file` 发到 QQ |
 | `terminal_root_exec` | 仅机器人超级管理员：以 root 身份执行系统级命令（不降权） |
 
 **工作目录：** 每条命令结束时由 `trap EXIT` 回传 `$PWD`，插件持久化到 `UserData/remote_shell/state.json`，所以 `cd` 会跨调用保持；目录被删掉时自动回到 home。root 模式的 cwd 单独记录在 `root_sessions` 里。
+
+**发文件（重要）：** `send_file` 只能发送 AI 工作区（`UserData/aiagent_files/<会话>/`）里的文件，**读不到远端机器上的文件**。需要把远端产物发出来时，流程是：
+
+1. `terminal_fetch(path="dist/app.zip")` —— 按群用户权限把远端文件读回，落到当前会话工作区的 `downloads/<时间戳>-<文件名>`，单文件上限 96MB（`files.max_fetch_mb`），默认只允许读家目录（`files.fetch_home_only`）；
+2. `send_file(path="downloads/20261026-143000-app.zip")` —— 由现有工作区能力做大小校验、暂存到 `/tmp/hikari_bot/aiagent_out` 并调用 NapCat 上传（受 `tools.workspace.allow_send` 与 `max_send_mb` 限制）。
+
+纯文本小文件不必绕这一圈，`terminal_read` 直接读；目录先在远端 `tar`/`zip` 打包再拉取。
 
 **后台「终端」页：** 管理后台左侧「终端」可以看到当前有多少个终端账号（群/私聊分开统计）、每个账号的 Linux 用户/家目录/当前目录/创建与最后使用时间、今日与累计调用次数，以及最近的调用历史（时间、会话、账号、动作、命令、退出码、耗时）。`exec` / `root_exec` 记录可以点「查看输出」直接读当次完整 stdout/stderr。页面每 5 秒自动刷新，支持按会话/用户/命令搜索和动作筛选。
 
@@ -1684,6 +1692,8 @@ jm 123456
 | `exec.max_output_chars` | 回传给模型的输出上限（默认 6000），完整输出落 `UserData/remote_shell/logs/` |
 | `exec.max_concurrent` | 全局并发 SSH 通道数，默认 3；同群永远串行 |
 | `exec.allow_auto_reply_calls` | 主动接话（未 @ 机器人）时是否允许调用终端，默认 `false` |
+| `files.max_fetch_mb` | `terminal_fetch` 单文件上限，默认 96MB |
+| `files.fetch_home_only` | 是否只允许拉取家目录内的文件，默认 `true` |
 | `limits.hourly_commands` / `daily_commands` | 单群每小时 / 每天调用上限 |
 | `limits.disk_soft_limit_mb` | 群家目录软上限，超过后拒绝写入 |
 | `groups.blocked` | 禁用终端的群号列表 |

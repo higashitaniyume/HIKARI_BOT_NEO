@@ -81,6 +81,11 @@
   color: #2f7a43;
 }
 
+.terminal-action-fetch {
+  background: #fff6e6;
+  color: #9a5b00;
+}
+
 .terminal-action-provision {
   background: #f4f1fb;
   color: #6b4bb7;

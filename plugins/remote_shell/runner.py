@@ -98,6 +98,32 @@ def build_remote_command(
     )
 
 
+def build_user_cat_command(
+    *,
+    user: str,
+    home: str,
+    path: str,
+    cat_bin: str = "/bin/cat",
+    runuser_bin: str = "/usr/sbin/runuser",
+) -> str:
+    """以群用户身份读取文件原始字节（用于把文件拉回本地）。
+
+    不带 cwd/ulimit 包装，避免任何标记混进二进制内容。
+    """
+
+    env_items = [
+        f"HOME={shlex.quote(home)}",
+        f"USER={shlex.quote(user)}",
+        f"LOGNAME={shlex.quote(user)}",
+        "TERM=dumb",
+        f"PATH={shlex.quote(path_env(home))}",
+    ]
+    return (
+        f"{runuser_bin} -u {shlex.quote(user)} -- "
+        f"env -i {' '.join(env_items)} {shlex.quote(cat_bin)} -- {shlex.quote(path)}"
+    )
+
+
 def build_root_command(
     *,
     script: str,

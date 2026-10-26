@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from pathlib import Path
 from typing import Any
 
 from core.ai_tool_registry import AIToolContext, register_ai_tool
@@ -163,6 +165,70 @@ async def _handle_root_exec(context: AIToolContext, args: dict[str, Any]) -> dic
     except Exception as e:  # noqa: BLE001
         logger.exception("terminal_root_exec 失败")
         return _error(f"root 命令执行异常: {type(e).__name__}: {e}")
+
+
+def _stage_download_in_workspace(
+    context: AIToolContext,
+    args: dict[str, Any],
+    fetched: dict[str, Any],
+) -> dict[str, Any]:
+    """把远端文件字节写进当前会话的 AI 工作区（downloads/）。"""
+
+    from plugins.aiagent.tools.workspace import (
+        check_quota,
+        clean_filename,
+        get_session_workspace_root,
+    )
+
+    root = get_session_workspace_root(context)
+    agent_cfg = getattr(context, "agent_config", None)
+    if not isinstance(agent_cfg, dict):
+        agent_cfg = {}
+
+    data: bytes = fetched["data"]
+    check_quota(root, agent_cfg, new_bytes=len(data), new_files=1)
+
+    display = clean_filename(
+        str(args.get("name") or "").strip() or str(fetched.get("name") or "download.bin"),
+        fallback="download.bin",
+    )
+    dest_dir = Path.cwd() / root / "downloads"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
+    dest = dest_dir / f"{stamp}-{display}"
+    counter = 1
+    while dest.exists():
+        dest = dest_dir / f"{stamp}-{counter}-{display}"
+        counter += 1
+    dest.write_bytes(data)
+
+    relative = f"downloads/{dest.name}"
+    return {
+        "ok": True,
+        "workspace_path": relative,
+        "name": dest.name,
+        "bytes": len(data),
+        "remote_path": fetched.get("path") or "",
+        "hint": f'已放入工作区；调用 send_file 并传 path="{relative}" 即可发送到当前会话',
+    }
+
+
+async def _handle_fetch(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    try:
+        cfg, ref = _prepare(context)
+        if not as_bool(section(cfg, "files").get("enabled"), True):
+            return _error("文件工具未启用")
+
+        fetched = await get_service().fetch_file(cfg, ref, str(args.get("path") or ""))
+        return _stage_download_in_workspace(context, args, fetched)
+    except RemoteShellError as e:
+        return _error(str(e))
+    except ValueError as e:
+        return _error(f"无法放入工作区: {e}")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("terminal_fetch 失败")
+        return _error(f"拉取文件失败: {type(e).__name__}: {e}")
 
 
 async def _handle_read(context: AIToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -408,3 +474,25 @@ register_ai_tool(
     requires_superuser=True,
     enabled_by_default=False,
 )(_handle_root_exec)
+
+register_ai_tool(
+    "terminal_fetch",
+    description=(
+        "把远端文件拉回当前会话的 AI 工作区（downloads/ 目录），之后用 send_file 发送到 QQ。"
+        "只能读取该群/私聊账号有权限的文件，默认限制在家目录，单文件上限 96MB；"
+        "目录请先打包（tar/zip）。适合把构建产物、截图、压缩包发出来；"
+        "纯文本小文件可以直接 terminal_read，不必走这条路。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "远端文件路径（绝对路径或相对当前目录）"},
+            "name": {"type": "string", "description": "可选，保存到工作区和发送时显示的文件名"},
+        },
+        "required": ["path"],
+        "additionalProperties": False,
+    },
+    plugin_name="remote_shell",
+    readonly=False,
+    enabled_by_default=False,
+)(_handle_fetch)

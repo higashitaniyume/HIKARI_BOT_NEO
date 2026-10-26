@@ -20,6 +20,7 @@ from plugins.remote_shell.runner import (
     MARKER,
     build_remote_command,
     build_script,
+    build_user_cat_command,
     normalize_path,
     split_cwd_marker,
     strip_ansi,
@@ -37,8 +38,13 @@ GROUP_REF = SessionRef(key="g123", raw_id="123", prefix="qqg_", is_group=True)
 
 
 class FakeBackend:
-    def __init__(self, mapping: dict[str, ExecResult] | None = None):
+    def __init__(
+        self,
+        mapping: dict[str, ExecResult] | None = None,
+        download_result: tuple[int, bytes, bool] | None = None,
+    ):
         self.mapping = mapping or {}
+        self.download_result = download_result or (0, b"", False)
         self.calls: list[tuple[str, bytes | str | None]] = []
 
     async def run(self, cfg, command, *, stdin_data=None, timeout=60.0):
@@ -48,12 +54,19 @@ class FakeBackend:
                 return result
         return ExecResult(exit_code=0, output="")
 
+    async def download(self, cfg, command, *, max_bytes, timeout=120.0):
+        self.calls.append((command, None))
+        return self.download_result
+
     async def close(self) -> None:
         return None
 
 
-def make_service(mapping: dict[str, ExecResult] | None = None) -> tuple[RemoteShellService, FakeBackend, dict]:
-    backend = FakeBackend(mapping)
+def make_service(
+    mapping: dict[str, ExecResult] | None = None,
+    download_result: tuple[int, bytes, bool] | None = None,
+) -> tuple[RemoteShellService, FakeBackend, dict]:
+    backend = FakeBackend(mapping, download_result)
     service = RemoteShellService(backend=backend)
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))
     cfg["enabled"] = True
@@ -94,6 +107,16 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("HOME=/home/qqg_123", command)
         self.assertIn("/usr/bin/timeout -k 5 45 /bin/bash -c", command)
         self.assertIn("PATH=/home/qqg_123/.local/bin", command)
+
+    def test_build_user_cat_command(self) -> None:
+        command = build_user_cat_command(
+            user="qqg_123",
+            home="/home/qqg_123",
+            path="/home/qqg_123/a b.txt",
+        )
+        self.assertTrue(command.startswith("/usr/sbin/runuser -u qqg_123 --"))
+        self.assertIn("/bin/cat -- '/home/qqg_123/a b.txt'", command)
+        self.assertNotIn("CWD:", command)
 
     def test_split_cwd_marker(self) -> None:
         output = f"hello\n{MARKER}CWD:/home/qqg_123/sub"
@@ -341,7 +364,14 @@ class ToolRegistrationTests(unittest.TestCase):
     def test_tools_are_registered_as_side_effect_tools(self) -> None:
         from core.ai_tool_registry import get_ai_tool
 
-        for name in ("terminal_exec", "terminal_read", "terminal_write", "terminal_list", "terminal_edit"):
+        for name in (
+            "terminal_exec",
+            "terminal_read",
+            "terminal_write",
+            "terminal_list",
+            "terminal_edit",
+            "terminal_fetch",
+        ):
             spec = get_ai_tool(name)
             self.assertIsNotNone(spec, name)
             self.assertEqual(spec.plugin_name, "remote_shell")
@@ -417,6 +447,54 @@ class PrivateAndRootTests(unittest.IsolatedAsyncioTestCase):
             await service.execute_root(cfg, GROUP_REF, "true")
             with self.assertRaises(RemoteShellError):
                 await service.execute_root(cfg, GROUP_REF, "true")
+
+
+class FetchFileTests(unittest.IsolatedAsyncioTestCase):
+    def _mapping(self, size_output: str) -> dict[str, ExecResult]:
+        return {
+            "useradd -m -U": ExecResult(exit_code=0, output=""),
+            f"{MARKER}GROUPS": ExecResult(exit_code=0, output=VERIFY_OUTPUT),
+            "stat -c %s": ExecResult(exit_code=0, output=size_output),
+        }
+
+    async def test_fetch_returns_raw_bytes(self) -> None:
+        service, backend, cfg = make_service(
+            self._mapping("5"),
+            download_result=(0, b"hello", False),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            result = await service.fetch_file(cfg, GROUP_REF, "a.bin")
+
+            self.assertEqual(result["data"], b"hello")
+            self.assertEqual(result["bytes"], 5)
+            self.assertEqual(result["name"], "a.bin")
+
+        command = backend.calls[-1][0]
+        self.assertIn("runuser -u qqg_123", command)
+        self.assertIn("/bin/cat -- /home/qqg_123/a.bin", command)
+
+    async def test_fetch_rejects_oversize(self) -> None:
+        service, _backend, cfg = make_service(self._mapping("2000000"))
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            cfg["files"]["max_fetch_mb"] = 1
+            with self.assertRaises(RemoteShellError):
+                await service.fetch_file(cfg, GROUP_REF, "big.bin")
+
+    async def test_fetch_rejects_missing_file(self) -> None:
+        service, _backend, cfg = make_service(self._mapping(f"{MARKER}NOFILE"))
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            with self.assertRaises(RemoteShellError):
+                await service.fetch_file(cfg, GROUP_REF, "nope.bin")
+
+    async def test_fetch_rejects_outside_home(self) -> None:
+        service, _backend, cfg = make_service(self._mapping("5"))
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg["state_path"] = str(Path(tmp) / "state.json")
+            with self.assertRaises(ValueError):
+                await service.fetch_file(cfg, GROUP_REF, "/etc/hostname")
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ const TERMINAL_ACTION_LABELS = {
   root_exec: "root 命令",
   write: "写文件",
   edit: "改文件",
+  fetch: "拉取文件",
   provision: "开通账号",
 };
 
@@ -143,7 +144,7 @@ function renderTerminalOverview(data) {
       resultText = `exit ${code ?? "?"}`;
       if (record.duration_ms != null) resultText += ` · ${record.duration_ms}ms`;
       if (record.truncated) resultText += " · 截断";
-    } else if (record.action === "write") {
+    } else if (record.action === "write" || record.action === "fetch") {
       resultText = `${record.bytes ?? 0} 字节`;
     } else if (record.action === "edit") {
       resultText = `${record.replacements ?? 0} 处替换`;

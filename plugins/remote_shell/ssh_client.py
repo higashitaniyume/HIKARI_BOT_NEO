@@ -95,9 +95,71 @@ class SSHBackend:
         stdin_data: bytes | str | None,
         timeout: float,
     ) -> ExecResult:
+        exit_code, data, truncated, timed_out = await self._run_bytes(
+            cfg,
+            command,
+            stdin_data=stdin_data,
+            timeout=timeout,
+        )
+        if timed_out:
+            return ExecResult(
+                exit_code=124,
+                output=_decode(data) + "\n[remote_shell] 命令超时，已被强制终止",
+                timed_out=True,
+            )
+        if truncated:
+            data += "\n[remote_shell] 输出超过上限，后续内容已被丢弃\n".encode("utf-8")
+        return ExecResult(exit_code=exit_code, output=_decode(data))
+
+    async def download(
+        self,
+        cfg: dict[str, Any],
+        command: str,
+        *,
+        max_bytes: int,
+        timeout: float = 120.0,
+    ) -> tuple[int, bytes, bool]:
+        """读取远端二进制内容（用于把文件拉回本地），返回 (exit, data, truncated)。"""
+
+        last_error: Exception | None = None
+        for attempt in (1, 2):
+            try:
+                exit_code, data, truncated, timed_out = await self._run_bytes(
+                    cfg,
+                    command,
+                    stdin_data=None,
+                    timeout=timeout,
+                    max_bytes=max_bytes,
+                    label="文件传输",
+                )
+                return (124 if timed_out else exit_code), data, truncated
+            except (asyncssh.ConnectionLost, asyncssh.ChannelOpenError, OSError) as e:
+                last_error = e
+                logger.warning("SSH 下载通道异常（第 %s 次）: %s", attempt, e)
+                async with self._lock:
+                    await self._drop()
+                if attempt == 2:
+                    break
+            except asyncssh.Error as e:
+                last_error = e
+                break
+
+        raise RemoteShellError(f"SSH 文件传输失败: {_short_error(last_error)}")
+
+    async def _run_bytes(
+        self,
+        cfg: dict[str, Any],
+        command: str,
+        *,
+        stdin_data: bytes | str | None,
+        timeout: float,
+        max_bytes: int | None = None,
+        label: str = "命令",
+    ) -> tuple[int, bytes, bool, bool]:
         conn = await self._connection(cfg)
         ssh_cfg = cfg.get("ssh") if isinstance(cfg.get("ssh"), dict) else {}
-        max_bytes = as_int(ssh_cfg.get("max_output_bytes"), 2 * 1024 * 1024, minimum=4096)
+        if max_bytes is None:
+            max_bytes = as_int(ssh_cfg.get("max_output_bytes"), 2 * 1024 * 1024, minimum=4096)
 
         process = await conn.create_process(
             command,
@@ -136,28 +198,19 @@ class SSHBackend:
             exit_code = process.exit_status
             if exit_code is None:
                 exit_code = 137
+            return int(exit_code), bytes(buffer), truncated, False
         except asyncio.TimeoutError:
-            log_name = "命令" if stdin_data is None else "文件传输"
-            logger.warning("远端%s超时: %.0fs", log_name, timeout)
+            logger.warning("远端%s超时: %.0fs", label, timeout)
             try:
                 process.kill()
             except Exception:  # noqa: BLE001 - 进程可能已退出
                 pass
-            return ExecResult(
-                exit_code=124,
-                output=_decode(buffer) + f"\n[remote_shell] {log_name}超时，已被强制终止",
-                timed_out=True,
-            )
+            return 124, bytes(buffer), truncated, True
         finally:
             try:
                 process.close()
             except Exception:  # noqa: BLE001
                 pass
-
-        if truncated:
-            buffer.extend("\n[remote_shell] 输出超过上限，后续内容已被丢弃\n".encode("utf-8"))
-
-        return ExecResult(exit_code=int(exit_code), output=_decode(buffer))
 
     async def _connection(self, cfg: dict[str, Any]) -> asyncssh.SSHClientConnection:
         ssh_cfg = cfg.get("ssh") if isinstance(cfg.get("ssh"), dict) else {}

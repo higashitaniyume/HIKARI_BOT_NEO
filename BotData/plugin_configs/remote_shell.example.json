@@ -41,7 +41,9 @@
     "max_read_chars": 20000,
     "max_write_bytes": 1048576,
     "max_edit_bytes": 262144,
-    "max_list_entries": 200
+    "max_list_entries": 200,
+    "max_fetch_mb": 96,
+    "fetch_home_only": true
   },
   "limits": {
     "hourly_commands": 60,

@@ -62,6 +62,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_write_bytes": 1048576,
         "max_edit_bytes": 262144,
         "max_list_entries": 200,
+        # terminal_fetch：把远端文件拉回 AI 工作区，上限与发送上限对齐。
+        "max_fetch_mb": 96,
+        "fetch_home_only": True,
     },
     "limits": {
         "hourly_commands": 60,
