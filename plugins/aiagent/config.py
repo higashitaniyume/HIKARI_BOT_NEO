@@ -218,6 +218,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "safesearch": 1,
             "max_bytes": 10485760,
             "download_timeout_seconds": 20,
+            # Pixiv 优先：模型先搜 Pixiv 插画（结果排在最前），命中不足再补 SearXNG。
+            # 复用 pixiv_parser 的 Cookie/代理；没配 Cookie 时自动跳过 Pixiv。
+            "pixiv": {
+                "enabled": True,
+                # 每次搜图最多从 Pixiv 取几张（总条数仍受上面的 max_results 限制）
+                "max_results": 3,
+                # Pixiv 结果不足时是否用 SearXNG 补齐剩余名额
+                "fallback_web": True,
+                # 排序：date_d（最新，默认）/ date
+                "order": "date_d",
+                # 单次 Pixiv 请求超时（秒）
+                "timeout_seconds": 15,
+            },
         },
         "workspace": {
             "enabled": True,

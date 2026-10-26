@@ -321,6 +321,11 @@ function buildAiAgentPayload() {
         safesearch: Number($("#aiagentImagesSafesearch").value ?? 1),
         max_download_mb: Number($("#aiagentImagesMaxDownloadMb").value || 15),
         download_timeout_seconds: Number($("#aiagentImagesTimeout").value || 20),
+        pixiv: {
+          enabled: $("#aiagentImagesPixivEnabled").checked,
+          max_results: Number($("#aiagentImagesPixivMax").value || 3),
+          fallback_web: $("#aiagentImagesPixivFallback").checked,
+        },
       },
       workspace: {
         enabled: $("#aiagentWorkspaceEnabled").checked,

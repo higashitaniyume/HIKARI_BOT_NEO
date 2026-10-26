@@ -760,6 +760,10 @@ function renderAiAgentConfig() {
   $("#aiagentImagesSafesearch").value = String(images.safesearch ?? 1);
   $("#aiagentImagesMaxDownloadMb").value = images.max_download_mb ?? 15;
   $("#aiagentImagesTimeout").value = images.download_timeout_seconds ?? 20;
+  const imagesPixiv = images.pixiv || {};
+  $("#aiagentImagesPixivEnabled").checked = imagesPixiv.enabled !== false;
+  $("#aiagentImagesPixivMax").value = imagesPixiv.max_results ?? 3;
+  $("#aiagentImagesPixivFallback").checked = imagesPixiv.fallback_web !== false;
 
   const workspace = tools.workspace || {};
   $("#aiagentWorkspaceEnabled").checked = workspace.enabled !== false;

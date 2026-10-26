@@ -516,6 +516,10 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 | `tools.search.max_results`、`need_content` | 每次搜索返回条数（默认 5，上限 10）、是否带回网页正文（默认 false，更耗上下文） |
 | `tools.images.enabled`、`allow_send` | 是否启用网络搜图（`web_image_search`）、是否允许 AI 主动发图（`send_images`，默认 false） |
 | `tools.images.max_results`、`max_images_per_send` | 搜图返回条数（默认 5）、单次发图上限（默认 3） |
+| `tools.images.pixiv.enabled` | 是否优先搜 Pixiv（默认开；复用 `pixiv_parser` 的 Cookie / 代理，未配置 Cookie 时自动跳过） |
+| `tools.images.pixiv.max_results` | 每次搜图最多从 Pixiv 取几张（默认 3，1-10） |
+| `tools.images.pixiv.fallback_web` | Pixiv 结果不足时是否用 SearXNG 补齐剩余名额（默认 true） |
+| `tools.images.pixiv.order`、`timeout_seconds` | Pixiv 搜索排序（`date_d` 最新，默认 / `date`）与单次请求超时（默认 15 秒） |
 | `tools.workspace.enabled`、`allow_writes`、`allow_delete`、`allow_send` | 会话隔离文件工作区开关与写/删/发权限（写/删/发默认 false） |
 | `tools.workspace.ingest_incoming`、`incoming_max_mb` | 是否自动接收用户发送的聊天文件（默认 true）、单文件下载硬上限（默认 100MB） |
 | `chat.single_message_chars` | 单条普通消息字数阈值（默认 1200），超过转为一个合并聊天记录发出 |
@@ -613,7 +617,7 @@ tg贴纸 https://t.me/addstickers/StickerSetName zip refresh name=猫猫虫
 |------|------|------|
 | `bot_help` | 内置 | 查询 `docs/` 功能文档（被问到"你会干什么"时自动使用） |
 | `web_search` | 内置 | 通过 DeepSeek 官方 Search API（默认）、SearXNG 或 `hybrid` 混合模式搜索网页；支持 `site:`/`lang:`/`after:` 等语法 |
-| `web_image_search` | 内置 | 通过 SearXNG 搜索网络图片，结果缓存在当前会话（只读） |
+| `web_image_search` | 内置 | 图片搜索：默认先搜 Pixiv 插画（结果排前面），不足的名额用 SearXNG 补齐；也支持 `source=pixiv` / `source=web` |
 | `send_images` | 内置 | 将搜到的网络图片或工作区图片发送至当前会话（支持 WebP/GIF 转码，需 `tools.images.allow_send`） |
 | `workspace_list` | 内置 | 查看当前私聊/群聊工作区内的文件与目录结构（只读，严格隔离） |
 | `workspace_read` | 内置 | 读取工作区中的纯文本文件内容（只读） |
@@ -682,6 +686,7 @@ UserData/aiagent_chatlog/<群号>/<YYYY-MM-DD>.jsonl
 
 #### 双引擎混合搜索与网络搜图
 
+- **Pixiv 优先搜图（`web_image_search`）**：默认先搜 Pixiv 插画，结果排在前面；`tools.images.pixiv.max_results` 控制每次从 Pixiv 取几张（默认 3），不足的名额自动用 SearXNG 补齐（`fallback_web`）。模型可传 `source=pixiv`（只搜 Pixiv）或 `source=web`（只搜网页，适合实拍照片/新闻图）。Pixiv 搜索复用 `pixiv_parser` 的 Cookie / 代理；R18 仅在 `pixiv_parser.allow_r18=true` 且本次 `safesearch=0` 时放开；Pixiv 图片下载会自动带 `Referer: https://www.pixiv.net/`，否则 `i.pximg.net` 会固定返回 403。Pixiv 搜索失败、无 Cookie 或结果不足时全部无缝回退到原来的搜索引擎。
 - **双引擎混合搜索（`hybrid` 模式）**：并发向 DeepSeek Search API 与自建 SearXNG 发起检索。结果按规范化 URL 自动去重（统一 scheme、去除 `www.` 与末尾斜杠），优先保留 DeepSeek 的相关性摘要与权重，并穿插 SearXNG 的结果。单边失败或未配 Key 时自动降级，不阻断回复。
 - **搜图与发图（`web_image_search` & `send_images`）**：
   - AI 可主动调用 `web_image_search` 搜索图片，候选图片链接缓存在当前会话（TTL 30 分钟，最多 50 张）；

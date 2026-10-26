@@ -965,7 +965,8 @@ multipart/form-data
 | `memory.max_read_chars_per_file` | number | 1000-80000 |
 | `memory.max_file_chars` | number | 5000-500000 |
 | `tools.search` | object | 搜索配置，`mode` 支持 `builtin` / `searxng` / `hybrid`（双引擎并发去重） |
-| `tools.images` | object | 网络搜图与发图配置，含 `enabled`、`allow_send`、`max_results`、`max_images_per_send`、`safesearch`、`max_download_mb`、`download_timeout_seconds` |
+| `tools.images` | object | 网络搜图与发图配置，含 `enabled`、`allow_send`、`max_results`、`max_images_per_send`、`safesearch`、`max_download_mb`、`download_timeout_seconds`、`pixiv` |
+| `tools.images.pixiv` | object | Pixiv 优先搜图配置：`enabled`、`max_results`、`fallback_web`、`order`（`date_d`/`date`）、`timeout_seconds`；复用 `pixiv_parser` 的 Cookie/代理 |
 | `tools.workspace` | object | 会话隔离文件工作区配置，含 `enabled`、`allow_writes`、`allow_delete`、`allow_send`、`allow_in_auto_reply`、`ingest_incoming`、`include_quoted_files`、`incoming_max_mb` 等 |
 | `tools.files` | object | 人格资源文件工具配置（`enabled`、`max_read_chars`） |
 | `tools.group_members` | object | 枚举本群成员（`enabled`、`max_members`） |

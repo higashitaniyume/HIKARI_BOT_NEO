@@ -49,6 +49,8 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **AI 搜图支持 Pixiv 优先**：`web_image_search` 现在默认先搜 Pixiv 插画（结果排在前面，复用 `pixiv_parser` 的 Cookie/代理），抽到 `tools.images.pixiv.max_results`（默认 3）张后，剩余名额再用原来的 SearXNG 图片搜索补齐；Pixiv 没结果、失败或没配 Cookie 时无缝回退。模型可传 `source=pixiv` 只搜 Pixiv、`source=web` 只搜网页（实拍照片更合适）；Pixiv 图片下载自动带 Referer 绕过防盗链，R18 仅在插件允许且 `safesearch=0` 时放开。后台「AI Agent」页可开关与调参
+
 - **AI 群管理与群互动工具**：新增 `group_mute`（禁言/解禁）、`group_kick`（踢人）、`group_poke`（戳一戳）、`group_mention`（在回复里真正 @ 群成员）。前两个是真实副作用操作，机器人必须是群管理员，且默认只有群主/管理员或机器人超级用户能让它执行；不能对群主、其他管理员、机器人自己或发起人动手；主动接话模式一律禁用。戳一戳按群每小时限流；@ 通过 `[[at:QQ号]]` 标记在发送前渲染成真正的 at 段，长回复的合并转发节点同样生效。后台「AI Agent」页可分别开关与调参
 
 - **群聊主动接话可逐群开关**：后台「AI Agent」页把原来的「一行一个群号」白名单换成群列表——可手动加群号，也可从机器人所在群搜索后批量添加，每个群单独开关；关掉总开关不影响列表，旧配置的纯群号数组自动视为已开启

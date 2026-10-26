@@ -412,7 +412,7 @@
             <div class="aiagent-tools-head">
               <div>
                 <h3 id="aiagentImagesTitle">网络搜图与发图</h3>
-                <p>通过 SearXNG 进行图片搜索（<code>web_image_search</code>），并允许模型将搜到的图片发至聊天（<code>send_images</code>）。图片 URL 受会话缓存与 SSRF 白名单保护，发图时自动转码 WebP/GIF。</p>
+                <p>默认优先用 Pixiv 搜索插画（<code>web_image_search</code>，结果排在前面），命中不足时用 SearXNG 补齐；也支持只搜 Pixiv 或只搜网页。允许模型将搜到的图片发至聊天（<code>send_images</code>）。图片 URL 受会话缓存与 SSRF 白名单保护，Pixiv 图片自动带 Referer 下载，发图时自动转码 WebP/GIF。</p>
               </div>
               <div class="aiagent-tools-controls">
                 <label class="checkbox-field">
@@ -447,6 +447,21 @@
                 <label>
                   <span>图片下载超时（秒）</span>
                   <input id="aiagentImagesTimeout" type="number" min="3" max="120" step="1">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentImagesPixivEnabled" type="checkbox">
+                  <span>优先搜索 Pixiv</span>
+                  <small>复用 pixiv_parser 的 Cookie / 代理；没有 Cookie 时自动回退搜索引擎</small>
+                </label>
+                <label>
+                  <span>Pixiv 每次最多取几张</span>
+                  <input id="aiagentImagesPixivMax" type="number" min="1" max="10" step="1">
+                  <small>Pixiv 结果排在最前面，不足的名额由 SearXNG 补齐</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentImagesPixivFallback" type="checkbox">
+                  <span>Pixiv 不足时用搜索引擎补齐</span>
+                  <small>关闭后只返回 Pixiv 结果；用户要照片/实拍图时模型可主动改用 source=web</small>
                 </label>
               </div>
             </div>

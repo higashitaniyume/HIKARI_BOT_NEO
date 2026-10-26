@@ -328,6 +328,13 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
                     "safesearch": 2,
                     "max_download_mb": 25,
                     "download_timeout_seconds": 45,
+                    "pixiv": {
+                        "enabled": False,
+                        "max_results": 4,
+                        "fallback_web": False,
+                        "order": "date",
+                        "timeout_seconds": 20,
+                    },
                 },
                 "workspace": {
                     "enabled": True,
@@ -350,6 +357,26 @@ class BotAdminAIAgentToolTests(unittest.TestCase):
         saved = self._save_with(current, payload)
         self.assertEqual(saved["tools"]["images"], payload["tools"]["images"])
         self.assertEqual(saved["tools"]["workspace"], payload["tools"]["workspace"])
+
+        # Pixiv 排序只允许 date_d / date；数值越界会被夹紧
+        clamped = self._save_with(
+            current,
+            {
+                "tools": {
+                    "images": {
+                        "pixiv": {
+                            "order": "popular_d",
+                            "max_results": 99,
+                            "timeout_seconds": 999,
+                        }
+                    }
+                }
+            },
+        )
+        pixiv = clamped["tools"]["images"]["pixiv"]
+        self.assertEqual(pixiv["order"], "date_d")
+        self.assertEqual(pixiv["max_results"], 10)
+        self.assertEqual(pixiv["timeout_seconds"], 60)
 
     def test_update_aiagent_config_round_trips_chat_split_and_sticker(self) -> None:
         current = self._base_config()

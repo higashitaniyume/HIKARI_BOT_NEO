@@ -164,7 +164,14 @@
           "max_images_per_send": 3,
           "safesearch": 1,
           "max_download_mb": 15,
-          "download_timeout_seconds": 20
+          "download_timeout_seconds": 20,
+          "pixiv": {
+            "enabled": true,
+            "max_results": 3,
+            "fallback_web": true,
+            "order": "date_d",
+            "timeout_seconds": 15
+          }
         },
         "workspace": {
           "enabled": true,

@@ -331,6 +331,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     current_search = current_tools.get("search") if isinstance(current_tools.get("search"), dict) else {}
     current_files = current_tools.get("files") if isinstance(current_tools.get("files"), dict) else {}
     current_images = current_tools.get("images") if isinstance(current_tools.get("images"), dict) else {}
+    current_images_pixiv = current_images.get("pixiv") if isinstance(current_images.get("pixiv"), dict) else {}
     current_workspace = current_tools.get("workspace") if isinstance(current_tools.get("workspace"), dict) else {}
     current_plugin_tools = current_tools.get("plugin_tools") if isinstance(current_tools.get("plugin_tools"), dict) else {}
     current_wiki_prefetch = current_tools.get("wiki_prefetch") if isinstance(current_tools.get("wiki_prefetch"), dict) else {}
@@ -356,6 +357,7 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     input_search = input_tools.get("search") if isinstance(input_tools.get("search"), dict) else {}
     input_files = input_tools.get("files") if isinstance(input_tools.get("files"), dict) else {}
     input_images = input_tools.get("images") if isinstance(input_tools.get("images"), dict) else {}
+    input_images_pixiv = input_images.get("pixiv") if isinstance(input_images.get("pixiv"), dict) else {}
     input_workspace = input_tools.get("workspace") if isinstance(input_tools.get("workspace"), dict) else {}
     input_plugin_tools = input_tools.get("plugin_tools") if isinstance(input_tools.get("plugin_tools"), dict) else {}
     input_wiki_prefetch = input_tools.get("wiki_prefetch") if isinstance(input_tools.get("wiki_prefetch"), dict) else {}
@@ -389,6 +391,12 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
     vision_detail = _parse_str(input_vision.get("detail", current_vision.get("detail", "auto")), max_length=16).strip().lower()
     if vision_detail not in VISION_DETAILS:
         vision_detail = "auto"
+    pixiv_order = _parse_str(
+        input_images_pixiv.get("order", current_images_pixiv.get("order", "date_d")),
+        max_length=16,
+    ).strip().lower()
+    if pixiv_order not in {"date_d", "date"}:
+        pixiv_order = "date_d"
     reasoning_effort = _parse_str(
         input_thinking.get("reasoning_effort", current_thinking.get("reasoning_effort", "high")),
         max_length=16,
@@ -544,6 +552,13 @@ def _update_aiagent_config(data: dict[str, Any], profile_id: str | None = None) 
                 "safesearch": _parse_int(input_images.get("safesearch", current_images.get("safesearch", 1)), 1, minimum=0, maximum=2),
                 "max_download_mb": _parse_int(input_images.get("max_download_mb", current_images.get("max_download_mb", 15)), 15, minimum=1, maximum=50),
                 "download_timeout_seconds": _parse_int(input_images.get("download_timeout_seconds", current_images.get("download_timeout_seconds", 20)), 20, minimum=3, maximum=120),
+                "pixiv": {
+                    "enabled": _parse_bool(input_images_pixiv.get("enabled", current_images_pixiv.get("enabled", True))),
+                    "max_results": _parse_int(input_images_pixiv.get("max_results", current_images_pixiv.get("max_results", 3)), 3, minimum=1, maximum=10),
+                    "fallback_web": _parse_bool(input_images_pixiv.get("fallback_web", current_images_pixiv.get("fallback_web", True))),
+                    "order": pixiv_order,
+                    "timeout_seconds": _parse_int(input_images_pixiv.get("timeout_seconds", current_images_pixiv.get("timeout_seconds", 15)), 15, minimum=3, maximum=60),
+                },
             },
             "workspace": {
                 "enabled": _parse_bool(input_workspace.get("enabled", current_workspace.get("enabled", True))),

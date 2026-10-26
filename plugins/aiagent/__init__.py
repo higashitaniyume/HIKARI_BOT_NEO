@@ -181,6 +181,8 @@ def _build_messages(
             "\n\n【文件与图片】\n"
             "你可以使用工作区读写文件；生成或处理好的文件用 send_file 发出。\n"
             "需要图片时先用 web_image_search 搜图，再用 send_images 发送，不要凭空编造图片链接。\n"
+            "搜图默认先找 Pixiv 插画（Pixiv 结果排在最前），Pixiv 不足才用网页搜索补齐；"
+            "用户想要实拍照片、新闻图片时传 source=web，明确要 Pixiv 插画时传 source=pixiv。\n"
             "工作区只属于当前会话，路径一律使用相对路径。"
         )
 
