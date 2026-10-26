@@ -1634,3 +1634,72 @@ jm 123456
 | `notify_superuser` | 添加好友后是否通知超级管理员（默认开启） |
 
 **新好友通知：** `notify_superuser` 开启时，优先通过 push_framework 的 `friend_add` 消息源发送（需在 `push_framework.json` 配置一个 `trigger: "event"` 的任务，见上文示例）；若未配置任何有效任务，则直接私聊超级管理员兜底。`notify_superuser: false` 可完全关闭通知。
+
+---
+
+## AI 远端终端（remote_shell）
+
+**配置文件：** `BotData/plugin_configs/remote_shell.json`
+**依赖：** 独立开发机（Debian 宿主，需 root SSH、`useradd`、`runuser`、`timeout`）；本插件通过 `asyncssh` 连接，容器内无需安装 ssh 客户端
+
+给 AI Agent 增加一组终端工具，让模型能像写代码一样「执行 → 看报错 → 改文件 → 再执行」。每个 QQ 群共享一个专属 Linux 账号，账号在第一次使用时自动创建：
+
+| 项 | 值 |
+|----|----|
+| 用户名 | `qqg_<纯数字群号>`（超长时截断到 32 字符） |
+| 家目录 | `/home/qqg_<群号>`，权限 `700` |
+| shell | `/bin/bash`，密码锁定（`passwd -l`） |
+| 权限 | 只在自身主组；不进 `sudo`/`wheel`/`adm`/`docker`；`sudo -n true` 必须失败 |
+
+**AI 工具：**
+
+| 工具 | 作用 |
+|------|------|
+| `terminal_exec` | 在群账号下执行 shell 命令，返回 exit_code / output / cwd / 是否截断 |
+| `terminal_read` | 按行读取远端文件（带行号，支持 offset/limit），内容标记为不可信数据 |
+| `terminal_write` | 写入/追加文件，内容走 stdin 传输（不受 shell 引号影响），仅限家目录 |
+| `terminal_list` | 结构化列目录（名称/类型/大小/时间） |
+| `terminal_edit` | 精确字符串替换，默认要求原文唯一 |
+
+**工作目录：** 每条命令结束时由 `trap EXIT` 回传 `$PWD`，插件持久化到 `UserData/remote_shell/state.json`，所以 `cd` 会跨调用保持；目录被删掉时自动回到 home。
+
+**关键配置：**
+
+| 字段 | 说明 |
+|------|------|
+| `enabled` | 插件总开关，默认 `false` |
+| `ssh.host` / `ssh.port` | 目标机地址（本部署是 Windows 宿主上 VMware NAT 转发出来的 `192.168.31.131:22135`） |
+| `ssh.private_key` | root 私钥路径，默认 `BotData/ssh/id_ed25519`，不要入库 |
+| `ssh.known_hosts` | 主机公钥文件；不存在时首次连接 TOFU 写入，之后严格校验 |
+| `users.auto_provision` | 首次调用时自动建号，默认 `true`；关掉后只允许手工预建 |
+| `users.allow_private` | 私聊是否也开终端（按 QQ 号建 `qqp_` 账号），默认关闭 |
+| `exec.default_timeout` / `max_timeout` | 单次命令默认 60 秒、上限 300 秒 |
+| `exec.max_output_chars` | 回传给模型的输出上限（默认 6000），完整输出落 `UserData/remote_shell/logs/` |
+| `exec.max_concurrent` | 全局并发 SSH 通道数，默认 3；同群永远串行 |
+| `exec.allow_auto_reply_calls` | 主动接话（未 @ 机器人）时是否允许调用终端，默认 `false` |
+| `limits.hourly_commands` / `daily_commands` | 单群每小时 / 每天调用上限 |
+| `limits.disk_soft_limit_mb` | 群家目录软上限，超过后拒绝写入 |
+| `groups.blocked` | 禁用终端的群号列表 |
+
+**启用步骤：**
+
+1. 在 bot 服务器生成专用密钥，并把公钥追加到开发机 root 的 `authorized_keys`：
+
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C "hikaribot-remote-shell" \
+     -f /opt/hikaribot-docker/BotData/ssh/id_ed25519
+   ssh root@<开发机> 'mkdir -p /root/.ssh && cat >> /root/.ssh/authorized_keys' \
+     < /opt/hikaribot-docker/BotData/ssh/id_ed25519.pub
+   ```
+
+2. 私钥留在 `BotData/ssh/id_ed25519`（容器内为 `/app/BotData/ssh/id_ed25519`，权限 600）；该目录已 gitignore，不进仓库，也不参与部署覆盖；
+3. `BotData/plugin_configs/remote_shell.json` 里把 `enabled` 改成 `true`，并确认 `ssh.host` / `ssh.port` 指向开发机；
+4. 后台「AI Agent」页打开「允许副作用工具」，并在插件工具列表里勾选 `terminal_*`；
+5. 视需要把 `tools.max_tool_rounds` 调大（代码上限已放宽到 24，默认 4）。
+
+**安全边界（务必知悉）：**
+
+- 隔离是**文件系统级**的：群账号能读全机 world-readable 文件、能探测内网服务，只是不能提权到 root；
+- **同群共享一个账号**，群内没有个人隔离，互相能删文件、顶进程；
+- AI 读到的网页/文件内容可能反过来指挥它执行命令（提示注入），真正的边界是那个非 root 账号，所以目标机上不要放密钥、Cookie 或其他群的数据；
+- 所有调用都会写入 `UserData/remote_shell/audit.jsonl`（群号、账号、命令、退出码、耗时），便于事后排查。

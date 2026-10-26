@@ -1,0 +1,57 @@
+{
+  "enabled": false,
+  "ssh": {
+    "host": "192.168.31.131",
+    "port": 22135,
+    "username": "root",
+    "private_key": "BotData/ssh/id_ed25519",
+    "passphrase": "",
+    "password": "",
+    "known_hosts": "BotData/ssh/known_hosts",
+    "connect_timeout": 10,
+    "keepalive": 30,
+    "max_output_bytes": 2097152
+  },
+  "users": {
+    "prefix": "qqg_",
+    "home_base": "/home",
+    "shell": "/bin/bash",
+    "auto_provision": true,
+    "allow_private": false
+  },
+  "exec": {
+    "default_timeout": 60,
+    "max_timeout": 300,
+    "max_command_chars": 4000,
+    "max_output_chars": 6000,
+    "max_processes": 256,
+    "max_file_size_mb": 2048,
+    "max_concurrent": 3,
+    "allow_auto_reply_calls": false
+  },
+  "files": {
+    "enabled": true,
+    "max_read_chars": 20000,
+    "max_write_bytes": 1048576,
+    "max_edit_bytes": 262144,
+    "max_list_entries": 200
+  },
+  "limits": {
+    "hourly_commands": 60,
+    "daily_commands": 300,
+    "disk_soft_limit_mb": 5120,
+    "disk_check_interval_seconds": 600
+  },
+  "groups": {
+    "blocked": []
+  },
+  "logs": {
+    "root": "UserData/remote_shell/logs",
+    "keep": 100
+  },
+  "audit": {
+    "enabled": true,
+    "path": "UserData/remote_shell/audit.jsonl"
+  },
+  "state_path": "UserData/remote_shell/state.json"
+}

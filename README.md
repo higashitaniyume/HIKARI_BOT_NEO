@@ -49,6 +49,8 @@ uv run python bot.py
 
 ## ✨ 最近更新
 
+- **AI 自带远端终端（写代码/跑命令）**：新增 `remote_shell` 插件，给 AI Agent 加了 `terminal_exec` / `terminal_read` / `terminal_write` / `terminal_list` / `terminal_edit` 五个工具。AI 判断任务需要时会自己 SSH 到开发机，在**该群专属的 Linux 账号**（`qqg_<群号>`，无 sudo、无 docker 组、家目录 700）下执行命令、写作文件、改 bug 并重跑验证，工作目录跨调用保持，效果接近 Claude Code 的终端。默认完全关闭：要同时打开插件 `enabled`、后台「AI Agent」页的「允许副作用工具」并把工具加入启用名单；按群限流（每小时 60 条 / 每天 300 条）、单群串行、输出截断、超时强杀、完整日志与审计留档，主动接话模式下默认禁止调用
+
 - **AI 搜图支持 Pixiv 优先**：`web_image_search` 现在默认先搜 Pixiv 插画（结果排在前面，复用 `pixiv_parser` 的 Cookie/代理），抽到 `tools.images.pixiv.max_results`（默认 3）张后，剩余名额再用原来的 SearXNG 图片搜索补齐；Pixiv 没结果、失败或没配 Cookie 时无缝回退。模型可传 `source=pixiv` 只搜 Pixiv、`source=web` 只搜网页（实拍照片更合适）；Pixiv 图片下载自动带 Referer 绕过防盗链，R18 仅在插件允许且 `safesearch=0` 时放开。后台「AI Agent」页可开关与调参
 
 - **AI 群管理与群互动工具**：新增 `group_mute`（禁言/解禁）、`group_kick`（踢人）、`group_poke`（戳一戳）、`group_mention`（在回复里真正 @ 群成员）。前两个是真实副作用操作，机器人必须是群管理员，且默认只有群主/管理员或机器人超级用户能让它执行；不能对群主、其他管理员、机器人自己或发起人动手；主动接话模式一律禁用。戳一戳按群每小时限流；@ 通过 `[[at:QQ号]]` 标记在发送前渲染成真正的 at 段，长回复的合并转发节点同样生效。后台「AI Agent」页可分别开关与调参
@@ -95,6 +97,7 @@ uv run python bot.py
 | TTS | `说话 <文本>`；AI 也可通过 `send_voice` 自己发语音 |
 | QQ 空间 | `发说说 <内容>` / `空间动态` / `好友说说 <QQ号>` / `说说赞 <序号>` / `空间定时` |
 | AI 聊天 | 私聊文本 / 群聊 @机器人；白名单群可开启自动回复；`额度` 查配额；`AI配置列表` / `切换AI配置` 管理多套配置 |
+| AI 终端（写代码/执行命令） | 直接对机器人提需求，AI 自动调用 `terminal_*` 工具在该群专属 Linux 账号下执行（默认关闭） |
 | 定时推送 | `推送 状态`；Steam/AI 资讯/知乎/RSS |
 | Wiki 查询 | `星露谷wiki` / `mcwiki` / `塔2wiki` / `osu` |
 | 吉星派对观战 | `查询 <观战码>` |
