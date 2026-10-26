@@ -26,6 +26,11 @@ const state = {
   aiagentBindingTab: "group",
   aiagentQuota: null,
   quotaTab: "group",
+  terminalOverview: null,
+  terminalQuery: "",
+  terminalAction: "",
+  terminalLimit: 100,
+  terminalInterval: null,
   pushConfig: {},
   pushSources: [],
   selectedPushJobId: "",
@@ -65,6 +70,7 @@ const VIEW_TITLES = {
   aiagent: "AI Agent",
   aiagent_memory: "记忆管理",
   aiagent_quota: "AI 配额",
+  terminal: "终端",
   push: "推送",
   qzone: "空间",
   rss: "RSS",
@@ -122,6 +128,17 @@ function setView(view) {
   }
   if (target === "aiagent_memory") {
     fetchMemoryFiles().catch((err) => showToast(err.message, true));
+  }
+  if (target === "terminal") {
+    fetchTerminalOverview().catch((err) => showToast(err.message, true));
+    if (!state.terminalInterval) {
+      state.terminalInterval = setInterval(() => {
+        fetchTerminalOverview(true).catch(() => {});
+      }, 5000);
+    }
+  } else if (state.terminalInterval) {
+    clearInterval(state.terminalInterval);
+    state.terminalInterval = null;
   }
   // Start/stop activity polling and system probe polling when switching to/from overview.
   if (target === "overview") {

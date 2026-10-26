@@ -100,3 +100,9 @@ sharedFolder/
 !sharedFolder/.gitkeep
 tmp/
 legacy/
+
+# remote_shell：SSH 私钥与主机指纹绝不入库（运行时由运维放置）
+BotData/ssh/*
+!BotData/ssh/.gitkeep
+# remote_shell 运行时状态 / 审计 / 命令日志
+UserData/remote_shell/

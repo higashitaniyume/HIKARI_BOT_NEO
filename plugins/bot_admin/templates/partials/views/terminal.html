@@ -1,0 +1,108 @@
+    <section class="view-panel" data-view="terminal" hidden>
+      <section class="statline" aria-live="polite">
+        <span><strong id="terminalUserCount">0</strong> 个终端用户</span>
+        <span><strong id="terminalGroupCount">0</strong> 个群账号</span>
+        <span><strong id="terminalPrivateCount">0</strong> 个私聊账号</span>
+        <span><strong id="terminalTodayCount">0</strong> 次今日调用</span>
+        <span><strong id="terminalTotalCount">0</strong> 次累计调用</span>
+        <span><strong id="terminalActiveCount">0</strong> 个 24h 活跃</span>
+      </section>
+
+      <section class="panel terminal-summary-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>终端</h2>
+            <p id="terminalSummaryText">加载中…</p>
+          </div>
+          <button type="button" id="terminalRefreshBtn" class="ghost">刷新</button>
+        </div>
+        <div id="terminalError" class="toast error" hidden></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <h2>终端用户</h2>
+            <p>每个群 / 私聊对应一个 Linux 账号；家目录 700、密码锁定、无 sudo。</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>会话</th>
+                <th>Linux 用户</th>
+                <th>家目录</th>
+                <th>当前目录</th>
+                <th>创建时间</th>
+                <th>最后使用</th>
+                <th>今日调用</th>
+              </tr>
+            </thead>
+            <tbody id="terminalUserTable">
+              <tr><td colspan="7" class="empty-state">暂无终端用户</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading terminal-record-heading">
+          <div>
+            <h2>调用记录</h2>
+            <p id="terminalRecordSummary">等待刷新</p>
+          </div>
+          <div class="terminal-filters">
+            <input id="terminalSearch" type="search" placeholder="搜群号 / 用户 / 命令" autocomplete="off">
+            <select id="terminalActionFilter" aria-label="动作筛选">
+              <option value="">全部动作</option>
+              <option value="exec">执行命令</option>
+              <option value="root_exec">root 命令</option>
+              <option value="write">写文件</option>
+              <option value="edit">改文件</option>
+              <option value="fetch">拉取文件</option>
+              <option value="job_start">启动后台任务</option>
+              <option value="job_kill">终止后台任务</option>
+              <option value="provision">开通账号</option>
+            </select>
+            <select id="terminalLimit" aria-label="记录条数">
+              <option value="50">最近 50 条</option>
+              <option value="100" selected>最近 100 条</option>
+              <option value="200">最近 200 条</option>
+              <option value="500">最近 500 条</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>会话</th>
+                <th>账号</th>
+                <th>动作</th>
+                <th>内容</th>
+                <th>结果</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="terminalRecordTable">
+              <tr><td colspan="7" class="empty-state">暂无调用记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <dialog id="terminalLogDialog" class="pack-picker-dialog terminal-log-dialog">
+        <div class="pack-picker terminal-log-picker">
+          <div class="pack-picker-head">
+            <div>
+              <h3 id="terminalLogTitle">命令输出</h3>
+              <p id="terminalLogMeta">—</p>
+            </div>
+            <button type="button" id="terminalLogClose" class="ghost">关闭</button>
+          </div>
+          <pre id="terminalLogContent" class="log-viewer terminal-log-content">加载中…</pre>
+        </div>
+      </dialog>
+    </section>

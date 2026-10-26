@@ -321,7 +321,7 @@ async def request_response_completion(
     input_items: list[dict[str, Any]] = list(base_items)
 
     all_tools = available_tools(cfg, tool_context)
-    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=10)
+    max_rounds = safe_int(_tools_cfg(cfg).get("max_tool_rounds"), 4, minimum=0, maximum=24)
     # 工具集合必须逐请求稳定：寒暄不下发 tools、普通消息下发，会让同一会话的
     # 请求前缀在「有工具 / 无工具」之间来回切换，整段缓存都失效。
     tools = all_tools if max_rounds > 0 else []

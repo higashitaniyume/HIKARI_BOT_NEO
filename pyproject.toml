@@ -20,6 +20,7 @@ dependencies = [
     "yt-dlp[default]>=2026.6.9",
     "deno>=2.9.0",
     "werkzeug>=3.0",
+    "asyncssh>=2.14",
 ]
 
 [tool.nonebot]
