@@ -343,6 +343,46 @@
                   <small>NapCat 不存历史，实时窗口只覆盖最近一小段</small>
                 </label>
                 <label class="checkbox-field">
+                  <input id="aiagentGroupMuteEnabled" type="checkbox">
+                  <span>允许 AI 禁言 / 解禁群成员</span>
+                  <small>破坏性操作：机器人须为本群管理员，且只有群管理或机器人超级用户能让它执行；主动接话时禁用</small>
+                </label>
+                <label>
+                  <span>最长禁言时长（分钟）</span>
+                  <input id="aiagentGroupMuteMaxMinutes" type="number" min="1" max="43200" step="1">
+                  <small>43200 = 30 天（QQ 单人禁言上限）</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupKickEnabled" type="checkbox">
+                  <span>允许 AI 踢出群成员</span>
+                  <small>破坏性操作：不能踢群主或机器人自己；踢管理员仅限群主，主动接话时禁用</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupActionRequireAdmin" type="checkbox">
+                  <span>禁言 / 踢人仅限群管理</span>
+                  <small>关闭后本群任何成员都能让 AI 动手，风险很高，不建议关闭</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupPokeEnabled" type="checkbox">
+                  <span>允许 AI 戳一戳</span>
+                  <small>可以戳群成员，也可以戳机器人自己；按群限流防刷屏</small>
+                </label>
+                <label>
+                  <span>每群每小时最多戳一戳</span>
+                  <input id="aiagentGroupPokeMaxPerHour" type="number" min="0" max="200" step="1">
+                  <small>0 = 不限</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentGroupMentionEnabled" type="checkbox">
+                  <span>允许 AI 在回复里 @ 群成员</span>
+                  <small>AI 先查群成员拿到 QQ 号，回复里的标记会渲染成真正的 @</small>
+                </label>
+                <label>
+                  <span>单条回复最多 @ 人数</span>
+                  <input id="aiagentGroupMentionMax" type="number" min="0" max="10" step="1">
+                  <small>超出的 @ 会被丢弃，避免刷屏</small>
+                </label>
+                <label class="checkbox-field">
                   <input id="aiagentChatlogEnabled" type="checkbox">
                   <span>本地记录群消息（chatlog）</span>
                   <small>只记纯文本，按 群/日期 存 UserData；关闭后「历史发言」只剩实时窗口</small>
@@ -372,7 +412,7 @@
             <div class="aiagent-tools-head">
               <div>
                 <h3 id="aiagentImagesTitle">网络搜图与发图</h3>
-                <p>通过 SearXNG 进行图片搜索（<code>web_image_search</code>），并允许模型将搜到的图片发至聊天（<code>send_images</code>）。图片 URL 受会话缓存与 SSRF 白名单保护，发图时自动转码 WebP/GIF。</p>
+                <p>默认优先用 Pixiv 搜索插画（<code>web_image_search</code>，结果排在前面），命中不足时用 SearXNG 补齐；也支持只搜 Pixiv 或只搜网页。允许模型将搜到的图片发至聊天（<code>send_images</code>）。图片 URL 受会话缓存与 SSRF 白名单保护，Pixiv 图片自动带 Referer 下载，发图时自动转码 WebP/GIF。</p>
               </div>
               <div class="aiagent-tools-controls">
                 <label class="checkbox-field">
@@ -407,6 +447,21 @@
                 <label>
                   <span>图片下载超时（秒）</span>
                   <input id="aiagentImagesTimeout" type="number" min="3" max="120" step="1">
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentImagesPixivEnabled" type="checkbox">
+                  <span>优先搜索 Pixiv</span>
+                  <small>复用 pixiv_parser 的 Cookie / 代理；没有 Cookie 时自动回退搜索引擎</small>
+                </label>
+                <label>
+                  <span>Pixiv 每次最多取几张</span>
+                  <input id="aiagentImagesPixivMax" type="number" min="1" max="10" step="1">
+                  <small>Pixiv 结果排在最前面，不足的名额由 SearXNG 补齐</small>
+                </label>
+                <label class="checkbox-field">
+                  <input id="aiagentImagesPixivFallback" type="checkbox">
+                  <span>Pixiv 不足时用搜索引擎补齐</span>
+                  <small>关闭后只返回 Pixiv 结果；用户要照片/实拍图时模型可主动改用 source=web</small>
                 </label>
               </div>
             </div>

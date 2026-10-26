@@ -10,7 +10,7 @@ from core.config_loader import load_main_config
 
 from ..utils import safe_bool, safe_float
 
-from . import files, group, help, images, search, workspace
+from . import files, group, group_actions, help, images, search, workspace
 
 logger = logging.getLogger("HikariBot.AIAgent.Tools")
 
@@ -58,6 +58,8 @@ def available_tools(cfg: dict[str, Any], context: AIToolContext | None = None) -
     if group.is_group_event(context):
         # 群聊工具只在群聊里下发：私聊既没有群可查，也不该出现这些能力
         tools.extend(group.definitions(cfg))
+        # 群管理 / 互动工具（禁言、踢人、戳一戳、@）另有一层权限与主动接话校验
+        tools.extend(group_actions.definitions(cfg, context))
     if help.enabled(cfg):
         tools.append(help.definition())
     if _plugin_tools_enabled(cfg):
@@ -122,6 +124,18 @@ async def execute_tool_call(
         except Exception as e:
             logger.warning("[AIAgent] 群聊工具调用失败: %s", e)
             content = json.dumps({"error": f"group tool failed: {e}"}, ensure_ascii=False)
+    elif (
+        group_actions.can_handle(name)
+        and group_actions.enabled(cfg, name)
+        and group_actions.allowed_in_context(context)
+    ):
+        try:
+            content = await _run_tool(
+                group_actions.execute(name, cfg, arguments, context), name, timeout
+            )
+        except Exception as e:
+            logger.warning("[AIAgent] 群管理工具调用失败: %s", e)
+            content = json.dumps({"error": f"group action tool failed: {e}"}, ensure_ascii=False)
     elif _plugin_tools_enabled(cfg) and _plugin_tool_allowed(name, cfg, context):
         try:
             content = await _run_tool(execute_ai_tool(name, context, arguments), name, timeout)

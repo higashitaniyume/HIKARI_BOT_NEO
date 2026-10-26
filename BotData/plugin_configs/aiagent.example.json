@@ -127,6 +127,24 @@
           "max_chars": 4000,
           "allow_live_history": true
         },
+        "group_mute": {
+          "enabled": true,
+          "require_requester_admin": true,
+          "default_minutes": 10,
+          "max_minutes": 43200
+        },
+        "group_kick": {
+          "enabled": true,
+          "require_requester_admin": true
+        },
+        "group_poke": {
+          "enabled": true,
+          "max_per_hour": 20
+        },
+        "group_mention": {
+          "enabled": true,
+          "max_per_reply": 3
+        },
         "plugin_tools": {
           "enabled": true,
           "allow_side_effects": false,
@@ -146,7 +164,14 @@
           "max_images_per_send": 3,
           "safesearch": 1,
           "max_download_mb": 15,
-          "download_timeout_seconds": 20
+          "download_timeout_seconds": 20,
+          "pixiv": {
+            "enabled": true,
+            "max_results": 3,
+            "fallback_web": true,
+            "order": "date_d",
+            "timeout_seconds": 15
+          }
         },
         "workspace": {
           "enabled": true,

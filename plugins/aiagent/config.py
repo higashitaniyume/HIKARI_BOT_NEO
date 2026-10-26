@@ -218,6 +218,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "safesearch": 1,
             "max_bytes": 10485760,
             "download_timeout_seconds": 20,
+            # Pixiv 优先：模型先搜 Pixiv 插画（结果排在最前），命中不足再补 SearXNG。
+            # 复用 pixiv_parser 的 Cookie/代理；没配 Cookie 时自动跳过 Pixiv。
+            "pixiv": {
+                "enabled": True,
+                # 每次搜图最多从 Pixiv 取几张（总条数仍受上面的 max_results 限制）
+                "max_results": 3,
+                # Pixiv 结果不足时是否用 SearXNG 补齐剩余名额
+                "fallback_web": True,
+                # 排序：date_d（最新，默认）/ date
+                "order": "date_d",
+                # 单次 Pixiv 请求超时（秒）
+                "timeout_seconds": 15,
+            },
         },
         "workspace": {
             "enabled": True,
@@ -257,6 +270,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "max_chars": 4000,
             # 本地记录不足时，是否用 NapCat 的实时群历史窗口补齐（只覆盖最近一小段）
             "allow_live_history": True,
+        },
+        # 群管理工具（禁言 / 踢人）：真实副作用操作，默认开启但有三重校验——
+        # ① 机器人必须是群管理员/群主；② 发起人必须是群管理/群主或机器人超级用户；
+        # ③ 群聊主动接话模式下永不下发、不执行。后台「AI Agent」页可单独关闭。
+        "group_mute": {
+            "enabled": True,
+            "require_requester_admin": True,
+            # 默认禁言时长（分钟，0 = 只解除禁言）
+            "default_minutes": 10,
+            # 单次禁言上限（分钟），43200 = 30 天（QQ 单人禁言上限）
+            "max_minutes": 43200,
+        },
+        "group_kick": {
+            "enabled": True,
+            "require_requester_admin": True,
+        },
+        # 戳一戳：轻量互动，按群做每小时限流，0 = 不限
+        "group_poke": {
+            "enabled": True,
+            "max_per_hour": 20,
+        },
+        # @ 群成员：模型拿到 [[at:QQ号]] 标记后写进回复，由回复管线渲染成真正的 @
+        "group_mention": {
+            "enabled": True,
+            # 单条回复里最多渲染几个 @，多余的标记会被丢弃
+            "max_per_reply": 3,
         },
         "plugin_tools": {
             "enabled": True,

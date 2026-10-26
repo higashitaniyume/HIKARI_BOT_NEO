@@ -57,9 +57,11 @@ class FakeImageClient:
     gets: list[dict[str, Any]] = []
     get_response: FakeResponse | None = None
     stream_responses: dict[str, FakeResponse] = {}
+    instances: list["FakeImageClient"] = []
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        FakeImageClient.instances.append(self)
 
     async def __aenter__(self) -> "FakeImageClient":
         return self
@@ -115,6 +117,8 @@ def _cfg(*, allow_send: bool = True, **overrides: Any) -> dict[str, Any]:
         "download_timeout_seconds": 20,
     }
     img_cfg.update(overrides)
+    # 单元测试默认关闭 Pixiv，避免真实联网；Pixiv 相关用例单独打开并 mock。
+    img_cfg.setdefault("pixiv", {"enabled": False})
     return {
         "tools": {
             "search": {"base_url": "http://searxng-core:8080"},
@@ -149,6 +153,7 @@ class ImageSearchAndSendTests(unittest.IsolatedAsyncioTestCase):
         FakeImageClient.gets = []
         FakeImageClient.get_response = None
         FakeImageClient.stream_responses = {}
+        FakeImageClient.instances = []
         images_tool.clear_session_cache()
 
     async def test_image_search_parses_results_and_caches_session(self) -> None:
@@ -300,6 +305,244 @@ class ImageSearchAndSendTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(payload["ok"])
         # 最多只能发送 2 张（受 max_per_send=2 限制）
         self.assertEqual(payload["sent"], 2)
+
+
+class PixivPrioritySearchTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        FakeImageClient.gets = []
+        FakeImageClient.get_response = None
+        FakeImageClient.stream_responses = {}
+        FakeImageClient.instances = []
+        images_tool.clear_session_cache()
+
+    @staticmethod
+    def _pixiv_results(count: int) -> dict[str, Any]:
+        return {
+            "results": [
+                {
+                    "title": f"Pixiv {i}",
+                    "page_url": f"https://www.pixiv.net/artworks/{1000 + i}",
+                    "image_url": f"https://i.pximg.net/img-master/img/x/{1000 + i}_p0_master1200.jpg",
+                    "thumbnail_url": f"https://i.pximg.net/c/250x250/{1000 + i}_square1200.jpg",
+                    "resolution": "1200x1600",
+                    "format": "jpg",
+                    "engine": "pixiv",
+                    "illust_id": str(1000 + i),
+                    "artist": "artist",
+                    "tags": ["百合"],
+                }
+                for i in range(count)
+            ]
+        }
+
+    @staticmethod
+    def _web_response(count: int) -> FakeResponse:
+        return FakeResponse(
+            200,
+            {
+                "results": [
+                    {
+                        "title": f"Web {i}",
+                        "url": f"https://example.com/page{i}",
+                        "img_src": f"https://example.com/img{i}.jpg",
+                        "thumbnail_src": "",
+                        "resolution": "800x600",
+                        "format": "jpg",
+                        "engine": "bing",
+                    }
+                    for i in range(count)
+                ]
+            },
+        )
+
+    async def test_pixiv_first_then_web_fills_remaining(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 2, "fallback_web": True})
+        FakeImageClient.get_response = self._web_response(5)
+        pixiv_search = AsyncMock(return_value=self._pixiv_results(2))
+
+        with (
+            patch.object(images_tool.pixiv_images, "search", pixiv_search),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "百合", "max_results": 3},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertEqual(payload["source"], "pixiv+web")
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(
+            [item["engine"] for item in payload["results"]], ["pixiv", "pixiv", "bing"]
+        )
+        pixiv_search.assert_awaited_once()
+        # Pixiv 只取配置上限的 2 张，剩 1 个名额交给网页搜索
+        self.assertEqual(pixiv_search.await_args.args[2], 2)
+        self.assertEqual(len(FakeImageClient.gets), 1)
+
+        sid = images_tool.get_session_id(ctx)
+        for item in payload["results"]:
+            self.assertTrue(images_tool.is_url_in_session_cache(sid, item["image_url"]))
+
+    async def test_pixiv_enough_results_skips_web_search(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 3, "fallback_web": True})
+        FakeImageClient.get_response = self._web_response(3)
+
+        with (
+            patch.object(
+                images_tool.pixiv_images,
+                "search",
+                AsyncMock(return_value=self._pixiv_results(3)),
+            ),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "百合", "max_results": 3},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertEqual(payload["source"], "pixiv")
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(FakeImageClient.gets, [])
+
+    async def test_source_web_skips_pixiv(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 3, "fallback_web": True})
+        FakeImageClient.get_response = self._web_response(2)
+        pixiv_search = AsyncMock(return_value=self._pixiv_results(3))
+
+        with (
+            patch.object(images_tool.pixiv_images, "search", pixiv_search),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "猫的照片", "source": "web", "max_results": 2},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        pixiv_search.assert_not_awaited()
+        self.assertEqual(payload["source"], "web")
+        self.assertEqual([item["engine"] for item in payload["results"]], ["bing", "bing"])
+
+    async def test_source_pixiv_does_not_fall_back_to_web(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 3, "fallback_web": True})
+        FakeImageClient.get_response = self._web_response(3)
+
+        with (
+            patch.object(
+                images_tool.pixiv_images,
+                "search",
+                AsyncMock(return_value=self._pixiv_results(1)),
+            ),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "百合", "source": "pixiv", "max_results": 3},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertEqual(payload["source"], "pixiv")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(FakeImageClient.gets, [])
+
+    async def test_pixiv_error_falls_back_to_web(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 3, "fallback_web": True})
+        FakeImageClient.get_response = self._web_response(2)
+
+        with (
+            patch.object(
+                images_tool.pixiv_images,
+                "search",
+                AsyncMock(
+                    return_value={"results": [], "error": "Pixiv 搜图失败: TimeoutException"}
+                ),
+            ),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "百合", "max_results": 2},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertTrue(payload["results"])
+        self.assertEqual(payload["source"], "web")
+        self.assertIn("pixiv", payload["errors"])
+
+    async def test_fallback_web_disabled_returns_pixiv_only(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(pixiv={"enabled": True, "max_results": 3, "fallback_web": False})
+        FakeImageClient.get_response = self._web_response(3)
+
+        with (
+            patch.object(
+                images_tool.pixiv_images,
+                "search",
+                AsyncMock(return_value=self._pixiv_results(1)),
+            ),
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+        ):
+            output = await images_tool.execute(
+                images_tool.WEB_IMAGE_SEARCH,
+                cfg,
+                {"query": "百合", "max_results": 3},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertEqual(payload["source"], "pixiv")
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(FakeImageClient.gets, [])
+
+    async def test_send_pixiv_image_uses_referer(self) -> None:
+        ctx = FakeContext(user_id=10001)
+        cfg = _cfg(allow_send=True)
+        url = "https://i.pximg.net/img-master/img/x/1234_p0_master1200.jpg"
+        sid = images_tool.get_session_id(ctx)
+        images_tool.record_session_images(sid, [{"image_url": url, "title": "Pixiv"}])
+        FakeImageClient.stream_responses[url] = FakeResponse(200, content=_create_sample_png())
+
+        with (
+            patch.object(images_tool.httpx, "AsyncClient", FakeImageClient),
+            patch.object(images_tool, "_host_is_allowed", AsyncMock(return_value=True)),
+            patch.object(
+                images_tool.pixiv_images,
+                "download_options",
+                return_value=({"referer": "https://www.pixiv.net/"}, None),
+            ),
+        ):
+            output = await images_tool.execute(
+                images_tool.SEND_IMAGES,
+                cfg,
+                {"urls": [url]},
+                ctx,
+            )
+
+        payload = json.loads(output)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["sent"], 1)
+        referers = [
+            instance.kwargs.get("headers", {}).get("referer")
+            for instance in FakeImageClient.instances
+        ]
+        self.assertIn("https://www.pixiv.net/", referers)
 
 
 if __name__ == "__main__":
